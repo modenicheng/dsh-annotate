@@ -40,9 +40,8 @@ export function summarize(record, options = {}) {
  * @param {object} options
  * @param {import('./store.js').AnnotationStore} options.store
  * @param {ReturnType<import('./bridge.js').createBridge>} options.bridge
- * @param {{ info: Function, warn: Function, debug: Function }} [options.logger]
  */
-export function createTools({ store, bridge, logger = console }) {
+export function createTools({ store, bridge }) {
   /** @param {any} record */
   function imageBlock(record) {
     const ref = record?.host?.image ?? store.image(record?.id)

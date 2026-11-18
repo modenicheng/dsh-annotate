@@ -512,7 +512,7 @@
         if (files.length > 0) await browser.scripting.executeScript({ target: { tabId }, files })
         await browser.tabs.sendMessage(tabId, message)
         return true
-      } catch (retryError) {
+      } catch {
         return false
       }
     }

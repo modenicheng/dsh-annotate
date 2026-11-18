@@ -60,7 +60,9 @@ if (source !== undefined) {
       problems.push(`${label(artifact.path)} is missing the GENERATED banner`)
       continue
     }
-    problems.push(`${label(artifact.path)} differs from the source (first difference at line ${firstDifference(expected, actual)})`)
+    problems.push(
+      `${label(artifact.path)} differs from the source (first difference at line ${firstDifference(expected, actual)})`,
+    )
   }
 
   if (problems.length === 0) {

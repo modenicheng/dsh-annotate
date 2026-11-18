@@ -44,7 +44,6 @@
 
   const api = global.browser || global.chrome || null
   const document = global.document
-  const WIN = global
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
   const HOOK_KEY = '__DSH_ANNO_HOOK__'
 

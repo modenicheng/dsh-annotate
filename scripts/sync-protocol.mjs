@@ -41,8 +41,7 @@ export function buildArtifacts(source) {
   ]
 }
 
-const invokedDirectly = process.argv[1] !== undefined
-  && import.meta.url === pathToFileURL(process.argv[1]).href
+const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
 
 if (invokedDirectly) {
   const source = await readFile(SOURCE_PATH, 'utf8')

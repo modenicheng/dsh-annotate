@@ -107,7 +107,7 @@ function closeSocket(socket, timeoutMs = 1_000) {
  * @param {{ port: number, sockets: Set<WebSocket> }} runtime
  * @param {{ token?: string, version?: number, clientId?: string }} [options]
  */
-async function openClient(runtime, options = {}) {
+async function openClient(runtime) {
   const socket = new WebSocket(`ws://127.0.0.1:${runtime.port}${WS_PATH}`)
   runtime.sockets.add(socket)
   /** @type {any[]} */
