@@ -153,22 +153,23 @@ function closeSocket(socket, timeoutMs = 1_000) {
 }
 
 /**
- * Wrap the platform WebSocket in something tests can await: a frame queue so a
+ * Wrap a websocket client in something tests can await: a frame queue so a
  * frame that arrives before the assertion is not lost, and a close promise so
  * the closing code is observable.
  *
- * A TLS host needs the `ws` client, because the platform `WebSocket` cannot be
- * told to accept the test certificate. The same client is used whenever the
- * test needs to add handshake headers it cannot set through the platform API.
+ * Every case uses the `ws` client, including the plain one. The platform
+ * `WebSocket` (undici) cannot be told to accept the test certificate, and it
+ * has been observed reporting a teardown handshake failure as an uncaught error
+ * inside the runner — that fails the whole file even though every assertion had
+ * already passed, which made the pre-commit hook flaky. `ws` is the library the
+ * host serves with, so the handshake under test is the same one, and its events
+ * are plain and catchable.
  * @param {{ port: number, secure?: boolean, sockets: Set<WebSocket> }} runtime
  * @param {{ headers?: Record<string, string> }} [options]
  */
 async function openClient(runtime, { headers } = {}) {
   const target = `${runtime.secure === true ? 'wss' : 'ws'}://127.0.0.1:${runtime.port}${WS_PATH}`
-  const socket =
-    runtime.secure === true || headers !== undefined
-      ? new WsClient(target, { headers, rejectUnauthorized: false })
-      : new WebSocket(target)
+  const socket = new WsClient(target, { headers, rejectUnauthorized: false })
   runtime.sockets.add(socket)
   /** @type {any[]} */
   const messages = []
