@@ -1,5 +1,12 @@
 /**
- * WebSocket client for the host bridge (`ws://<host>:<port>/ext/anno`).
+ * WebSocket client for the host bridge (`ws://<host>:<port>/ext/anno` by
+ * default, `wss://` when the host says it serves TLS).
+ *
+ * The scheme is not a guess: the background reads `/ext/anno/health` first and
+ * follows the `wsUrl` it advertises (`endpoints.js` holds that decision). The
+ * default local host answers over plain HTTP and therefore resolves to `ws://`;
+ * the extension page CSP must not rewrite that request (the manifest declares
+ * an explicit `extension_pages` policy for exactly that reason).
  *
  * The event page is torn down when Firefox decides the extension is idle, so
  * this module must assume it can lose the socket at any moment: every failure
@@ -27,6 +34,21 @@
   /** A rejected token will not fix itself; do not hammer the host either. */
   const UNAUTHORIZED_CLOSE_CODE = 4403
   const HELLO_TIMEOUT_MS = PROTOCOL === undefined ? 5_000 : PROTOCOL.HELLO_TIMEOUT_MS
+  /**
+   * Budget for one health probe. The probe runs before the socket opens, so it
+   * must be short enough not to read as connection latency; a loopback answer
+   * takes milliseconds and a dead port is refused immediately.
+   */
+  const HEALTH_PROBE_TIMEOUT_MS = 1_500
+  /**
+   * How long a health answer is reused. Every reconnect must not re-probe (the
+   * event page restarts often), but a host that moves from plain HTTP to TLS
+   * has to be noticed, so the answer expires and a failed socket invalidates it
+   * immediately.
+   */
+  const DISCOVERY_TTL_MS = 10 * 60_000
+  /** Background-private cache of the discovered endpoint (like the client id). */
+  const DISCOVERY_KEY = ns.msg.STORAGE_KEYS.endpoint
 
   /** @type {WebSocket | null} */
   let socket = null
@@ -36,6 +58,12 @@
   let helloTimer = null
   /** @type {((frame: any) => Promise<void>) | null} */
   let frameHandler = null
+  /** One connection attempt at a time; a second one would race the first. */
+  let inFlight = null
+  /** Bumped by `reconnectNow` so an attempt started under old settings bails. */
+  let generation = 0
+  /** @type {Record<string, any> | null} */
+  let discovered = null
 
   function isOpen() {
     return socket !== null && socket.readyState === WebSocket.OPEN
@@ -112,11 +140,182 @@
   }
 
   /**
-   * @param {{ reason?: string, resetAttempts?: boolean }} [options]
+   * Read the remembered endpoint when it still describes this address.
+   * @param {{ host: string, port: number, secure: boolean | null }} address
+   */
+  async function readCachedDiscovery(address) {
+    let record = discovered
+    if (record === null) {
+      const stored = await ns.storageGet(DISCOVERY_KEY, null)
+      record = ns.isPlainObject(stored) ? stored : null
+      discovered = record
+    }
+    if (record === null) return null
+    if (record.host !== address.host || record.port !== address.port) return null
+    if ((record.configuredSecure ?? null) !== (address.secure ?? null)) return null
+    if (!Number.isFinite(record.at) || Date.now() - record.at > DISCOVERY_TTL_MS) return null
+    if (typeof record.wsUrl !== 'string' || !/^wss?:\/\//i.test(record.wsUrl)) return null
+    return record
+  }
+
+  /**
+   * Persist the host's answer so an event-page restart does not probe again.
+   * @param {{ host: string, port: number, secure: boolean | null }} address
+   * @param {{ wsUrl: string, secure: boolean, healthUrl: string }} selection
+   */
+  async function rememberDiscovery(address, selection) {
+    const record = {
+      host: address.host,
+      port: address.port,
+      configuredSecure: address.secure ?? null,
+      secure: selection.secure,
+      wsUrl: selection.wsUrl,
+      healthUrl: selection.healthUrl,
+      at: Date.now(),
+    }
+    discovered = record
+    try {
+      await ns.storageSet(DISCOVERY_KEY, record)
+    } catch (error) {
+      ns.log.debug(`could not remember the discovered endpoint: ${ns.describeError(error)}`)
+    }
+  }
+
+  /** Forget the host's answer; the next attempt probes again. */
+  async function invalidateDiscovery() {
+    discovered = null
+    try {
+      await browser.storage.local.remove(DISCOVERY_KEY)
+    } catch (error) {
+      ns.log.debug(`could not clear the discovered endpoint: ${ns.describeError(error)}`)
+    }
+  }
+
+  /**
+   * One health request. Rejects on a network error, a non-2xx answer, a body
+   * that is not the bridge's health JSON, or the probe budget expiring.
+   * @param {string} url
+   * @returns {Promise<{ secure: boolean, wsUrl: string }>}
+   */
+  async function probeHealth(url) {
+    if (typeof fetch !== 'function') throw new Error('fetch is unavailable in this context')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), HEALTH_PROBE_TIMEOUT_MS)
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        cache: 'no-store',
+        credentials: 'omit',
+      })
+      if (response.ok !== true) throw new Error(`HTTP ${response.status}`)
+      const health = ns.endpoints.parseHealth(await response.json())
+      if (health === null) throw new Error('the response is not the bridge health JSON')
+      return health
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * Probe the candidates in order and stop at the first usable answer.
+   *
+   * The default local host is plain HTTP, so `http` is tried first and the
+   * common path costs exactly one request. `https` is only attempted when the
+   * plain probe does not answer (a TLS listener, or a proxy that redirects
+   * plaintext away): racing both would send a TLS ClientHello to every plain
+   * listener on every probe, and a redirect from http to https cannot be
+   * followed usefully by a WebSocket anyway.
+   * @param {{ url: string, secure: boolean }[]} candidates
+   */
+  async function probeFirst(candidates) {
+    /** @type {string[]} */
+    const failures = []
+    for (const candidate of candidates) {
+      try {
+        return { winner: { url: candidate.url, health: await probeHealth(candidate.url) }, failures }
+      } catch (error) {
+        failures.push(`${candidate.url}: ${ns.describeError(error)}`)
+      }
+    }
+    return { winner: null, failures }
+  }
+
+  /**
+   * Ask the host which URL to use.
+   *
+   * A fresh cached answer is reused; otherwise `/ext/anno/health` decides.
+   * When nothing answers the probe the configured address is used as-is, which
+   * is the pre-negotiation behaviour and keeps a host whose health route is
+   * behind an auth proxy usable.
+   * @param {{ host: string, port: number, secure: boolean | null }} address
+   * @param {{ force?: boolean }} [options]
+   */
+  async function discover(address, { force = false } = {}) {
+    const cached = force ? null : await readCachedDiscovery(address)
+    if (cached !== null) {
+      ns.log.debug(`reusing ${cached.wsUrl} discovered ${Date.now() - cached.at} ms ago`)
+      return {
+        wsUrl: cached.wsUrl,
+        secure: cached.secure === true,
+        source: 'health',
+        healthUrl: typeof cached.healthUrl === 'string' ? cached.healthUrl : '',
+        error: '',
+      }
+    }
+
+    const candidates = ns.endpoints.healthCandidates(address)
+    const { winner, failures } = await probeFirst(candidates)
+    if (winner === null) {
+      // The configured address is the fallback: a host that answers the socket
+      // but not health (a proxy that swallows GETs, an older host) still works.
+      const selection = ns.endpoints.selectWsUrl({ address, health: null })
+      ns.log.info(`health probe failed (${failures.join('; ')}); using ${selection.wsUrl}`)
+      return {
+        ...selection,
+        healthUrl: candidates[0] === undefined ? '' : candidates[0].url,
+        error: failures.join('; '),
+      }
+    }
+
+    const selection = ns.endpoints.selectWsUrl({ address, health: winner.health })
+    await rememberDiscovery(address, { ...selection, healthUrl: winner.url })
+    ns.log.info(
+      `host advertises ${winner.health.wsUrl === '' ? '(no url)' : winner.health.wsUrl} (secure ${String(winner.health.secure)}); using ${selection.wsUrl}`,
+    )
+    return { ...selection, healthUrl: winner.url, error: '' }
+  }
+
+  /**
+   * Open one socket. Connection attempts are serialized: a second attempt
+   * while the first is probing would race it, so it is coalesced instead.
+   * @param {{ reason?: string, resetAttempts?: boolean, forceProbe?: boolean }} [options]
    * @returns {Promise<boolean>} true when a new socket was created
    */
-  async function connect(options = {}) {
-    const { reason = 'manual', resetAttempts = false } = options
+  function connect(options = {}) {
+    if (inFlight !== null) {
+      if (options.resetAttempts !== true) return Promise.resolve(false)
+      // A settings change must win over an attempt that started before it.
+      const again = () => connect({ ...options, resetAttempts: false })
+      return inFlight.then(again, again)
+    }
+    const pending = attempt(options)
+    inFlight = pending
+    const clear = () => {
+      if (inFlight === pending) inFlight = null
+    }
+    pending.then(clear, clear)
+    return pending.catch((error) => {
+      ns.log.warn(`connect failed: ${ns.describeError(error)}`)
+      return false
+    })
+  }
+
+  /**
+   * @param {{ reason?: string, resetAttempts?: boolean, forceProbe?: boolean }} [options]
+   * @returns {Promise<boolean>}
+   */
+  async function attempt(options = {}) {
+    const { reason = 'manual', resetAttempts = false, forceProbe = false } = options
     if (PROTOCOL === undefined) {
       ns.setNetState({ connection: 'error', lastError: 'protocol.global.js did not load' })
       void ns.publishStatus('protocol-missing')
@@ -125,25 +324,50 @@
     if (socket !== null && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
       return false
     }
+    const started = generation
     clearRetryTimer()
     if (resetAttempts) ns.setNetState({ attempts: 0 })
 
     const prefs = await ns.readPrefs()
     const token = await ns.readToken()
-    const wsUrl = `ws://${prefs.host}:${prefs.port}${PROTOCOL.WS_PATH}`
-    ns.setNetState({ wsUrl, tokenPresent: token !== '' })
+    const address = ns.normalizeAddress(prefs.host, prefs.port, prefs.secure ?? null)
+    ns.setNetState({ tokenPresent: token !== '' })
 
     if (token === '') {
       ns.setNetState({
         connection: 'no-token',
+        wsUrl: ns.endpoints.fallbackWsUrl(address),
+        secure: address.secure === true,
+        wsUrlSource: 'configured',
+        healthUrl: '',
+        discoveryError: '',
         lastError: 'No bridge token saved. Paste the contents of $DSH_HOME/ext-bridge-token in the popup.',
       })
       void ns.publishStatus('no-token')
       return false
     }
+    if (started !== generation || socket !== null) return false
 
-    ns.setNetState({ connection: 'connecting', lastError: null, nextRetryAt: 0 })
-    ns.log.info(`connecting to ${wsUrl} (${reason})`)
+    ns.setNetState({ connection: 'connecting', lastError: null, nextRetryAt: 0, discoveryError: '' })
+    void ns.publishStatus('connecting')
+
+    const discovery = await discover(address, { force: forceProbe })
+    if (started !== generation || socket !== null) return false
+
+    const wsUrl = discovery.wsUrl
+    ns.setNetState({
+      wsUrl,
+      secure: discovery.secure,
+      wsUrlSource: discovery.source,
+      healthUrl: discovery.healthUrl,
+      discoveryError: discovery.error,
+      connection: 'connecting',
+      lastError: null,
+      nextRetryAt: 0,
+    })
+    ns.log.info(
+      `connecting to ${wsUrl} (${reason}, ${discovery.source === 'health' ? 'host advertised' : 'popup fallback'})`,
+    )
     void ns.publishStatus('connecting')
 
     let nextSocket
@@ -299,6 +523,14 @@
           : ns.netState.attempts,
     })
     ns.log.warn(`bridge disconnected: ${detail}`)
+    // A failed upgrade or a dead connection means the host's advertised scheme
+    // may have changed (plain `dsh web` restarted with TLS, a proxy moved): drop
+    // the cached answer so the next attempt asks health again. A clean close and
+    // a rejected token keep it, because the URL itself was fine.
+    const code = typeof event?.code === 'number' ? event.code : 0
+    if ((code === 1006 || code === 1015) && ns.netState.wsUrlSource === 'health') {
+      void invalidateDiscovery()
+    }
     void ns.publishStatus('socket-closed')
     if (ns.routing !== undefined && typeof ns.routing.onConnectionClosed === 'function') {
       try {
@@ -315,28 +547,13 @@
    * @returns {string}
    */
   function describeClose(event) {
-    const code = typeof event?.code === 'number' ? event.code : 0
-    const reason = typeof event?.reason === 'string' && event.reason !== '' ? ` (${event.reason})` : ''
-    switch (code) {
-      case 1000:
-        return 'the host closed the connection'
-      case 1006:
-        return `could not connect; is "dsh web" running at ${ns.netState.wsUrl}?`
-      case 1015:
-        // Firefox reports a destroyed upgrade handshake as 1015. In practice
-        // this is the port being served by a DSH profile without the bundle
-        // mounted: the TCP connection opens, then the unmatched upgrade path
-        // closes it before the websocket handshake completes.
-        return `nothing answers the websocket at ${ns.netState.wsUrl}: either that port belongs to a DSH profile without the dsh-annotate bundle, or "dsh web" is not running there. Install the bundle in the profile serving this port, or change the port in the popup`
-      case 4400:
-        return `the host rejected the handshake${reason}`
-      case 4401:
-        return `the host requires the bridge token${reason}`
-      case 4403:
-        return `the token was rejected; paste the current $DSH_HOME/ext-bridge-token in the popup${reason}`
-      default:
-        return code === 0 ? `connection failed${reason}` : `connection closed with code ${code}${reason}`
-    }
+    return ns.endpoints.describeClose({
+      code: typeof event?.code === 'number' ? event.code : 0,
+      url: ns.netState.wsUrl,
+      source: ns.netState.wsUrlSource === 'health' ? 'health' : 'configured',
+      healthUrl: ns.netState.healthUrl,
+      reason: typeof event?.reason === 'string' ? event.reason : '',
+    })
   }
 
   /** @param {Record<string, unknown>} frame */
@@ -364,6 +581,9 @@
   async function reconnectNow(reason = 'manual') {
     clearRetryTimer()
     clearHelloTimer()
+    // Invalidate an attempt that is still probing: it read the old settings and
+    // must not open a socket after this reconnect was requested.
+    generation += 1
     const current = socket
     socket = null
     if (current !== null) {
@@ -374,7 +594,9 @@
       }
     }
     ns.setNetState({ attempts: 0, nextRetryAt: 0, connection: 'idle' })
-    return connect({ reason, resetAttempts: true })
+    // A user-initiated reconnect re-asks the host: the settings (or the host
+    // behind them) may have changed since the last probe.
+    return connect({ reason, resetAttempts: true, forceProbe: true })
   }
 
   ns.net = {
@@ -390,6 +612,8 @@
     isAuthed,
     close(code = 1000, reason = 'client shutdown') {
       clearRetryTimer()
+      // Stop an attempt that is mid-probe from opening a socket after shutdown.
+      generation += 1
       closeSocket(code, reason)
       ns.setNetState({ connection: 'idle', connectedAt: 0 })
       void ns.publishStatus('closed')

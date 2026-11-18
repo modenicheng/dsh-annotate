@@ -59,6 +59,7 @@
       outbox: 'anno.outbox',
       prefs: 'anno.prefs',
       lastStatus: 'anno.status',
+      endpoint: 'anno.endpoint',
     },
   }
 
@@ -68,13 +69,19 @@
   /** Alarm that wakes the event page while the browser is idle. */
   const ALARM_NAME = 'anno.keepalive'
 
-  /** Default bridge address: `dsh web` serves the plugin on this port. */
-  const DEFAULT_HOST = '127.0.0.1'
-  const DEFAULT_PORT = 3080
+  /**
+   * Address parsing lives in `endpoints.js`, which loads first and is also
+   * loaded by the popup (the two contexts must normalise a typed URL the same
+   * way, so the parser exists once).
+   */
+  const ENDPOINTS = ns.endpoints
+  if (ENDPOINTS === undefined) {
+    console.error('dsh-annotate: src/background/endpoints.js must load before src/background/core.js')
+  }
 
   ns.ALARM_NAME = ALARM_NAME
   ns.clientIdKey = CLIENT_ID_KEY
-  ns.defaultAddress = { host: DEFAULT_HOST, port: DEFAULT_PORT }
+  ns.defaultAddress = ENDPOINTS.DEFAULT_ADDRESS
   ns.contentMessageTypes = new Set(Object.values(ns.msg.TO_BACKGROUND))
   ns.popupMessageTypes = new Set(Object.values(ns.msg.TO_BACKGROUND_POPUP))
 
@@ -173,44 +180,41 @@
    * Normalize a user-typed bridge address.
    *
    * The popup accepts what a user is likely to paste (`127.0.0.1:3080`,
-   * `http://localhost:3080/`) and the socket needs a bare host plus a numeric
-   * port; anything unparsable falls back to the documented default instead of
-   * producing a URL WebSocket cannot open.
+   * `http://localhost:3080/`, `wss://anno.example.com`) and keeps `host`/`port`
+   * as the stored shape so older preferences keep working. The parsing itself
+   * lives in `endpoints.js`; this wrapper only supplies the documented default
+   * when the stored value is unusable, which is what the previous normalizer
+   * did for garbage.
    * @param {unknown} rawHost
    * @param {unknown} rawPort
+   * @param {boolean | null} [fallbackSecure]
    */
-  function normalizeAddress(rawHost, rawPort) {
-    let host = typeof rawHost === 'string' ? rawHost.trim() : ''
-    if (host === '') host = DEFAULT_HOST
-    host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '') // ws://, http://, ...
-    host = host.replace(/\/.*$/, '') // any path or trailing slash
-    let port = Number(rawPort)
-    const colon = host.lastIndexOf(':')
-    if (colon > 0 && !host.includes(']')) {
-      const tail = Number(host.slice(colon + 1))
-      if (Number.isInteger(tail) && tail > 0) {
-        port = tail
-        host = host.slice(0, colon)
-      }
+  function normalizeAddress(rawHost, rawPort, fallbackSecure = null) {
+    const parsed = ENDPOINTS.parseAddress(rawHost, rawPort, fallbackSecure)
+    if (parsed.ok) return parsed
+    return {
+      ok: true,
+      host: ENDPOINTS.DEFAULT_HOST,
+      port: ENDPOINTS.DEFAULT_PORT,
+      secure: typeof fallbackSecure === 'boolean' ? fallbackSecure : null,
+      explicitScheme: false,
     }
-    if (host === '') host = DEFAULT_HOST
-    if (!Number.isInteger(port) || port < 1 || port > 65535) port = DEFAULT_PORT
-    return { host, port }
   }
   ns.normalizeAddress = normalizeAddress
 
-  ns.prefs = { host: DEFAULT_HOST, port: DEFAULT_PORT }
+  ns.prefs = { ...ENDPOINTS.DEFAULT_ADDRESS, secure: null }
 
   /**
    * Read `anno.prefs` without discarding keys other contexts own: the content
    * script stores its `hidden` flag in the same object, so the background only
-   * interprets `host` and `port` and copies everything else through.
+   * interprets `host`, `port`, and `secure` and copies everything else through.
    */
   ns.readPrefs = async function readPrefs() {
     const raw = await ns.storageGet(ns.msg.STORAGE_KEYS.prefs, {})
     const base = ns.isPlainObject(raw) ? raw : {}
-    const address = normalizeAddress(base.host, base.port)
-    ns.prefs = { ...base, host: address.host, port: address.port }
+    const stored = typeof base.secure === 'boolean' ? base.secure : null
+    const address = normalizeAddress(base.host, base.port, stored)
+    ns.prefs = { ...base, host: address.host, port: address.port, secure: address.secure }
     return ns.prefs
   }
 
@@ -218,9 +222,10 @@
   ns.writePrefs = async function writePrefs(patch) {
     const current = await ns.readPrefs()
     const next = { ...current, ...patch }
-    const address = normalizeAddress(next.host, next.port)
+    const address = normalizeAddress(next.host, next.port, next.secure ?? null)
     next.host = address.host
     next.port = address.port
+    next.secure = address.secure
     await ns.storageSet(ns.msg.STORAGE_KEYS.prefs, next)
     ns.prefs = next
     return next
@@ -268,6 +273,14 @@
     lastFrameAt: 0,
     tokenPresent: false,
     wsUrl: '',
+    /** Whether the attempted URL uses wss:// (set from the chosen endpoint). */
+    secure: false,
+    /** Where the URL came from: the host's health response, or the popup. */
+    wsUrlSource: 'configured',
+    /** The health URL that was probed last, whether it answered or not. */
+    healthUrl: '',
+    /** Why the probe failed, when it did; the socket then used the popup URL. */
+    discoveryError: '',
   }
 
   /** @param {Record<string, unknown>} patch */
@@ -281,6 +294,10 @@
       ok: true,
       connection: state.connection,
       wsUrl: state.wsUrl,
+      secure: state.secure,
+      wsUrlSource: state.wsUrlSource,
+      healthUrl: state.healthUrl,
+      discoveryError: state.discoveryError,
       host: ns.prefs.host,
       port: ns.prefs.port,
       tokenPresent: state.tokenPresent,

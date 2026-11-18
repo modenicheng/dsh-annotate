@@ -7,10 +7,12 @@
  * the bundle, and after any change to the protocol:
  *
  *   node scripts/smoke-ws.mjs [ws://127.0.0.1:3080/ext/anno]
+ *   node scripts/smoke-ws.mjs [wss://anno.example.com/ext/anno]
  *
- * It creates a real annotation (with a 1x1 PNG crop), queries it back, resolves
- * it, and replays it to prove idempotency. Every check prints a line; the exit
- * code is non-zero when any check fails.
+ * It checks that the health endpoint advertises the same scheme the client is
+ * about to use, creates a real annotation (with a 1x1 PNG crop), queries it
+ * back, resolves it, and replays it to prove idempotency. Every check prints a
+ * line; the exit code is non-zero when any check fails.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -45,6 +47,33 @@ try {
 } catch (error) {
   check('bridge token readable', false, `${tokenPath}: ${error.message}`)
   process.exit(1)
+}
+
+// Ask the host which scheme it expects, exactly as the extension does. A
+// mismatched answer here means the URL under test was assembled by hand.
+const healthUrl = (() => {
+  const parsed = new URL(url)
+  parsed.protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:'
+  parsed.pathname = '/ext/anno/health'
+  parsed.search = ''
+  return parsed.href
+})()
+let health
+try {
+  const response = await fetch(healthUrl, { cache: 'no-store' })
+  health = response.ok ? await response.json() : undefined
+  check('health endpoint reachable', response.ok === true, healthUrl)
+} catch (error) {
+  check('health endpoint reachable', false, `${healthUrl}: ${error.message}`)
+}
+if (health !== undefined) {
+  const advertised = typeof health.wsUrl === 'string' ? health.wsUrl : ''
+  check('health advertises a ws or wss URL', /^wss?:\/\//.test(advertised), advertised)
+  check(
+    'advertised scheme matches the URL under test',
+    health.secure === url.startsWith('wss://'),
+    `secure=${String(health.secure)} for ${url}`,
+  )
 }
 
 const id = annotationId()

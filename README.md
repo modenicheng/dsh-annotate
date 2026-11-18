@@ -19,25 +19,105 @@ to point at something (`annotate_pick`) when a request is ambiguous.
 
 ## Architecture
 
-```
-Firefox / Zen extension
-  content script  ->  background (owns the socket)  ->  popup
-  gestures: text selection | DOM element | dragged region
-  payload:  anchor + cropped screenshot + page context
-        |
-        |  ws://127.0.0.1:3080/ext/anno
-        |  hello { token, version } -> frames both ways
-        v
-DSH host (`dsh web`) with the dsh-annotate bundle
-  /ext/anno          websocket bridge (RFC 6455 via `ws`)
-  /ext/anno/health   health check + protocol version
-  AnnotationStore    $DSH_HOME/annotations/queue.jsonl
-  annotate_* tools   -> model / agent session
+```mermaid
+flowchart LR
+  subgraph Browser["Firefox / Zen extension (MV3)"]
+    CS["Content script\nanchor · hydrator · ui\ngestures: selection / element / region"]
+    BG["Background (event page)\ncore · socket · outbox\ncapture · routing"]
+    POP["Popup\nbridge token · address · status"]
+    CS <-->|"runtime messages"| BG
+    POP <-->|"storage / messages"| BG
+  end
+
+  BG <-->|"ws://127.0.0.1:3080/ext/anno  (hello {token, version}, frames both ways)"| Bridge
+
+  subgraph Host["DSH host (`dsh web`) — dsh-annotate bundle"]
+    WS["webServer\nregister · registerUpgrade"]
+    Bridge["/ext/anno WebSocket bridge\n(RFC 6455 via ws)"]
+    Health["/ext/anno/health\nprotocol version + counts\n+ wsUrl (scheme negotiation)"]
+    Sessions["/ext/anno/sessions\nsession catalog (target picker)"]
+    Store["AnnotationStore\nappend-only event log"]
+    Tools["annotate_* tools\nlist · get · resolve · pick · clear"]
+    Attach["Attachment service\ncropped screenshots"]
+    WS --> Bridge
+    WS --> Health
+    WS --> Sessions
+    Bridge --> Store
+    Bridge --> Attach
+    Store --> Tools
+  end
+
+  Tools -->|"compact previews / full record + image"| Agent["Model / agent session"]
+  Agent -->|"annotate_pick"| Bridge
+
+  subgraph Storage["Where data lives"]
+    Q["queue.jsonl\n($DSH_HOME/annotations)"]
+    Tkn["$DSH_HOME/ext-bridge-token\n(0600, constant-time compare)"]
+    BSt["Browser storage.local\ntoken · offline outbox · prefs"]
+  end
+  Store --> Q
+  Attach -.->|"stores attachment ref only"| Q
+  Host --> Tkn
+  Browser --> BSt
 ```
 
 There is no extra daemon and no extra port. The bridge is mounted on the DSH
 host webserver and lives exactly as long as `dsh web` does. Both sides are plain
 ESM JavaScript with no build step.
+
+### `ws://` or `wss://`: the host decides
+
+A stock local install is plain HTTP on loopback, so the extension must reach it
+with `ws://` and `http://`. Two things keep that working:
+
+- **The extension's page CSP must not upgrade insecure requests.** Firefox's
+  MV3 default extension policy is
+  `script-src 'self'; upgrade-insecure-requests;`, and that directive rewrites
+  the bridge's `ws://` to `wss://` (and its `http://` health probe to `https://`)
+  before any of our code can intervene. `manifest.json` therefore declares an
+  explicit `content_security_policy.extension_pages` without it, and
+  `node scripts/check-manifest.mjs` fails if that declaration ever disappears or
+  brings the directive back.
+- **The scheme is negotiated, not guessed.** Before connecting, the extension
+  reads `/ext/anno/health`, which reports `secure` and a complete `wsUrl` derived
+  from how the request reached the host: a TLS socket or a TLS-configured DSH
+  webserver yields `wss://`; a request forwarded by a TLS-terminating reverse
+  proxy (with `X-Forwarded-Proto: https`) yields `wss://` too; anything else
+  yields `ws://`. On a plain host the probe goes to `http://` and the answer is
+  `ws://`, so the default path is unchanged. The extension opens the advertised
+  URL and only falls back to the address saved in the popup when the probe
+  cannot reach the host at all.
+
+The popup accepts a bare host and port (`127.0.0.1` + `3080`, the pre-existing
+shape, kept so old settings keep working) or a whole URL
+(`wss://anno.example.com`). A typed scheme is an explicit override for setups
+where the probe is unavailable; leaving it out is the normal case.
+
+### Behind an HTTPS reverse proxy
+
+TLS terminates at the proxy, so the proxy must **forward upgrades** and tell the
+host the original scheme:
+
+```nginx
+location /ext/anno {
+  proxy_pass http://127.0.0.1:3080;
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-Host $host;
+}
+```
+
+`X-Forwarded-Proto` is what makes health answer `wss://`; without it the host can
+only advertise `ws://`. The upgrade route itself is scheme-independent: it reads
+no forwarding header and no `Origin`, so a proxy that terminates TLS is invisible
+to the handshake, and the bridge token remains the only admission check. The
+extension's `host_permissions` cover loopback only (`http(s)://127.0.0.1/*`,
+`ws(s)://127.0.0.1/*`, and the `localhost` forms); a host reached through a
+public domain needs that origin added to the manifest before the extension may
+probe or connect to it.
 
 ## Install
 
@@ -82,7 +162,9 @@ The extension has no build step. Load it as a temporary add-on:
    `packages/extension/manifest.json`.
 3. Open the extension popup and paste the bridge token from
    `$DSH_HOME/ext-bridge-token` (`%USERPROFILE%\.dsh\ext-bridge-token` on
-   Windows).
+   Windows). The address field takes `host` + `port` (default
+   `127.0.0.1` / `3080`) or a full URL such as `wss://anno.example.com`; with no
+   scheme the extension asks the host which one to use.
 4. Press `Alt+Shift+A` on a page to enter annotation mode: select text, click
    an element, or drag a region, then write the comment and press Enter.
 
@@ -93,10 +175,11 @@ for a permanent install.
 
 The bridge is local-only by design:
 
-- **No public port.** It attaches to the DSH host webserver, which binds to
-  loopback (`127.0.0.1`) by default. Do not expose the DSH Web UI through a
-  reverse proxy, tunnel, or `0.0.0.0` binding: the websocket would then be
-  reachable from wherever that server is reachable.
+- **No public port by default.** It attaches to the DSH host webserver, which
+  binds to loopback (`127.0.0.1`) by default. Putting that webserver behind a
+  tunnel or reverse proxy makes the websocket reachable wherever that server is,
+  so terminate TLS in front of it (which the host then advertises as `wss://`),
+  do not log frames, and keep the port off `0.0.0.0`.
 - **Token handshake.** The first frame must be
   `hello { token, version }`. The token is 32 random bytes as hex, stored in
   `$DSH_HOME/ext-bridge-token` with owner-only permissions on POSIX. It is
@@ -105,7 +188,8 @@ The bridge is local-only by design:
   must match exactly.
 - **No token, no data.** Without a valid token the host closes the socket; the
   only anonymous endpoint is `/ext/anno/health`, which reports the protocol
-  version and open-annotation/client counts, never annotation content.
+  version, open-annotation/client counts, and the scheme/URL a browser should
+  use — never annotation content.
 - **Bounded input.** Frames are capped at 32 MiB, records are validated against
   `packages/protocol/src/index.js`, and the store only keeps references to
   screenshots that DSH's own attachment service accepts.
@@ -136,7 +220,7 @@ broadcast changes back to connected browsers.
 | `$DSH_HOME/annotations/queue.jsonl` | Append-only event log (`put`, `patch`, `del`, `img`), folded in memory at startup and compacted when it grows stale. |
 | DSH attachment service | Cropped screenshots; the log stores only the attachment reference. |
 | `$DSH_HOME/ext-bridge-token` | Bridge token, generated on first use with mode `0600`. |
-| Browser `storage.local` | Extension token, offline outbox, and UI preferences. |
+| Browser `storage.local` | Extension token, offline outbox, UI preferences, and the endpoint the host advertised last (so a restart reconnects without probing again). |
 
 `$DSH_HOME` defaults to `~/.dsh` (`%USERPROFILE%\.dsh` on Windows). It is shared
 by every profile on the machine, so one token works for whichever profile is
@@ -152,9 +236,10 @@ node scripts/smoke-ws.mjs ws://127.0.0.1:3080/ext/anno   # verify a booted bridg
 ```
 
 `smoke-ws.mjs` drives the real socket: it reads `$DSH_HOME/ext-bridge-token`,
+checks that `/ext/anno/health` advertises the same scheme as the URL under test,
 creates an annotation with a 1×1 PNG crop, queries it back, resolves it, and
 replays the id to prove idempotency. Run it after installing the bundle and
-after any protocol change.
+after any protocol change; it accepts a `wss://` URL as well as `ws://`.
 
 The quoted glob is intentional: Node expands it itself, which keeps the command
 identical on Windows, macOS, and Linux. `pnpm run check` fetches the pinned

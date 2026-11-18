@@ -32,6 +32,13 @@
   }
 
   const PROTOCOL = globalThis.__DSH_PROTOCOL__
+  /**
+   * The background's address parser, loaded by popup.html from
+   * `src/background/endpoints.js`: one implementation decides what a typed
+   * host, URL, or port means, so the popup cannot store an address the socket
+   * reads differently.
+   */
+  const ENDPOINTS = globalThis.__DSH_ANNO_BG__?.endpoints
   const CONNECTION_LABELS = {
     connected: 'Connected to the host',
     open: 'Handshaking with the host',
@@ -171,33 +178,65 @@
   /** @param {SubmitEvent} event */
   async function saveSettings(event) {
     event.preventDefault()
-    const host = el.host === undefined ? '' : el.host.value.trim()
-    const port = el.port === undefined ? Number.NaN : Number(el.port.value)
-    const token = el.token === undefined ? '' : el.token.value.trim()
-    if (host === '') {
-      feedback('Enter the host that runs "dsh web" (usually 127.0.0.1).', 'error')
+    if (ENDPOINTS === undefined) {
+      feedback('The address parser did not load; reopen the popup.', 'error')
+      return
+    }
+    const rawHost = el.host === undefined ? '' : el.host.value.trim()
+    const rawPort = el.port === undefined ? '' : el.port.value.trim()
+    const typedScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawHost)
+    if (rawHost === '') {
+      feedback(
+        'Enter the host that runs "dsh web" (usually 127.0.0.1), or a URL such as wss://anno.example.com.',
+        'error',
+      )
       if (el.host !== undefined) el.host.focus()
       return
     }
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      feedback('The port must be a whole number between 1 and 65535.', 'error')
-      if (el.port !== undefined) el.port.focus()
-      return
+    // Without a typed URL the port field is the authority, so a typo there is
+    // an error rather than silently falling back to the default port.
+    if (!typedScheme && rawPort !== '') {
+      const port = Number(rawPort)
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        feedback('The port must be a whole number between 1 and 65535.', 'error')
+        if (el.port !== undefined) el.port.focus()
+        return
+      }
     }
+    // Read the stored prefs before parsing: the content script keeps its own
+    // keys (such as `hidden`) in the same object and they must survive, and a
+    // previously saved scheme override has to survive a resave of host/port.
+    let storedPrefs = {}
     try {
-      // Read the stored prefs first: the content script keeps its own keys
-      // (such as `hidden`) in the same object and they must survive.
       const stored = await browser.storage.local.get(MSG.STORAGE_KEYS.prefs)
       const raw = stored?.[MSG.STORAGE_KEYS.prefs]
-      const prefs = raw !== null && typeof raw === 'object' ? { ...raw } : {}
-      prefs.host = host
-      prefs.port = port
+      storedPrefs = raw !== null && typeof raw === 'object' ? { ...raw } : {}
+    } catch (error) {
+      feedback(`Could not read the saved settings: ${describeError(error)}`, 'error')
+      return
+    }
+    const storedSecure = typeof storedPrefs.secure === 'boolean' ? storedPrefs.secure : null
+    const parsed = ENDPOINTS.parseAddress(rawHost, rawPort === '' ? undefined : rawPort, storedSecure)
+    if (!parsed.ok) {
+      feedback(parsed.reason, 'error')
+      if (el.host !== undefined) el.host.focus()
+      return
+    }
+    const token = el.token === undefined ? '' : el.token.value.trim()
+    try {
+      const prefs = storedPrefs
+      prefs.host = parsed.host
+      prefs.port = parsed.port
+      // `null` means "no explicit scheme typed": the background asks the host.
+      prefs.secure = parsed.secure
       await browser.storage.local.set({
         [MSG.STORAGE_KEYS.prefs]: prefs,
         [MSG.STORAGE_KEYS.token]: token,
       })
       state.token = token
-      feedback(`Saved. Connecting to ws://${host}:${port}/ext/anno`, 'ok')
+      const scheme = parsed.secure === true ? 'wss' : parsed.secure === false ? 'ws' : 'ws or wss'
+      const decision = parsed.secure === null ? '; the host health check picks the scheme' : ''
+      feedback(`Saved. Connecting to ${scheme}://${parsed.host}:${parsed.port}/ext/anno${decision}`, 'ok')
       // The background reconnects on the storage change; give it a moment.
       setTimeout(() => {
         void refreshState()
@@ -241,12 +280,14 @@
     if (el['connection-label'] !== undefined)
       el['connection-label'].textContent = CONNECTION_LABELS[connection] ?? 'Bridge state unknown'
     if (el['connection-detail'] !== undefined) {
+      const scheme = status.secure === true ? 'wss' : 'ws'
       const url =
         typeof status.wsUrl === 'string' && status.wsUrl !== ''
           ? status.wsUrl
-          : `ws://${status.host ?? '127.0.0.1'}:${status.port ?? 3080}/ext/anno`
+          : `${scheme}://${status.host ?? '127.0.0.1'}:${status.port ?? 3080}/ext/anno`
       const token = status.tokenPresent === true ? 'token saved' : 'no token saved'
-      el['connection-detail'].textContent = `${url} · ${token}`
+      const source = status.wsUrlSource === 'health' ? ' · advertised by the host' : ''
+      el['connection-detail'].textContent = `${url} · ${token}${source}`
     }
     if (typeof status.lastError === 'string' && status.lastError !== '') {
       feedback(status.lastError, 'error')

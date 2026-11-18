@@ -6,6 +6,15 @@
  * machine. This script walks every file reference it knows about and checks it
  * against the extension directory, including simple `*` / `?` globs used by
  * `web_accessible_resources`.
+ *
+ * It also guards the extension-page CSP: Firefox's MV3 default is
+ * `script-src 'self'; upgrade-insecure-requests;`, and that
+ * `upgrade-insecure-requests` rewrites every `ws://` and `http://` request the
+ * extension makes into `wss://`/`https://` — including the bridge connection to
+ * a plain local `dsh web`. The bug looked like "the websocket is broken"; the
+ * console said the request was upgraded. A manifest that declares no policy
+ * inherits the default, so the policy must be explicit and must not contain
+ * that directive.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
@@ -155,8 +164,36 @@ if (locale !== undefined) add(`${sep}_locales/${locale}/messages.json`)
 
 const files = await listFiles(extensionDir)
 const fileSet = new Set(files)
+/**
+ * The CSP rule is this project's contract, so it only applies to this package:
+ * the optional directory argument exists to validate an arbitrary unpacked
+ * extension, whose policy is its own business.
+ */
+const projectExtension = process.argv[2] === undefined
 /** @type {string[]} */
-const problems = []
+const problems = projectExtension ? [...cspProblems(manifest)] : []
+
+/**
+ * The extension-page CSP must be explicit and must not upgrade insecure
+ * requests. Returns one sentence per violation.
+ * @param {Json} manifest
+ * @returns {string[]}
+ */
+function cspProblems(manifest) {
+  const policy = isObject(manifest.content_security_policy) ? manifest.content_security_policy : undefined
+  const extensionPages = policy === undefined ? undefined : asString(policy.extension_pages)
+  if (extensionPages === undefined) {
+    return [
+      'content_security_policy.extension_pages is not declared: the MV3 default contains upgrade-insecure-requests, which rewrites the bridge ws:// to wss:// and breaks a plain local host',
+    ]
+  }
+  if (/upgrade-insecure-requests/i.test(extensionPages)) {
+    return [
+      'content_security_policy.extension_pages contains upgrade-insecure-requests, which rewrites the bridge ws:// to wss:// and breaks a plain local host',
+    ]
+  }
+  return []
+}
 let checked = 0
 
 for (const reference of references) {
@@ -178,7 +215,9 @@ for (const reference of references) {
 for (const warning of warnings) console.warn(`check-manifest: ${warning}`)
 
 if (problems.length > 0) {
-  console.error(`check-manifest: ${manifestLabel} references missing files:`)
+  // Problems are mixed (file references, then the CSP contract), so the header
+  // names no single kind.
+  console.error(`check-manifest: ${manifestLabel} failed ${problems.length} check(s):`)
   for (const problem of problems) console.error(`  - ${problem}`)
   process.exit(1)
 }

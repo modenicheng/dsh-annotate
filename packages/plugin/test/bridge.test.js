@@ -7,11 +7,15 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer, request as httpRequest } from 'node:http'
+import { createServer as createSecureServer, request as httpsRequest } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
+import { promisify } from 'node:util'
+import WsClient from 'ws'
 
 import { acceptKey, createBridge } from '../src/bridge.js'
 import { AnnotationStore } from '../src/store.js'
@@ -19,6 +23,46 @@ import { HEALTH_PATH, PROTOCOL_VERSION, WS_PATH } from '../src/protocol.js'
 
 const TOKEN = 'bridge-test-token'
 const silent = { debug() {}, info() {}, warn() {} }
+const run = promisify(execFile)
+
+/**
+ * A throwaway self-signed certificate for `127.0.0.1`, created at test time.
+ *
+ * Nothing is checked in: the repository ships no key material, and the TLS test
+ * only needs a certificate the local client is told to trust. `null` means the
+ * local toolchain cannot create one, and the TLS test skips rather than silently
+ * passing without exercising the path.
+ */
+async function createTestCertificate() {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-anno-tls-'))
+  try {
+    await run(
+      'openssl',
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        join(dir, 'key.pem'),
+        '-out',
+        join(dir, 'cert.pem'),
+        '-days',
+        '2',
+        '-subj',
+        '/CN=127.0.0.1',
+        '-addext',
+        'subjectAltName=IP:127.0.0.1,DNS:localhost',
+      ],
+      { timeout: 20_000 },
+    )
+    return { dir, cert: await readFile(join(dir, 'cert.pem')), key: await readFile(join(dir, 'key.pem')) }
+  } catch {
+    await rm(dir, { recursive: true, force: true })
+    return null
+  }
+}
 
 /** @type {string} */
 let root
@@ -56,19 +100,28 @@ function record(name, overrides = {}) {
   }
 }
 
-/** @param {number} port @param {string} path */
-function httpGet(port, path) {
+/**
+ * @param {number} port
+ * @param {string} path
+ * @param {{ headers?: Record<string, string>, secure?: boolean }} [options]
+ */
+function httpGet(port, path, options = {}) {
+  const { headers = {}, secure = false } = options
   return new Promise((resolve, reject) => {
     // `agent: false` avoids a keep-alive socket, which would otherwise keep
     // `server.close()` waiting at the end of a test.
-    const request = httpRequest({ host: '127.0.0.1', port, path, method: 'GET', agent: false }, (response) => {
-      let text = ''
-      response.setEncoding('utf8')
-      response.on('data', (chunk) => {
-        text += chunk
-      })
-      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, text }))
-    })
+    const send = secure ? httpsRequest : httpRequest
+    const request = send(
+      { host: '127.0.0.1', port, path, method: 'GET', agent: false, headers, rejectUnauthorized: false },
+      (response) => {
+        let text = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => {
+          text += chunk
+        })
+        response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, text }))
+      },
+    )
     request.on('error', reject)
     request.end()
   })
@@ -103,11 +156,19 @@ function closeSocket(socket, timeoutMs = 1_000) {
  * Wrap the platform WebSocket in something tests can await: a frame queue so a
  * frame that arrives before the assertion is not lost, and a close promise so
  * the closing code is observable.
- * @param {{ port: number, sockets: Set<WebSocket> }} runtime
- * @param {{ token?: string, version?: number, clientId?: string }} [options]
+ *
+ * A TLS host needs the `ws` client, because the platform `WebSocket` cannot be
+ * told to accept the test certificate. The same client is used whenever the
+ * test needs to add handshake headers it cannot set through the platform API.
+ * @param {{ port: number, secure?: boolean, sockets: Set<WebSocket> }} runtime
+ * @param {{ headers?: Record<string, string> }} [options]
  */
-async function openClient(runtime) {
-  const socket = new WebSocket(`ws://127.0.0.1:${runtime.port}${WS_PATH}`)
+async function openClient(runtime, { headers } = {}) {
+  const target = `${runtime.secure === true ? 'wss' : 'ws'}://127.0.0.1:${runtime.port}${WS_PATH}`
+  const socket =
+    runtime.secure === true || headers !== undefined
+      ? new WsClient(target, { headers, rejectUnauthorized: false })
+      : new WebSocket(target)
   runtime.sockets.add(socket)
   /** @type {any[]} */
   const messages = []
@@ -228,20 +289,59 @@ async function openClient(runtime) {
 }
 
 /**
- * Build one throwaway deployment: temp store, http server, bridge attached to
- * a fake webserver, and a client factory. Registers its own teardown with the
- * test context so a failing assertion cannot leak a listening server.
+ * Build one throwaway deployment: temp store, an HTTP or HTTPS server, the
+ * bridge attached to a fake webserver, and a client factory. Registers its own
+ * teardown with the test context so a failing assertion cannot leak a listening
+ * server.
  * @param {import('node:test').TestContext} t
  * @param {string} name
+ * @param {{ tls?: { cert: Buffer, key: Buffer } }} [options]
  */
-async function openHost(t, name) {
+async function openHost(t, name, options = {}) {
   const store = await new AnnotationStore({ dir: join(root, name), logger: silent }).load()
   /** @type {Map<string, any>} */
   const routes = new Map()
   /** @type {Map<string, any>} */
   const upgrades = new Map()
 
+  /** Exact-path matching mirrors the DSH host webserver. */
+  const pathnameOf = (request) => new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+
+  const onRequest = (request, response) => {
+    const route = routes.get(pathnameOf(request))
+    if (route === undefined) {
+      response.writeHead(404, { 'content-type': 'text/plain', connection: 'close' })
+      response.end('not found')
+      return
+    }
+    route.handler(request, response)
+  }
+  const onUpgrade = (request, socket, head) => {
+    const route = upgrades.get(pathnameOf(request))
+    if (route === undefined) {
+      socket.destroy()
+      return
+    }
+    route.handler(request, socket, head)
+  }
+
+  const secure = options.tls !== undefined
+  const server =
+    options.tls === undefined
+      ? createServer(onRequest)
+      : createSecureServer({ cert: options.tls.cert, key: options.tls.key }, onRequest)
+  server.on('upgrade', onUpgrade)
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const port = server.address().port
+  const protocol = secure ? 'https:' : 'http:'
+  /** The parts of the DSH webserver service the bridge reads. */
   const webServer = {
+    protocol,
+    getOrigin: () => `${protocol}//127.0.0.1:${port}`,
     register(route) {
       routes.set(route.path, route)
       return () => routes.delete(route.path)
@@ -252,32 +352,6 @@ async function openHost(t, name) {
     },
   }
 
-  /** Exact-path matching mirrors the DSH host webserver. */
-  const pathnameOf = (request) => new URL(request.url ?? '/', 'http://127.0.0.1').pathname
-
-  const server = createServer((request, response) => {
-    const route = routes.get(pathnameOf(request))
-    if (route === undefined) {
-      response.writeHead(404, { 'content-type': 'text/plain', connection: 'close' })
-      response.end('not found')
-      return
-    }
-    route.handler(request, response)
-  })
-  server.on('upgrade', (request, socket, head) => {
-    const route = upgrades.get(pathnameOf(request))
-    if (route === undefined) {
-      socket.destroy()
-      return
-    }
-    route.handler(request, socket, head)
-  })
-
-  await new Promise((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
-  })
-  const port = server.address().port
   const bridge = createBridge({ store, token: TOKEN, logger: silent })
   const dispose = bridge.attach(webServer)
   /** @type {Set<WebSocket>} */
@@ -288,10 +362,11 @@ async function openHost(t, name) {
     store,
     bridge,
     port,
+    secure,
     sockets,
-    /** @param {{ token?: string, version?: number, clientId?: string }} [options] */
-    client(options) {
-      return openClient(runtime, options)
+    /** @param {{ headers?: Record<string, string> }} [clientOptions] */
+    client(clientOptions) {
+      return openClient(runtime, clientOptions)
     },
   }
 
@@ -491,7 +566,7 @@ test('requestPick rejects on abort and cancels exactly once', async (t) => {
   assert.equal(host.bridge.stats().picks, 0)
 })
 
-test('the health route advertises the bridge and allows cross-origin reads', async (t) => {
+test('the health route advertises the bridge, its scheme, and allows cross-origin reads', async (t) => {
   const host = await openHost(t, 'health')
   await host.store.put(record('aaaaaa'))
   const client = await host.client()
@@ -507,6 +582,90 @@ test('the health route advertises the bridge and allows cross-origin reads', asy
   assert.equal(body.wsPath, WS_PATH)
   assert.equal(body.openCount, 1)
   assert.equal(body.clients, 1)
+  // A plain listener says so: the browser should keep using ws://.
+  assert.equal(body.secure, false)
+  assert.equal(body.wsUrl, `ws://127.0.0.1:${host.port}${WS_PATH}`)
+})
+
+test('health answers wss:// when a TLS-terminating proxy forwards the request', async (t) => {
+  const host = await openHost(t, 'health-forwarded')
+
+  const forwarded = await httpGet(host.port, HEALTH_PATH, {
+    headers: { 'x-forwarded-proto': 'https, http', 'x-forwarded-host': 'anno.example.com' },
+  })
+  const body = JSON.parse(forwarded.text)
+  assert.equal(body.secure, true)
+  assert.equal(body.wsUrl, `wss://anno.example.com${WS_PATH}`)
+  assert.equal(forwarded.headers['access-control-allow-origin'], '*')
+
+  // `X-Forwarded-Host` may carry the proxy's port; `Host` is the fallback when
+  // the proxy does not set it at all.
+  const withPort = JSON.parse(
+    (
+      await httpGet(host.port, HEALTH_PATH, {
+        headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'anno.example.com:8443' },
+      })
+    ).text,
+  )
+  assert.equal(withPort.wsUrl, `wss://anno.example.com:8443${WS_PATH}`)
+
+  const hostHeaderOnly = JSON.parse(
+    (await httpGet(host.port, HEALTH_PATH, { headers: { 'x-forwarded-proto': 'https' } })).text,
+  )
+  assert.equal(hostHeaderOnly.secure, true)
+  assert.equal(hostHeaderOnly.wsUrl, `wss://127.0.0.1:${host.port}${WS_PATH}`)
+
+  // An explicit `http` from the proxy must not be upgraded to wss.
+  const plain = JSON.parse(
+    (
+      await httpGet(host.port, HEALTH_PATH, {
+        headers: { 'x-forwarded-proto': 'http', 'x-forwarded-host': 'anno.example.com' },
+      })
+    ).text,
+  )
+  assert.equal(plain.secure, false)
+  assert.equal(plain.wsUrl, `ws://anno.example.com${WS_PATH}`)
+})
+
+test('a TLS listener serves health and the websocket upgrade over wss', async (t) => {
+  const credentials = await createTestCertificate()
+  if (credentials === null) {
+    t.skip('openssl is not installed, so no throwaway certificate can be created')
+    return
+  }
+  t.after(() => rm(credentials.dir, { recursive: true, force: true }))
+  const host = await openHost(t, 'health-tls', { tls: credentials })
+  await host.store.put(record('aaaaaa'))
+
+  const response = await httpGet(host.port, HEALTH_PATH, { secure: true })
+  assert.equal(response.status, 200)
+  const body = JSON.parse(response.text)
+  assert.equal(body.secure, true)
+  assert.equal(body.wsUrl, `wss://127.0.0.1:${host.port}${WS_PATH}`)
+
+  // The same `handleUpgrade` path, now on a TLS socket: the token handshake
+  // must complete exactly as over plain HTTP.
+  const client = await host.client()
+  const hello = await authenticate(client)
+  assert.equal(hello.version, PROTOCOL_VERSION)
+  assert.equal(hello.openCount, 1)
+})
+
+test('the upgrade handshake ignores proxy headers and an https Origin', async (t) => {
+  const host = await openHost(t, 'upgrade-headers')
+  // The extension runs on an arbitrary page, so the browser may attach an
+  // https Origin to a ws:// handshake. Nothing in the upgrade route reads it,
+  // and the forwarding headers a proxy adds must not disturb `handleUpgrade`.
+  const client = await host.client({
+    headers: {
+      origin: 'https://example.com',
+      'x-forwarded-proto': 'https, http',
+      'x-forwarded-host': 'anno.example.com',
+      'x-forwarded-for': '203.0.113.7',
+    },
+  })
+  const hello = await authenticate(client)
+  assert.equal(hello.version, PROTOCOL_VERSION)
 })
 
 test('acceptKey reproduces the RFC 6455 example', () => {

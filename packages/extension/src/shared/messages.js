@@ -65,4 +65,6 @@ export const STORAGE_KEYS = {
   outbox: 'anno.outbox',
   prefs: 'anno.prefs',
   lastStatus: 'anno.status',
+  /** Endpoint the host advertised last time, so a restart reconnects without a probe. */
+  endpoint: 'anno.endpoint',
 }

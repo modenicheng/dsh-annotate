@@ -21,6 +21,7 @@ const extensionRoot = dirname(here)
 
 const SCRIPTS = [
   'src/shared/protocol.global.js',
+  'src/background/endpoints.js',
   'src/background/core.js',
   'src/background/socket.js',
   'src/background/outbox.js',
@@ -151,8 +152,32 @@ async function readScript(path) {
   return readFile(join(extensionRoot, path), 'utf8')
 }
 
-test('the background boots in manifest order without throwing', async () => {
-  const { browser, events } = createBrowserStub()
+/** @param {() => boolean} predicate @param {number} [timeoutMs] */
+async function waitUntil(predicate, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('the background did not reach the expected state in time')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
+/**
+ * Boot the background in a fresh `vm` context and wait for its first connection
+ * attempt to settle.
+ *
+ * `main.js` starts booting as soon as it loads, so the stored token has to exist
+ * before the scripts are evaluated; otherwise the first attempt stops at
+ * `no-token` and no socket is ever constructed.
+ * @param {{ token?: string, fetch?: (url: string) => Promise<any> }} [options]
+ */
+async function bootBackground(options = {}) {
+  const {
+    token = 'test-token',
+    fetch = async () => {
+      throw new Error('offline')
+    },
+  } = options
+  const { browser, events, stored, badge } = createBrowserStub()
   /** @type {string[]} */
   const errors = []
   /** @type {any[]} */
@@ -180,6 +205,8 @@ test('the background boots in manifest order without throwing', async () => {
   const sandbox = {
     browser,
     WebSocket: FakeWebSocket,
+    fetch,
+    AbortController,
     console: {
       debug() {},
       info() {},
@@ -208,6 +235,7 @@ test('the background boots in manifest order without throwing', async () => {
   }
   sandbox.globalThis = sandbox
   const context = vm.createContext(sandbox)
+  if (token !== '') stored.set('anno.token', token)
 
   for (const path of SCRIPTS) {
     const code = await readScript(path)
@@ -220,7 +248,34 @@ test('the background boots in manifest order without throwing', async () => {
 
   const ns = sandbox.__DSH_ANNO_BG__
   assert.ok(ns !== undefined, 'background namespace was published')
-  for (const member of ['PROTOCOL', 'msg', 'log', 'status', 'routing', 'outbox', 'net', 'capture']) {
+  // The page load kicks off `boot()`; wait for its `connect()` to reach either
+  // a constructed socket or a terminal early return.
+  await waitUntil(
+    () =>
+      sockets.length > 0 ||
+      ns.netState.connection === 'no-token' ||
+      ns.netState.connection === 'offline' ||
+      ns.netState.connection === 'error',
+  )
+  return { sandbox, ns, errors, sockets, events, stored, badge, timers }
+}
+
+/** A health body shaped like the host's, for the probe stubs below. */
+function healthBody({ secure = false, wsUrl = 'ws://127.0.0.1:3080/ext/anno' } = {}) {
+  return { ok: true, version: 1, secure, wsUrl }
+}
+
+test('the background boots in manifest order without throwing', async () => {
+  /** @type {string[]} */
+  const fetchCalls = []
+  const { ns, errors, sockets, events } = await bootBackground({
+    fetch: async (url) => {
+      fetchCalls.push(url)
+      return { ok: true, status: 200, json: async () => healthBody() }
+    },
+  })
+
+  for (const member of ['PROTOCOL', 'msg', 'log', 'status', 'routing', 'outbox', 'net', 'capture', 'endpoints']) {
     assert.ok(ns[member] !== undefined, `namespace is missing ${member}`)
   }
   assert.equal(ns.PROTOCOL.PROTOCOL_VERSION, 1)
@@ -234,6 +289,16 @@ test('the background boots in manifest order without throwing', async () => {
   await events.onStartup.fire()
   assert.deepEqual(errors, [], `boot logged problems: ${errors.join(' | ')}`)
 
+  // The default local path is plain HTTP: one probe to http (never https), and
+  // the host's `secure: false` answer yields ws://. With the MV3 default CSP
+  // this request would have been upgraded to https and the socket to wss; the
+  // manifest's explicit CSP is what keeps that from happening.
+  assert.deepEqual(fetchCalls, ['http://127.0.0.1:3080/ext/anno/health'])
+  assert.equal(sockets.length, 1)
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:3080/ext/anno')
+  assert.equal(ns.netState.wsUrlSource, 'health')
+  assert.equal(ns.netState.secure, false)
+
   // Message handling must answer a known type and ignore an unknown one.
   const listener = events.onMessage.listeners[0]
   const unknown = await listener({ type: 'not.a.message' }, {})
@@ -243,6 +308,31 @@ test('the background boots in manifest order without throwing', async () => {
   assert.equal(status.ok, true)
   assert.ok('connection' in status)
   assert.equal(status.protocolVersion, 1)
+})
+
+test('the background connects with wss when the host advertises it', async () => {
+  const { ns, sockets } = await bootBackground({
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => healthBody({ secure: true, wsUrl: 'wss://127.0.0.1:3080/ext/anno' }),
+    }),
+  })
+  assert.equal(sockets[0].url, 'wss://127.0.0.1:3080/ext/anno')
+  assert.equal(ns.netState.secure, true)
+  assert.equal(ns.netState.wsUrlSource, 'health')
+})
+
+test('a failing health probe falls back to the configured address', async () => {
+  const { ns, sockets, errors } = await bootBackground({
+    fetch: async () => {
+      throw new Error('connection refused')
+    },
+  })
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:3080/ext/anno')
+  assert.equal(ns.netState.wsUrlSource, 'configured')
+  assert.match(ns.netState.discoveryError, /connection refused/)
+  assert.deepEqual(errors, [], `a failed probe must not log as a warning: ${errors.join(' | ')}`)
 })
 
 test('every script listed by the manifest exists', async () => {

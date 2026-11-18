@@ -135,3 +135,72 @@ machines and prevents a silent style churn from a floating `latest`.
 **Consequences.** Format and lint commands need network access the first time
 the pinned package is not cached; tests, hooks, and the plugin never do. Bump
 the pin in both `package.json` and `.github/workflows/ci.yml` together.
+
+## D8 — The host advertises its scheme; the extension does not guess
+
+**Decision.** `/ext/anno/health` reports `secure` (boolean) and a complete
+`wsUrl` (`ws://…` or `wss://…`), computed from the serving socket
+(`request.socket.encrypted`), the DSH webserver listener (`protocol` /
+`getOrigin()`), or a TLS-terminating reverse proxy (`x-forwarded-proto`, first
+value, with `x-forwarded-host` / `Host` for the authority). The extension probes
+that endpoint before opening a socket, connects to the advertised URL when it
+names the configured host, and falls back to the address saved in the popup when
+the probe fails. A scheme typed into the popup (`wss://anno.example.com`) is an
+explicit override of the probe, not the normal path.
+
+**Why.** This serves deployments where the bridge is genuinely behind TLS: `dsh
+web` with `tls` configured, or a TLS-terminating proxy in front of a plain
+listener. Those need `wss://`, while the default local install — `dsh web` on
+`127.0.0.1`, no TLS anywhere — must stay on `ws://`. Nothing in the browser can
+tell the two apart from a port number: `wss://` against a plain listener and
+`ws://` against a TLS one fail the same way, and the console gives no clue which
+side is wrong. The host is the only party that knows, so it says it once.
+
+This decision is deliberately *not* the fix for the reported "everything works
+except the socket" bug: that was the MV3 default extension CSP upgrading our
+`ws://` to `wss://` (D9), which no backend change can repair. Keeping the
+negotiation means a real HTTPS deployment works as well.
+
+**Consequences.** Health is now a small public contract: it must stay readable
+cross-origin (`access-control-allow-origin: *`), and it reveals the advertised
+scheme and URL but still no annotation content. The extension probes `http`
+first and only tries `https` when that does not answer, so the default local path
+costs one request and never sends a TLS ClientHello to a plain listener. The
+answer is cached for ten minutes and invalidated on a failed upgrade, so a host
+that switches from plain HTTP to TLS is noticed on the next retry instead of
+after the TTL. A reverse proxy must forward the `Upgrade`/`Connection` headers
+for `/ext/anno` and set `X-Forwarded-Proto`; without the header the host can only
+advertise `ws://`. The manifest needs both schemes and both loopback origins over
+HTTPS (so the probe itself is allowed), and reading `x-forwarded-host` means the
+health URL follows the client's `Host` header — the extension refuses an
+advertised authority that differs from the configured one instead of following
+it.
+
+## D9 — The extension declares its own CSP, without `upgrade-insecure-requests`
+
+**Decision.** `packages/extension/manifest.json` declares
+`content_security_policy.extension_pages` as
+`script-src 'self'; object-src 'self'` instead of inheriting Firefox's MV3
+default (`script-src 'self'; upgrade-insecure-requests;`).
+`scripts/check-manifest.mjs` fails when the policy is absent or contains
+`upgrade-insecure-requests`.
+
+**Why.** This is the root cause of the reported bug. The MV3 default
+`upgrade-insecure-requests` rewrites every insecure request the extension makes —
+including the bridge's `ws://` and its `http://` health probe — into `wss://` and
+`https://`. A plain local host cannot answer either, so the socket never opens
+and Firefox prints a CSP message saying the request was upgraded. The failure
+looks like a backend/TLS problem, which is what made earlier hypotheses
+(HTTPS-Only mode, a missing TLS listener, page CSP) plausible; the actual defect
+is one manifest directive. Extensions that "just work" locally either declare
+their own policy or are still MV2, whose default does not upgrade requests.
+
+**Consequences.** The extension page CSP is now an explicit, tested part of the
+manifest instead of an implicit Firefox default. `script-src 'self'` is kept (and
+must not be loosened to `unsafe-eval`/remote code: MV3 rejects it and it would be
+its own security bug); only the upgrade directive is dropped, because it is the
+one that breaks loopback plaintext. Any future need for `upgrade-insecure-requests`
+would have to explain why the bridge no longer talks to a plain local host. The
+regression check lives in the manifest job, and the extension boot test pins the
+resulting behaviour: with a plain address the health probe goes to `http://` and
+the socket URL is `ws://`.

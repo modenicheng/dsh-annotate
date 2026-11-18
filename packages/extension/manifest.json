@@ -10,10 +10,23 @@
     }
   },
   "permissions": ["storage", "alarms", "tabs", "activeTab", "scripting"],
-  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "ws://127.0.0.1/*", "ws://localhost/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://127.0.0.1/*",
+    "https://localhost/*",
+    "ws://127.0.0.1/*",
+    "ws://localhost/*",
+    "wss://127.0.0.1/*",
+    "wss://localhost/*"
+  ],
   "background": {
     "scripts": [
       "src/shared/protocol.global.js",
+      "src/background/endpoints.js",
       "src/background/core.js",
       "src/background/socket.js",
       "src/background/outbox.js",

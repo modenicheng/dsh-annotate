@@ -10,6 +10,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 
 import { WebSocketServer } from 'ws'
 
+import { describeEndpoint } from './endpoint.js'
 import {
   HELLO_TIMEOUT_MS,
   HEALTH_PATH,
@@ -403,9 +404,15 @@ export function createBridge({ store, token, saveImage, logger = {} }) {
       path: HEALTH_PATH,
       auth: 'anonymous',
       handler: (request, response) => {
+        // Scheme negotiation: the host says which URL works, the browser does
+        // not guess. `describeEndpoint` reads the serving socket, the listener
+        // configuration, and the forwarding headers a TLS proxy sets.
+        const endpoint = describeEndpoint({ request, webServer })
         const body = JSON.stringify({
           ok: true,
           version: PROTOCOL_VERSION,
+          secure: endpoint.secure,
+          wsUrl: endpoint.wsUrl,
           wsPath: WS_PATH,
           openCount: store.count((record) => record.state === 'open'),
           clients: [...clients].filter((client) => client.authed).length,
@@ -420,6 +427,12 @@ export function createBridge({ store, token, saveImage, logger = {} }) {
       },
     })
 
+    // The upgrade route is scheme-independent on purpose: `handleUpgrade` only
+    // needs the raw socket, and on a TLS listener that socket is already the
+    // decrypted stream. Nothing here may read `x-forwarded-*` or the request's
+    // origin to decide whether to accept the connection — a proxy that
+    // terminates TLS is invisible to the handshake, and the token is the only
+    // admission check.
     const upgrade = webServer.registerUpgrade({
       path: WS_PATH,
       auth: 'anonymous',

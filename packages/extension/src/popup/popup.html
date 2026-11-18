@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="popup.css">
     <!-- Classic scripts only: the shared protocol is generated as a global. -->
     <script src="../shared/protocol.global.js"></script>
+    <!-- One endpoint parser for the popup and the background. -->
+    <script src="../background/endpoints.js"></script>
     <script src="popup.js" defer></script>
   </head>
   <body>
@@ -25,14 +27,26 @@
         <form id="settings-form" class="form" autocomplete="off" novalidate>
           <div class="field-row">
             <div class="field field--host">
-              <label for="host">Host</label>
-              <input id="host" name="host" type="text" spellcheck="false" inputmode="url" placeholder="127.0.0.1">
+              <label for="host">Host or URL</label>
+              <input
+                id="host"
+                name="host"
+                type="text"
+                spellcheck="false"
+                inputmode="url"
+                aria-describedby="host-hint"
+                placeholder="127.0.0.1"
+              >
             </div>
             <div class="field field--port">
               <label for="port">Port</label>
               <input id="port" name="port" type="number" min="1" max="65535" inputmode="numeric" placeholder="3080">
             </div>
           </div>
+          <p id="host-hint" class="hint">
+            A host and port, or a full URL such as <code>wss://anno.example.com</code> when the host is behind
+            HTTPS. Without a scheme, the extension asks the host which one to use.
+          </p>
 
           <div class="field">
             <div class="field__label-row">
