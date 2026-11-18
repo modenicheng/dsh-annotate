@@ -33,8 +33,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          # Deliberately no `cache: pnpm`: setup-node resolves the pnpm store
+          # before corepack provisions pnpm here, and its post step then fails
+          # the job over a cache path that never existed. A cold install costs
+          # seconds; a red check that nobody can explain costs more.
 
       - name: Enable corepack
         run: corepack enable
