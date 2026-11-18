@@ -236,3 +236,31 @@ anchor (it already renders a comment only when there is one). The completion
 toast differs — **已发送标记（无评论）** versus **已发送批注** — so an empty send
 is confirmed rather than silent. The future `dsh-anno:` mention label must also
 degrade to `@[批注 · 那段话](…)` with no comment fragment.
+
+## D11 — A `dsh-anno:` mention is resolved, never rewritten
+
+**Decision.** The `agent/pre-step` handler in `packages/plugin/src/mentions.js`
+leaves the user's message text untouched and only inserts one extra
+`source.kind = 'annotations'` message after it. The mention keeps its canonical
+spelling in the transcript.
+
+**Why.** The obvious move is to copy `session-reference`, which rewrites its
+mention into readable `@label` text before the model sees it. That is wrong here,
+for two reasons found by running it. First, pre-step output is **durable**: the
+rewritten text and the context message both appear as `user/message` events in
+the session log, so a rewrite does not stay in the model's view — it replaces
+what the Client renders. The chip rule matches the wire form `@[…](dsh-anno:…)`,
+so rewriting it deletes the chip: the message went back to reading
+`测试 @批注 · "Enterprise"`, and the file-reference rule claimed `@批注` instead.
+Second, the reason `session-reference` rewrites at all is that its URI is a long
+base64 blob; a `dsh-anno:an-20261118-ab12cd` URI is short and readable, so the
+model loses nothing by seeing it.
+
+**Consequences.** The durable transcript stays exactly as the user wrote it, and
+the Client can render it again after any reload. The model sees both the mention
+and the structured annotation, which is redundant on purpose: the mention marks
+*where* the citation sits, the context message carries *what* it was. Anything
+that later wants the readable form in the transcript would have to change what
+the chip rule matches, not what pre-step returns. Recorded after confirming in a
+live Web Client that a rewrite silently costs the chip and that the context
+message itself does reach the model (D10's `annotations` round trip).

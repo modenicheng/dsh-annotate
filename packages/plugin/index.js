@@ -12,6 +12,7 @@
 import { ensureToken, annotationsDir } from './src/paths.js'
 import { AnnotationStore } from './src/store.js'
 import { createBridge, tokenMatches } from './src/bridge.js'
+import { createAnnotationMentions } from './src/mentions.js'
 import { createSessionCatalog, registerSessionsRoute } from './src/sessions.js'
 import { createTools } from './src/tools.js'
 
@@ -45,6 +46,24 @@ export async function apply(ctx) {
   for (const tool of createTools({ store, bridge, logger })) {
     ctx.effect(() => ctx.tools.register(tool), `dsh-annotate: ${tool.name}`)
   }
+
+  // A `dsh-anno:` mention in a prompt draft is the user's own citation: resolve
+  // it before the model sees the turn, so the annotation arrives as context
+  // rather than as a token the model has to ask about.
+  const mentions = createAnnotationMentions({ store, logger })
+  ctx.effect(
+    () =>
+      ctx.on(
+        'agent/pre-step',
+        async (_payload, next) => {
+          const decision = await next()
+          if (decision.kind === 'reject') return decision
+          return { ...decision, messages: await mentions.prepare(decision.messages) }
+        },
+        { prepend: true },
+      ),
+    'dsh-annotate: annotation mentions',
+  )
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => bridge.attach(webCtx.webServer), 'dsh-annotate: /ext/anno bridge')

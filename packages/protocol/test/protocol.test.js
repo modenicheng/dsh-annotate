@@ -4,8 +4,10 @@ import { test } from 'node:test'
 import {
   describeAnchor,
   encodeFrame,
+  formatAnnoMention,
   newAnnotationId,
   normalizeRecord,
+  parseAnnoText,
   parseClientFrame,
   parseServerFrame,
   sameDocument,
@@ -123,5 +125,43 @@ test('describeAnchor stays short', () => {
   assert.match(
     describeAnchor({ ...record(), anchor: { kind: 'element', fingerprint: { tag: 'button', textExcerpt: 'Buy' } } }),
     /^element <button> "Buy"$/,
+  )
+})
+
+test('an annotation mention round-trips through its canonical form', () => {
+  const mention = formatAnnoMention({ id: 'an-20261118-ab12cd', label: '批注 · “Enterprise”' })
+  assert.equal(mention, '@[批注 · “Enterprise”](dsh-anno:an-20261118-ab12cd)')
+  const parsed = parseAnnoText(`看这里 ${mention} 谢谢`)
+  assert.equal(parsed.text, '看这里 @批注 · “Enterprise” 谢谢')
+  assert.deepEqual(parsed.references, [{ id: 'an-20261118-ab12cd', label: '批注 · “Enterprise”' }])
+})
+
+test('mention labels escape brackets and backslashes', () => {
+  const label = 'see [this] \\ that'
+  const mention = formatAnnoMention({ id: 'an-1', label })
+  assert.equal(mention, '@[see \\[this\\] \\\\ that](dsh-anno:an-1)')
+  assert.equal(parseAnnoText(mention).references[0].label, label)
+})
+
+test('only URL-safe ids form mentions', () => {
+  assert.equal(formatAnnoMention({ id: 'an 1/x', label: 'x' }), '')
+  assert.equal(formatAnnoMention({ id: 'an-20261118-ab12cd' }), '@[an-20261118-ab12cd](dsh-anno:an-20261118-ab12cd)')
+})
+
+test('broken or unrelated mentions stay literal text', () => {
+  for (const text of ['@[x](dsh-anno:)', '@[x](dsh-anno:has space)', 'no mentions here', '@[x](dsh-session:abc)']) {
+    const parsed = parseAnnoText(text)
+    assert.equal(parsed.text, text)
+    assert.deepEqual(parsed.references, [])
+  }
+})
+
+test('mentions parse in order, and a bare URI counts too', () => {
+  const text = '@[a](dsh-anno:an-1) and dsh-anno:an-2 plus @[a](dsh-anno:an-1)'
+  const parsed = parseAnnoText(text)
+  assert.equal(parsed.text, '@a and @an-2 plus @a')
+  assert.deepEqual(
+    parsed.references.map((reference) => reference.id),
+    ['an-1', 'an-2', 'an-1'],
   )
 })

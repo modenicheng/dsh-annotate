@@ -273,6 +273,68 @@ export function describeAnchor(record) {
   return `region ${Math.round(page.w)}x${Math.round(page.h)} at ${Math.round(page.x)},${Math.round(page.y)}`
 }
 
+// ── mentions ────────────────────────────────────────────────────────────────
+
+/**
+ * URI scheme of an annotation mention. The Web Client renders the Markdown
+ * mention as one atomic chip, and the Host resolves it at `agent/pre-step`;
+ * neither side ever trusts the label to carry identity.
+ */
+export const ANNO_SCHEME = 'dsh-anno:'
+
+/** Annotation ids are already URL-safe; anything else cannot be a mention. */
+const ANNO_ID = /^[A-Za-z0-9_-]+$/
+
+/** @param {string} label */
+function escapeMentionLabel(label) {
+  return String(label).replace(/[\\[\]]/gu, (match) => `\\${match}`)
+}
+
+/** @param {string} label */
+function unescapeMentionLabel(label) {
+  return label.replace(/\\(.)/gu, '$1')
+}
+
+/**
+ * Render the canonical mention for one annotation.
+ *
+ * The label is presentation only: it is what the chip shows and what the model
+ * reads in place of the token, so it may be localized and may repeat.
+ * @param {{ id: string, label: string }} reference
+ * @returns escaped `@[label](dsh-anno:id)` mention, or `''` for an unusable id.
+ */
+export function formatAnnoMention(reference) {
+  const id = String(reference && reference.id)
+  if (!ANNO_ID.test(id)) return ''
+  const label = escapeMentionLabel(reference.label == null ? id : reference.label)
+  return `@[${label}](${ANNO_SCHEME}${id})`
+}
+
+/**
+ * Extract annotation mentions from one text value.
+ *
+ * Malformed mentions are left exactly as written: a user discussing the syntax
+ * must not lose their text, and a broken token is not a reference. Bare URIs
+ * are recognized too, because pasted text drops the Markdown brackets.
+ * @param {string} text
+ * @returns {{ text: string, references: { id: string, label: string }[] }} readable
+ * text with `@label` in place of each token, plus the references in appearance order.
+ */
+export function parseAnnoText(text) {
+  const references = []
+  const source = String(text ?? '')
+  const pattern = /@\[((?:\\.|[^\\\]\n])*)\]\((dsh-anno:([A-Za-z0-9_-]+))\)|(?<![(\w])(dsh-anno:([A-Za-z0-9_-]+))/gu
+  const rendered = source.replace(pattern, (match, rawLabel, _markdownUri, markdownId, _bareUri, bareId) => {
+    const id = markdownId ?? bareId
+    /* istanbul ignore next -- the two-alternative regex always captures exactly one id. */
+    if (id === undefined) return match
+    const label = rawLabel === undefined ? id : unescapeMentionLabel(rawLabel)
+    references.push({ id, label })
+    return `@${label}`
+  })
+  return { text: rendered, references }
+}
+
 // ── frames ──────────────────────────────────────────────────────────────────
 
 /** @param {unknown} value @param {number} [max] */

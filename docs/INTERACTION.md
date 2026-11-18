@@ -43,11 +43,22 @@ The chip serializes to a hidden mention:
 @[批注 · 那段话](dsh-anno:an-20261118-ab12cd)
 ```
 
-On submit, the Host resolves those mentions at `agent/pre-step`, exactly like
-`session-reference` does for `@[label](dsh-session:…)`, and appends one
-`additionalContext` message per user turn carrying the structured anchor and the
-crop image. The visible message keeps only the chip; the annotation body never
-enters the transcript as prose.
+The label is presentation only — it may be localized, repeated, and stale; the
+id is identity. `formatAnnoMention` / `parseAnnoText` in
+`packages/protocol/src/index.js` are the only codec, shared by the extension, the
+Host, and the Web Client rule.
+
+Rendering: `packages/plugin/client.js` registers a `UserText` rule for the
+`dsh-anno:` wire form plus a `conversation.user.text.node` renderer keyed `anno`,
+so a cited annotation is one atomic chip in the message bubble (it survives a
+reload, because the mention is what the log keeps).
+
+Context: the Host matches the same mention at `agent/pre-step`
+(`packages/plugin/src/mentions.js`) and places one `source.kind = 'annotations'`
+message right after the message that cited it, carrying the anchor, page
+context, comment, and the crop as an image block. A deleted annotation is
+reported in that context instead of failing the turn. The mention text is **not**
+rewritten — see D11.
 
 ## Why not a background injection
 

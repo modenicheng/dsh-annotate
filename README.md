@@ -15,8 +15,10 @@ to point at something (`annotate_pick`) when a request is ambiguous.
 > extension are implemented and covered by tests. The host half is verified
 > against a live `dsh web` instance, and the extension's bridge connection is
 > verified in a real Firefox 159.0 session (token handshake over `ws://127.0.0.1`);
-> the capture gestures still need a pass in a real browser. See
-> [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
+> the capture gestures still need a pass in a real browser. An annotation cited
+> from the DSH composer as a `dsh-anno:` mention renders as a chip and reaches
+> the model as structured context — verified end to end in a live Web Client.
+> See [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
 
 ## Architecture
 
@@ -266,6 +268,7 @@ and the generated-file rule.
 | M1 | Host plugin, storage loop, tools | implemented and verified against a live `dsh web` instance: health route, token handshake, create → ack → broadcast, query across query-string changes, resolve/delete, idempotent replay, attachment-backed crop |
 | M2 | Extension capture: gestures, overlay, crop, outbox | implemented; the bridge connects from a real Firefox 159.0 session, the gestures themselves are **not yet exercised in a real browser** |
 | M3 | Re-anchoring and agent-initiated picks | implemented on both sides (hydrator fallback chains, pick banner, timeout and cancel); browser behaviour unverified |
+| M3.5 | `dsh-anno:` mentions: client chip and pre-step context | implemented and verified in a live Web Client (Firefox 159.0): the mention renders as one chip, survives a reload, and the model answers from the anchor, comment, and crop |
 | M4 | Developer context, session routing, multi-window | planned |
 | M5 | Signing and distribution | planned |
 
