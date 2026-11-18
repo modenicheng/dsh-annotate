@@ -33,8 +33,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
-          cache-dependency-path: pnpm-workspace.yaml
+          # No pnpm cache: this repo has no lockfile to key it on, and pointing
+          # setup-node at a dependency file that does not exist fails the job
+          # in its own post step.
 
       - name: Enable corepack
         run: corepack enable

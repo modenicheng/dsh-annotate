@@ -147,7 +147,13 @@ running — only one profile should run the bridge at a time.
 pnpm run sync-protocol                              # copy the protocol into both consumers
 node --test "packages/*/test/*.test.js"             # works in PowerShell and cmd
 pnpm run check                                      # Biome + sync + syntax + tests
+node scripts/smoke-ws.mjs ws://127.0.0.1:3080/ext/anno   # verify a booted bridge, no browser needed
 ```
+
+`smoke-ws.mjs` drives the real socket: it reads `$DSH_HOME/ext-bridge-token`,
+creates an annotation with a 1×1 PNG crop, queries it back, resolves it, and
+replays the id to prove idempotency. Run it after installing the bundle and
+after any protocol change.
 
 The quoted glob is intentional: Node expands it itself, which keeps the command
 identical on Windows, macOS, and Linux. `pnpm run check` fetches the pinned
