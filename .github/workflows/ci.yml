@@ -33,12 +33,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          # No pnpm cache: this repo has no lockfile to key it on, and pointing
-          # setup-node at a dependency file that does not exist fails the job
-          # in its own post step.
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enable corepack
         run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Check generated protocol copies
         run: node scripts/check-sync.mjs

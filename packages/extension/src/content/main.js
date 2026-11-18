@@ -403,6 +403,7 @@
     state.selectionGesture = false
     if (ui) {
       if (ui.isComposerOpen()) ui.closeComposer()
+      ui.clearLocked()
       ui.setHover(null)
       ui.setMarquee(null)
       ui.setCursor(null)
@@ -457,6 +458,10 @@
     ui.setHover(null)
     ui.setMarquee(null)
     ui.setCursor(null)
+    // Keep the target outlined while the comment is written: the outline is the
+    // subject of the sentence, and losing it forces the user to remember which
+    // of five similar buttons they clicked.
+    ui.setLocked(ns.geom.roundRect(rect), summaryOf(anchorState.anchor), 'composer')
     ui.openComposer({
       kind: anchorState.anchor.kind,
       summary: summaryOf(anchorState.anchor),

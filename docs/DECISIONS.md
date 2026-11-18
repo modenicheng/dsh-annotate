@@ -23,25 +23,27 @@ liberally, and the linter disables `noExplicitAny` (the code interacts with
 untyped DSH host APIs) and `noAssignInExpressions` (the content-script
 namespace bootstrap intentionally assigns inside an expression).
 
-## D2 — Zero runtime dependencies in the host plugin
+## D2 — The host plugin depends on `ws` for the websocket server
 
-**Decision.** `packages/plugin` declares no `dependencies`. The websocket server
-is a small RFC 6455 implementation in `src/ws.js` instead of the `ws` package.
+**Decision.** `packages/plugin` declares `ws` as its only runtime dependency and
+mounts `new WebSocketServer({ noServer: true })` on the DSH host webserver. The
+earlier hand-written RFC 6455 implementation in `src/ws.js` was deleted.
 
-**Why.** DSH installs bundles into a profile's own pnpm workspace. That install
-must keep working when the npm registry is unreachable — an offline machine, a
-locked-down network, or npm itself being down — because the bridge is exactly
-the kind of tool a user wants when their usual stack is unavailable. Depending
-on `ws` would also mean an audit and upgrade treadmill for a protocol surface we
-only need a narrow slice of. The server implements just what the bridge uses:
-the handshake, text frames (including fragmentation), ping/pong, close, and
-payload limits.
+**Why.** The first version of this decision was "stay dependency-free so a
+profile install works without a registry". That premise was wrong: it was based
+on a failed `Invoke-WebRequest` probe of the registry, while `pnpm add ws` in the
+same session succeeded — the probe measured .NET's TLS stack, not pnpm's. Once
+the offline argument fell, the remaining trade-off is one of correctness against
+convenience, and protocol parsers are the wrong place to be original. `ws`
+handles UTF-8 validation with the mandatory 1007 close, control-frame size
+limits, the close handshake, backpressure, and permessage-deflate; the
+hand-written version handled none of those properly.
 
-**Consequences.** We own the protocol edge cases (fragmentation, masking,
-close codes) and must keep tests around them. No `permessage-deflate`, no
-binary application frames — both sides speak JSON text. If the implementation
-grows beyond a few hundred lines, revisiting the dependency trade-off is
-reasonable, but not before.
+**Consequences.** Installing the bundle now needs the registry reachable once, and
+`link:`-based development needs `pnpm install` in the workspace so the linked
+package can resolve `ws`. In exchange the bridge stops owning a protocol parser.
+`scripts/smoke-ws.mjs` still exercises the live socket end to end, and the bridge
+tests drive a real `ws://` connection rather than a stub.
 
 ## D3 — The protocol is one file copied by a script
 

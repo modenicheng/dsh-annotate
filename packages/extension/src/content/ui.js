@@ -187,6 +187,18 @@
   pointer-events: none;
 }
 .marquee { border-style: dashed; background: rgba(59, 130, 246, 0.15); }
+/* The locked outline marks what the open composer (or a hovered badge) refers
+   to. It is a separate element from the transient hover box so a pointer move
+   cannot erase the thing the user is currently describing. */
+.locked-box {
+  position: fixed;
+  border: 2px solid #f59e0b;
+  border-radius: 3px;
+  background: rgba(245, 158, 11, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+.hover-chip[data-locked="1"] { background: #b45309; }
 .hover-chip {
   position: fixed;
   max-width: min(360px, calc(100vw - 16px));
@@ -446,7 +458,11 @@
 
     const toastNode = createElement('div', 'toast')
 
-    shadow.append(hud, pick, hoverBox, hoverChip, marquee, cursorRing, composer, toastNode)
+    const lockedBox = createElement('div', 'locked-box')
+    const lockedChip = createElement('div', 'hover-chip')
+    lockedChip.dataset.locked = '1'
+
+    shadow.append(hud, pick, hoverBox, hoverChip, marquee, lockedBox, lockedChip, cursorRing, composer, toastNode)
     if (!host.isConnected) document.documentElement.appendChild(host)
 
     const state = {
@@ -461,6 +477,11 @@
       toastTimer: 0,
       hoverVisible: false,
       marqueeVisible: false,
+      /** 'composer' | 'badge' | null: who owns the locked outline. */
+      lockHolder: null,
+      lockedRect: null,
+      lockedPageRect: null,
+      lockedLabel: '',
       badgeItems: [],
       badgeSignature: '',
     }
@@ -534,6 +555,74 @@
       setVisible(hoverChip, true)
     }
 
+    /**
+     * Paint the persistent outline that says "this is the thing you are
+     * talking about". Unlike the hover box it survives pointer movement, and it
+     * is owned by whoever set it, so a badge hover cannot steal the outline the
+     * open composer is using.
+     * @param {{x:number,y:number,w:number,h:number}|null} rect viewport rect
+     * @param {string} [label]
+     * @param {'composer'|'badge'} [holder]
+     * @param {{x:number,y:number,w:number,h:number}} [pageRect] document rect, re-projected on scroll
+     */
+    function setLocked(rect, label, holder, pageRect) {
+      if (!rect) {
+        clearLocked(holder)
+        return
+      }
+      state.lockHolder = holder || 'composer'
+      state.lockedRect = { ...rect }
+      state.lockedPageRect = pageRect ? { ...pageRect } : null
+      state.lockedLabel = String(label || '')
+      positionLocked()
+    }
+
+    /** @param {'composer'|'badge'} [holder] omit to clear whoever holds it */
+    function clearLocked(holder) {
+      if (state.lockHolder === null) return
+      if (holder !== undefined && holder !== state.lockHolder) return
+      state.lockHolder = null
+      state.lockedRect = null
+      state.lockedPageRect = null
+      state.lockedLabel = ''
+      setVisible(lockedBox, false)
+      setVisible(lockedChip, false)
+    }
+
+    function positionLocked() {
+      if (state.lockHolder === null || state.hidden) {
+        setVisible(lockedBox, false)
+        setVisible(lockedChip, false)
+        return
+      }
+      const size = viewportSize()
+      let rect = state.lockedRect || { x: 0, y: 0, w: 0, h: 0 }
+      if (state.lockedPageRect !== null) {
+        const scroll = scrollOffset()
+        rect = {
+          x: state.lockedPageRect.x - scroll.x,
+          y: state.lockedPageRect.y - scroll.y,
+          w: state.lockedPageRect.w,
+          h: state.lockedPageRect.h,
+        }
+      }
+      lockedBox.style.left = `${Math.round(rect.x)}px`
+      lockedBox.style.top = `${Math.round(rect.y)}px`
+      lockedBox.style.width = `${Math.max(0, Math.round(rect.w))}px`
+      lockedBox.style.height = `${Math.max(0, Math.round(rect.h))}px`
+      setVisible(lockedBox, true)
+
+      lockedChip.textContent = state.lockedLabel
+      setVisible(lockedChip, state.lockedLabel !== '')
+      if (state.lockedLabel === '') return
+      const chipWidth = Math.min(lockedChip.scrollWidth || 120, size.width - 16)
+      const left = clamp(rect.x, 8, Math.max(8, size.width - chipWidth - 8))
+      let top = rect.y - 22
+      if (top < 8) top = rect.y + rect.h + 4
+      lockedChip.style.left = `${Math.round(left)}px`
+      lockedChip.style.top = `${Math.round(Math.max(4, top))}px`
+    }
+
     function setMarquee(rect) {
       if (!rect || state.hidden) {
         state.marqueeVisible = false
@@ -590,6 +679,21 @@
       card.appendChild(meta)
       node.appendChild(card)
       positionBadge(node, item.pageRect)
+      // Reading a note is easier when the thing the note is about stays
+      // outlined, so hovering the badge paints the same locked outline the
+      // composer uses — with the badge (not the composer) as its owner.
+      node.addEventListener('pointerenter', () => {
+        if (state.lockHolder === 'composer' || state.hidden) return
+        const pageRect = item.pageRect || { x: 0, y: 0, w: 0, h: 0 }
+        const scroll = scrollOffset()
+        setLocked(
+          { x: pageRect.x - scroll.x, y: pageRect.y - scroll.y, w: pageRect.w, h: pageRect.h },
+          kindLabel(item.kind),
+          'badge',
+          pageRect,
+        )
+      })
+      node.addEventListener('pointerleave', () => clearLocked('badge'))
       return { item, node, card }
     }
 
@@ -618,6 +722,7 @@
       const scroll = scrollOffset()
       for (const entry of badgeEntries) positionBadge(entry.node, entry.item.pageRect)
       if (state.composerOpen && composerRect) positionComposer(size)
+      positionLocked()
       void scroll
     }
 
@@ -742,6 +847,7 @@
       setVisible(composerError, false)
       textarea.value = ''
       syncSendState()
+      clearLocked('composer')
     }
 
     function setComposerBusy(busy) {
@@ -864,6 +970,8 @@
       },
       setHud,
       setHover,
+      setLocked,
+      clearLocked,
       setMarquee,
       setCursor,
       setBadges,
@@ -880,6 +988,7 @@
         if (state.hidden) {
           setHover(null)
           setMarquee(null)
+          clearLocked()
           setCursor(null)
         }
         for (const entry of badgeEntries) positionBadge(entry.node, entry.item.pageRect)

@@ -13,9 +13,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 
-import { createBridge } from '../src/bridge.js'
+import { acceptKey, createBridge } from '../src/bridge.js'
 import { AnnotationStore } from '../src/store.js'
-import { acceptKey } from '../src/ws.js'
 import { HEALTH_PATH, PROTOCOL_VERSION, WS_PATH } from '../src/protocol.js'
 
 const TOKEN = 'bridge-test-token'

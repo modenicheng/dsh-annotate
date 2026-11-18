@@ -18,6 +18,9 @@
     "docs",
     "icon.svg"
   ],
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

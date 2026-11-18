@@ -322,6 +322,12 @@
         return 'the host closed the connection'
       case 1006:
         return `could not connect; is "dsh web" running at ${ns.netState.wsUrl}?`
+      case 1015:
+        // Firefox reports a destroyed upgrade handshake as 1015. In practice
+        // this is the port being served by a DSH profile without the bundle
+        // mounted: the TCP connection opens, then the unmatched upgrade path
+        // closes it before the websocket handshake completes.
+        return `nothing answers the websocket at ${ns.netState.wsUrl}: either that port belongs to a DSH profile without the dsh-annotate bundle, or "dsh web" is not running there. Install the bundle in the profile serving this port, or change the port in the popup`
       case 4400:
         return `the host rejected the handshake${reason}`
       case 4401:

@@ -29,7 +29,7 @@ Firefox / Zen extension
         |  hello { token, version } -> frames both ways
         v
 DSH host (`dsh web`) with the dsh-annotate bundle
-  /ext/anno          websocket bridge (RFC 6455, hand-written)
+  /ext/anno          websocket bridge (RFC 6455 via `ws`)
   /ext/anno/health   health check + protocol version
   AnnotationStore    $DSH_HOME/annotations/queue.jsonl
   annotate_* tools   -> model / agent session
@@ -46,8 +46,9 @@ Requirements: Node.js 22+ and a DSH installation with the Web profile. Firefox
 
 ### Host plugin
 
-The host plugin is an ordinary DSH bundle with no runtime dependencies, so a
-profile install works offline. Development uses an isolated `anno` profile so
+The host plugin is an ordinary DSH bundle. Its one runtime dependency (`ws`) is
+installed into the profile by the same `plugin add` call, so the machine needs
+the npm registry reachable once. Development uses an isolated `anno` profile so
 the daily `web` profile is left untouched; you can pick any profile name.
 
 ```sh

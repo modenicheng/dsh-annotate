@@ -45,7 +45,7 @@ even with no browser connected yet.
   resources, icon, detail document.
 - Token file under `$DSH_HOME` with owner-only permissions, constant-time
   comparison, hello deadline, protocol version check.
-- Hand-written RFC 6455 server mounted on the DSH host webserver at
+- RFC 6455 websocket server (`ws`, `noServer`) mounted on the DSH host webserver at
   `/ext/anno`, plus `/ext/anno/health`; ping/pong heartbeat and clean shutdown.
 - Append-only JSONL store with in-memory fold, torn-line tolerance, idempotent
   creates, and compaction; screenshots stored through DSH's attachment service.
@@ -63,8 +63,8 @@ even with no browser connected yet.
 - Creating the same annotation id twice is idempotent (offline replay).
 - Records survive a profile restart; a torn final log line loses only that
   line; compaction preserves the live projection and image references.
-- The plugin has zero runtime dependencies and installs from a local directory
-  with the registry unreachable.
+- The plugin declares one runtime dependency (`ws`) and installs from a local directory
+  once the workspace dependencies are installed.
 - `packages/plugin/test/*.test.js` passes.
 
 ## M2 — Extension capture
