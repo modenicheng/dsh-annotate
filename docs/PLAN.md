@@ -77,7 +77,8 @@ even with no browser connected yet.
 - Background: websocket owner, token storage, hello/reconnect with backoff,
   offline outbox with stable ids, badge counts.
 - Content script: annotation mode (`Alt+Shift+A`), overlay for text
-  selection, element pick, and region drag; composer for comment and intent.
+  selection, element pick, and region drag; composer for an optional comment
+  (an empty one sends the mark alone) and intent.
 - Screenshot crops: target element/region and viewport context, downscaled and
   bounded before sending.
 - Popup: connection state, token entry, queue, flush, resolve/reopen/delete.

@@ -11,8 +11,9 @@
  *
  * It checks that the health endpoint advertises the same scheme the client is
  * about to use, creates a real annotation (with a 1x1 PNG crop), queries it
- * back, resolves it, and replays it to prove idempotency. Every check prints a
- * line; the exit code is non-zero when any check fails.
+ * back, resolves it, and replays it to prove idempotency. One of the records it
+ * creates carries no comment, which must survive the round trip unchanged.
+ * Every check prints a line; the exit code is non-zero when any check fails.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -166,6 +167,35 @@ check('resolve acknowledged', resolved?.state === 'resolved', String(resolved?.s
 socket.send(JSON.stringify({ t: 'anno.create', reqId: 'replay', record }))
 const replay = await waitFor((frame) => frame.t === 'anno.ack' && frame.reqId === 'replay').catch(() => undefined)
 check('replayed id is idempotent', replay?.id === id && replay?.seq === resolved?.seq)
+
+// An annotation with no comment is a first-class record (D10): the mark alone is
+// the payload, so the host must store it rather than treat it as incomplete.
+const bareId = annotationId()
+const bare = { ...record, id: bareId, comment: '' }
+socket.send(JSON.stringify({ t: 'anno.create', reqId: 'bare', record: bare }))
+const bareAck = await waitFor((frame) => frame.t === 'anno.ack' && frame.reqId === 'bare').catch(() => undefined)
+check('comment-less annotation acknowledged', bareAck?.id === bareId, String(bareAck?.id))
+
+socket.send(JSON.stringify({ t: 'anno.query', reqId: 'bare-query', url: 'https://example.com/smoke' }))
+const bareQuery = await waitFor((frame) => frame.t === 'anno.query.ok' && frame.reqId === 'bare-query').catch(
+  () => undefined,
+)
+const bareRecord = bareQuery?.records?.find((item) => item.id === bareId)
+check(
+  'comment-less annotation round-trips as an empty comment',
+  bareRecord?.comment === '',
+  String(bareRecord?.comment),
+)
+
+socket.send(JSON.stringify({ t: 'anno.mutate', reqId: 'bare-resolve', id: bareId, action: 'resolve' }))
+const bareResolved = await waitFor((frame) => frame.t === 'anno.ack' && frame.reqId === 'bare-resolve').catch(
+  () => undefined,
+)
+check(
+  'comment-less annotation resolves like any other',
+  bareResolved?.state === 'resolved',
+  String(bareResolved?.state),
+)
 
 socket.close()
 const failed = checks.filter((item) => !item.ok)

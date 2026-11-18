@@ -167,7 +167,9 @@ The extension has no build step. Load it as a temporary add-on:
    `127.0.0.1` / `3080`) or a full URL such as `wss://anno.example.com`; with no
    scheme the extension asks the host which one to use.
 4. Press `Alt+Shift+A` on a page to enter annotation mode: select text, click
-   an element, or drag a region, then write the comment and press Enter.
+   an element, or drag a region, then press Enter. The comment is optional —
+   with an empty one the mark is sent on its own (the button reads
+   **Send mark** / **只发标记**).
 
 Temporary add-ons disappear when the browser closes. M5 covers a signed `.xpi`
 for a permanent install.

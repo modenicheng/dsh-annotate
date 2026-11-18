@@ -212,3 +212,27 @@ the token handshake completes, and the console no longer prints the "Upgrading
 insecure request … to use wss" message. Both gate branches were also exercised by
 hand: removing the policy and injecting `upgrade-insecure-requests` each fail
 `check-manifest`, and restoring the policy passes it.
+
+## D10 — The mark is the annotation; the comment is optional
+
+**Decision.** An annotation may be sent with an empty comment. The composer's
+send button is always enabled; while the textarea is empty it reads **只发标记**
+(`Send mark`) so the action describes itself, and it reverts to **发送** as soon
+as the user types. An empty submit produces a normal record with `comment: ''` —
+the same shape the protocol already validates, with the anchor, page context, and
+crop carrying the payload.
+
+**Why.** Half the value of this bridge is "look at this, right here": a selection,
+element, or region is already a complete, self-contained pointer, and a user who
+has to invent a sentence before sending one will often send nothing. The comment
+adds a request on top of the pointer; it is not a precondition for it. Gating
+submit on text also turned the pick flow — where words are irrelevant — into a
+special case inside the UI, which is a hint that the gate sat in the wrong place.
+
+**Consequences.** Nothing downstream may assume `comment` is non-empty. The
+agent-facing envelope prints `comment: (empty)` instead of a blank line, the badge
+card falls back to summarising the anchor, and the popup keeps previewing the
+anchor (it already renders a comment only when there is one). The completion
+toast differs — **已发送标记（无评论）** versus **已发送批注** — so an empty send
+is confirmed rather than silent. The future `dsh-anno:` mention label must also
+degrade to `@[批注 · 那段话](…)` with no comment fragment.

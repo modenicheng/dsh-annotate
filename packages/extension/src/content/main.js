@@ -354,6 +354,7 @@
         pageRect: placement.pageRect,
         state: record.state || 'open',
         comment: record.comment || '',
+        summary: summaryOf(record.anchor),
         note: record.resolution && typeof record.resolution.note === 'string' ? record.resolution.note : '',
         kind: record.anchor && record.anchor.kind ? record.anchor.kind : '',
       })
@@ -605,8 +606,6 @@
       kind: anchorState.anchor.kind,
       summary: summaryOf(anchorState.anchor),
       rect: ns.geom.roundRect(rect),
-      // A pick may be answered by pointing alone; a user annotation needs words.
-      allowEmpty: state.pick !== null,
     })
   }
 
@@ -721,7 +720,9 @@
       if (normalized.record && typeof normalized.record.id === 'string') upsertRecord(normalized.record)
       else void queryRecords()
       finishPickSuccess(pick)
-      ui.toast(t('saved'), 'ok')
+      // An annotation without a comment is the mark alone; say which one was
+      // sent instead of implying words the user never wrote.
+      ui.toast(draft.comment === '' ? t('savedMark') : t('saved'), 'ok')
     })
   }
 

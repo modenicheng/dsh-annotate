@@ -66,6 +66,16 @@ test('region anchors carry page and viewport rects', () => {
   assert.deepEqual(errors, [])
 })
 
+test('a mark with no comment is still a whole annotation', () => {
+  // The anchor is the payload; the comment is optional metadata (D10). Nothing
+  // in the wire format may treat an empty comment as an incomplete record.
+  const bare = record({ comment: '' })
+  assert.deepEqual(validateRecord(bare), [])
+  const normalized = normalizeRecord({ ...bare, comment: undefined })
+  assert.equal(normalized.comment, '')
+  assert.equal(describeAnchor(normalized), 'selection "Enterprise"')
+})
+
 test('normalize fills derived fields without mutating input', () => {
   const input = record()
   delete input.createdAt

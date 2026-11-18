@@ -37,9 +37,11 @@
       composerRegion: 'Region',
       placeholder: 'What about this?  Enter sends · Shift+Enter adds a line',
       send: 'Send',
+      sendMark: 'Send mark',
       sending: 'Sending…',
       cancel: 'Cancel',
       saved: 'Annotation sent',
+      savedMark: 'Mark sent without a comment',
       sendFailed: 'Send failed — is the DeepSeek Harness host running?',
       anchorFailed: 'Could not build an anchor for that',
       anchorInvalid: 'Anchor failed protocol validation',
@@ -86,9 +88,11 @@
       composerRegion: '区域',
       placeholder: '想说点什么？Enter 发送 · Shift+Enter 换行',
       send: '发送',
+      sendMark: '只发标记',
       sending: '发送中…',
       cancel: '取消',
       saved: '已发送批注',
+      savedMark: '已发送标记（无评论）',
       sendFailed: '发送失败——DeepSeek Harness 宿主在运行吗？',
       anchorFailed: '无法为该目标生成锚点',
       anchorInvalid: '锚点未通过协议校验',
@@ -340,8 +344,17 @@
   gap: 8px;
   margin-top: 8px;
 }
-.composer-hint { color: #6b7280; font-size: 10px; white-space: nowrap; }
-.composer-actions { display: flex; gap: 6px; }
+/* nowrap keeps the foot one line; ellipsis keeps a longer locale inside the card
+   instead of painting past its edge at the 240px minimum width. */
+.composer-hint {
+  color: #6b7280;
+  font-size: 10px;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .btn {
   padding: 4px 10px;
   border-radius: 6px;
@@ -601,7 +614,6 @@
       mode: 'auto',
       connected: '',
       composerOpen: false,
-      allowEmpty: false,
       intent: '',
       busy: false,
       toastTimer: 0,
@@ -983,7 +995,9 @@
       del.setAttribute('aria-label', t('deleteAnnotation'))
       head.append(meta, del)
       card.append(head)
-      card.appendChild(createElement('div', 'badge-card-text', item.comment || t('noComment')))
+      // An empty comment is a real annotation, so the card falls back to what
+      // was marked rather than saying nothing happened.
+      card.appendChild(createElement('div', 'badge-card-text', item.comment || item.summary || t('noComment')))
       if (item.note) card.appendChild(createElement('div', 'badge-card-note', `${t('agentNote')}: ${item.note}`))
 
       node.appendChild(card)
@@ -1120,10 +1134,13 @@
 
     function syncSendState() {
       const text = textarea.value.trim()
-      sendButton.disabled = state.busy || (!state.allowEmpty && text === '')
+      // The mark is the annotation; the comment is optional metadata. An empty
+      // composer is therefore sendable, and the label says so instead of
+      // leaving an enabled button that looks like it is waiting for words.
+      sendButton.disabled = state.busy
       cancelButton.disabled = state.busy
       textarea.disabled = state.busy
-      sendButton.textContent = state.busy ? t('sending') : t('send')
+      sendButton.textContent = state.busy ? t('sending') : text === '' ? t('sendMark') : t('send')
     }
 
     function selectIntent(intent) {
@@ -1152,19 +1169,15 @@
 
     function submitComposer() {
       if (state.busy) return
-      const value = textarea.value
-      const text = value.replace(/\s+$/, '').replace(/^\s+/, '')
-      if (!state.allowEmpty && text === '') {
-        textarea.focus()
-        return
-      }
+      // Trim both ends but keep interior whitespace: an empty result is a
+      // sendable annotation that carries the mark alone.
+      const text = textarea.value.trim()
       handlers.onSend({ text, intent: state.intent })
     }
 
     function openComposer(options) {
       const config = options || {}
       state.composerOpen = true
-      state.allowEmpty = config.allowEmpty === true
       state.intent = ''
       for (const chip of chips.children) chip.setAttribute('aria-pressed', 'false')
       composerKind.textContent = composerTitle(config.kind)
@@ -1189,7 +1202,6 @@
       state.composerOpen = false
       state.busy = false
       state.intent = ''
-      state.allowEmpty = false
       composerRect = null
       setVisible(composer, false)
       composerError.textContent = ''

@@ -6,7 +6,9 @@ DSH client half) can be built against one description instead of drifting.
 ## The gesture
 
 1. On any page, `Alt+Shift+A` (or the toolbar button) enters annotate mode.
-2. The user marks a text selection, an element, or a region, and writes a comment.
+2. The user marks a text selection, an element, or a region, and may write a
+   comment. The mark alone is a complete annotation: an empty comment sends the
+   pointer by itself.
 3. The composer shows a **target**: the Session the annotation will join.
    Default is the Session the user is currently looking at in the DSH window.
 4. Submitting stores the annotation and leaves a **reference** in that Session's
