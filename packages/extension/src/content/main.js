@@ -46,9 +46,14 @@
   const document = global.document
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
   const HOOK_KEY = '__DSH_ANNO_HOOK__'
+  /** Parallel host mutations for a bulk clear; the host acks one id at a time. */
+  const DELETE_CONCURRENCY = 3
 
   /** @type {any} */
   let ui = null
+
+  /** Ids with an in-flight delete, so a double click cannot fire twice. */
+  const pendingDeletes = new Set()
 
   const state = {
     active: false,
@@ -74,6 +79,9 @@
     submitting: false,
     hookInstalled: false,
     booted: false,
+    counts: { total: 0, resolved: 0 },
+    countsSignature: '',
+    clearing: false,
   }
   ns.booted = true
 
@@ -123,6 +131,13 @@
     const table = tables[language] || tables.en || {}
     const english = tables.en || {}
     return Object.hasOwn(table, key) ? table[key] : english[key] || key
+  }
+
+  /** Replace `{name}` placeholders in a translated template. */
+  function fill(template, values) {
+    return String(template).replace(/\{(\w+)\}/g, (match, key) =>
+      values && Object.hasOwn(values, key) ? String(values[key]) : match,
+    )
   }
 
   // ── restricted documents ───────────────────────────────────────────────────
@@ -251,6 +266,30 @@
     return [...state.records.values()].sort(byCreatedAt)
   }
 
+  function recordCounts() {
+    let total = 0
+    let resolved = 0
+    for (const record of state.records.values()) {
+      total += 1
+      if (record.state === 'resolved') resolved += 1
+    }
+    return { total, resolved }
+  }
+
+  /**
+   * Keep the HUD's bulk-clear affordances in step with the store. The badge
+   * refresh runs on a 250 ms re-anchor tick, so the counts are compared before
+   * anything touches the DOM.
+   */
+  function updateCounts() {
+    const counts = recordCounts()
+    const signature = `${counts.total}:${counts.resolved}`
+    if (signature === state.countsSignature) return
+    state.countsSignature = signature
+    state.counts = counts
+    syncHud()
+  }
+
   function withObserverPaused(fn) {
     const observer = state.observer
     if (observer) {
@@ -275,6 +314,7 @@
    */
   function refreshRecords(options) {
     if (!ui) return
+    updateCounts()
     const mode = (options && options.mode) || 'stale'
     if (state.hidden) {
       withObserverPaused(() => ns.hydrate.clearMarks())
@@ -331,6 +371,9 @@
   function removeRecord(id) {
     if (!state.records.delete(id)) return
     state.placements.delete(id)
+    // A bulk clear repaints once when it finishes; repainting on each host
+    // broadcast would re-anchor the page once per deleted annotation.
+    if (state.clearing) return
     refreshRecords({ mode: 'stale' })
   }
 
@@ -352,6 +395,102 @@
     )
   }
 
+  // ── deleting annotations ───────────────────────────────────────────────────
+
+  /**
+   * Delete one annotation through the host. The record is dropped from the page
+   * only after the host acknowledges, so a failed delete leaves the marker (and
+   * the user's text) where it was.
+   * @param {string} id
+   * @param {{ batch?: boolean }} [options] batch skips the per-record repaint
+   * @returns {Promise<{ ok: boolean, error?: string, skipped?: boolean }>}
+   */
+  function deleteOne(id, options) {
+    const recordId = String(id || '')
+    if (recordId === '' || pendingDeletes.has(recordId)) return Promise.resolve({ ok: false, skipped: true })
+    const batch = options !== undefined && options !== null && options.batch === true
+    pendingDeletes.add(recordId)
+    if (ui) ui.setBadgePending(recordId, true)
+    return send(MSG.background.mutate, { id: recordId, action: 'delete' }).then((reply) => {
+      const normalized = normalizeReply(reply)
+      pendingDeletes.delete(recordId)
+      if (normalized.ok === false) {
+        if (ui) ui.setBadgePending(recordId, false)
+        return { ok: false, error: replyError(normalized) }
+      }
+      if (batch) {
+        // A bulk clear deletes dozens of ids; repainting after each one would
+        // re-anchor the whole page N times. Drop the record and repaint once.
+        state.records.delete(recordId)
+        state.placements.delete(recordId)
+      } else {
+        removeRecord(recordId)
+      }
+      return { ok: true }
+    })
+  }
+
+  /** @param {string} id */
+  function handleDelete(id) {
+    if (!ui) return
+    const recordId = String(id || '')
+    if (recordId === '' || !state.records.has(recordId)) return
+    void deleteOne(recordId).then((result) => {
+      if (result.ok) ui.toast(t('deletedOne'), 'ok')
+      else if (!result.skipped) ui.toast(result.error || t('deleteFailed'), 'error')
+    })
+  }
+
+  /**
+   * Delete every id with a small parallel pool. The bridge acknowledges one id
+   * per `anno.mutate` frame, so a bulk action is a fan-out of single deletes;
+   * the pool keeps a 200-annotation page from opening 200 at once.
+   * @param {string[]} ids
+   */
+  function deleteMany(ids) {
+    const total = ids.length
+    const failures = []
+    let done = 0
+    let cursor = 0
+    const worker = () => {
+      if (cursor >= ids.length) return Promise.resolve()
+      const id = ids[cursor]
+      cursor += 1
+      return deleteOne(id, { batch: true }).then((result) => {
+        if (!result.ok && result.skipped !== true) failures.push(result.error || '')
+        done += 1
+        if (ui && total > 1) ui.setClearProgress(done, total)
+        return worker()
+      })
+    }
+    const lanes = []
+    for (let index = 0; index < Math.min(DELETE_CONCURRENCY, total); index += 1) lanes.push(worker())
+    return Promise.all(lanes).then(() => ({ total, failed: failures.length, error: failures[0] || '' }))
+  }
+
+  /** @param {'all'|'resolved'} kind */
+  function handleClear(kind) {
+    if (!ui || state.clearing) return
+    const target = kind === 'resolved' ? 'resolved' : 'all'
+    const records =
+      target === 'resolved' ? orderedRecords().filter((record) => record.state === 'resolved') : orderedRecords()
+    if (records.length === 0) {
+      ui.toast(target === 'resolved' ? t('clearNothingResolved') : t('clearNothing'))
+      return
+    }
+    state.clearing = true
+    ui.setClearBusy(true, target)
+    ui.setClearProgress(0, records.length)
+    void deleteMany(records.map((record) => record.id)).then((result) => {
+      state.clearing = false
+      ui.setClearBusy(false)
+      if (result.failed === 0) ui.toast(fill(t('clearedCount'), { n: result.total }), 'ok')
+      else if (result.failed === result.total) ui.toast(result.error || t('deleteFailed'), 'error')
+      else ui.toast(fill(t('clearedPartial'), { n: result.total - result.failed, failed: result.failed }), 'error')
+      refreshRecords({ mode: 'stale' })
+    })
+  }
+
   // ── annotation mode ────────────────────────────────────────────────────────
 
   function activeMode() {
@@ -360,7 +499,7 @@
 
   function syncHud() {
     if (!ui) return
-    ui.setHud({ visible: state.active, mode: activeMode(), connected: state.connected })
+    ui.setHud({ visible: state.active, mode: activeMode(), connected: state.connected, counts: state.counts })
   }
 
   function enterMode(source, options) {
@@ -788,6 +927,12 @@
     // An open composer handles its own Esc: window capture runs first, so it
     // must not steal the key from the textarea.
     if (ui.isComposerOpen()) return
+    // A pinned annotation card closes first; a second Esc leaves annotation mode.
+    if (ui.closeBadgeCard()) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
     event.preventDefault()
     event.stopPropagation()
     if (state.pick) handleCancel()
@@ -1022,6 +1167,8 @@
       onCancel: handleCancel,
       onToggleHidden: () => applyHidden(!state.hidden, true),
       onExit: () => leaveMode('hud'),
+      onDelete: handleDelete,
+      onClear: handleClear,
     })
     ui.mount()
     ui.setHidden(state.hidden)
