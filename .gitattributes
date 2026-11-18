@@ -1,0 +1,23 @@
+# Normalise every text file to LF so hook scripts and generated protocol copies
+# compare byte-for-byte on Windows, macOS, and Linux.
+* text=auto eol=lf
+
+# Git hooks must keep LF endings: a CRLF shebang or line ending breaks sh.
+*.sh text eol=lf
+.githooks/* text eol=lf
+
+# Source and generated files are compared verbatim by scripts/check-sync.mjs.
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+
+# Binary artefacts
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.xpi binary

@@ -1,0 +1,34 @@
+# dsh-annotate
+
+批注在浏览器里产生，上下文在 Harness 里被消费。
+
+## 它做什么
+
+在 Firefox / Zen 里按 `Alt+Shift+A`，页面进入批注态：划词、点元素、拖框三种手势随便用，写完评论回车即可。批注连同**裁剪截图**、DOM 选择器、计算样式和页面状态一起进入 DSH 队列，Agent 用 `annotate_*` 工具读取。
+
+反过来也行：Agent 说不清「哪个按钮」时调用 `annotate_pick`，浏览器顶部弹出它写的问题，你点一下，Agent 立即拿到结果继续干活。
+
+## 端点
+
+- `ws://127.0.0.1:3080/ext/anno` —— 唯一通道，挂在 DSH 宿主 webserver 上，随 `dsh web` 同生共死。
+- `http://127.0.0.1:3080/ext/anno/health` —— 健康检查与协议版本。
+
+## 工具
+
+| 工具 | 用途 |
+|---|---|
+| `annotate_list` | 列出待处理批注（默认只看 open） |
+| `annotate_get` | 读一条：裁剪图 + 完整锚点 JSON |
+| `annotate_resolve` | 标记已处理，备注即时显示在页面角标 |
+| `annotate_pick` | 让用户在浏览器里点一下，阻塞等待结果 |
+| `annotate_clear` | 批量清理历史 |
+
+## 数据落在哪
+
+- 元数据：`$DSH_HOME/annotations/queue.jsonl`（append-only，事件溯源，自动压缩）
+- 图片：交给 DSH 原生 attachment 服务，日志里只存引用
+- 桥接令牌：`$DSH_HOME/ext-bridge-token`（首次生成，0600）
+
+## 边界
+
+不替代浏览器自动化（导航、填表还是 `dsh-browser-firefox` 的活），不写 DSH 的 todo/日程，不起后台服务，不上云。

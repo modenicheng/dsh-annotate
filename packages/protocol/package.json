@@ -1,0 +1,15 @@
+{
+  "name": "@dsh-annotate/protocol",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Wire protocol, data model, and validators for dsh-annotate",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
+  },
+  "files": [
+    "src"
+  ]
+}

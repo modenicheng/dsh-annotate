@@ -1,0 +1,36 @@
+{
+  "name": "dsh-annotate",
+  "version": "0.1.0",
+  "description": "Visual annotation bridge: mark text, elements, or regions in Firefox/Zen and hand them to DeepSeek Harness as first-class context",
+  "type": "module",
+  "license": "MIT",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "src",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "annotation",
+    "firefox",
+    "deepseek-harness"
+  ]
+}

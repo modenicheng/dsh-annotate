@@ -1,0 +1,1086 @@
+/**
+ * dsh-annotate content script 4/4 — gestures, messaging, wiring.
+ *
+ * The gesture layer is deliberately not an overlay element: the shadow host is
+ * `pointer-events: none`, so `document.elementsFromPoint` still sees the real
+ * page, and window-level capture listeners decide per gesture whether the page
+ * gets the event. That is what makes "hover the deepest meaningful element,
+ * click to lock it, drag to draw a region, Shift to let native text selection
+ * win" one coherent mode instead of three overlapping overlays.
+ *
+ * Message contract: `{ type, ...fields }` to the background, flat fields back.
+ * Names come from `src/shared/messages.js`; they are repeated here (classic
+ * scripts cannot import that ES module) and must be kept identical.
+ */
+;(function bootMain(global) {
+  const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
+  if (ns.booted) return
+
+  const P = global.__DSH_PROTOCOL__
+  if (!P || !ns.anchor || !ns.hydrate || !ns.ui) return
+
+  // Mirrors `packages/extension/src/shared/messages.js` (TO_BACKGROUND,
+  // TO_CONTENT, STORAGE_KEYS). Verified by `node --check` only; a rename there
+  // is a rename here.
+  const MSG = {
+    background: {
+      submit: 'anno.submit',
+      query: 'anno.query',
+      status: 'anno.status',
+      pickResult: 'anno.pick.result',
+      mutate: 'anno.mutate',
+      ready: 'anno.content.ready',
+    },
+    content: {
+      records: 'anno.records',
+      status: 'anno.status',
+      pickRequest: 'anno.pick.request',
+      pickCancel: 'anno.pick.cancel',
+      event: 'anno.event',
+      activate: 'anno.activate',
+    },
+    prefs: 'anno.prefs',
+  }
+
+  const api = global.browser || global.chrome || null
+  const document = global.document
+  const WIN = global
+  const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
+  const HOOK_KEY = '__DSH_ANNO_HOOK__'
+
+  /** @type {any} */
+  let ui = null
+
+  const state = {
+    active: false,
+    activeSource: '',
+    hidden: false,
+    connected: '',
+    connection: '',
+    outbox: 0,
+    pick: null,
+    records: new Map(),
+    placements: new Map(),
+    anchorState: null,
+    pointer: { down: false, dragging: false, shift: false, startX: 0, startY: 0, x: 0, y: 0 },
+    selectionGesture: false,
+    consoleErrors: [],
+    observer: null,
+    scheduler: null,
+    hoverFrame: 0,
+    hoverPoint: null,
+    scrollFrame: 0,
+    prefs: {},
+    restricted: '',
+    submitting: false,
+    hookInstalled: false,
+    booted: false,
+  }
+  ns.booted = true
+
+  // ── messaging ──────────────────────────────────────────────────────────────
+
+  function runtimeAvailable() {
+    return !!(api && api.runtime && typeof api.runtime.sendMessage === 'function')
+  }
+
+  /**
+   * Send one flat message. A missing background (reload in flight, tab opened
+   * before the extension reloaded) resolves to `undefined` instead of throwing
+   * into the page.
+   */
+  function send(type, fields) {
+    if (!runtimeAvailable()) return Promise.resolve(undefined)
+    const message = Object.assign({ type }, fields || {})
+    try {
+      const result = api.runtime.sendMessage(message)
+      if (result && typeof result.then === 'function') return result.catch(() => undefined)
+      return Promise.resolve(result)
+    } catch {
+      return Promise.resolve(undefined)
+    }
+  }
+
+  function normalizeReply(reply) {
+    if (reply === undefined || reply === null) return { ok: false }
+    if (reply === true) return { ok: true }
+    if (typeof reply !== 'object') return { ok: true }
+    return reply
+  }
+
+  function replyError(reply) {
+    if (!reply) return ''
+    if (typeof reply.error === 'string' && reply.error !== '') return reply.error
+    if (typeof reply.reason === 'string' && reply.reason !== '') return reply.reason
+    return ''
+  }
+
+  // ── language helpers (the UI owns the tables) ──────────────────────────────
+
+  function t(key) {
+    const tables = (ns.ui && ns.ui.STRINGS) || {}
+    const language =
+      ns.ui && ns.ui.pickLanguage ? ns.ui.pickLanguage(global.navigator && global.navigator.language) : 'en'
+    const table = tables[language] || tables.en || {}
+    const english = tables.en || {}
+    return Object.hasOwn(table, key) ? table[key] : english[key] || key
+  }
+
+  // ── restricted documents ───────────────────────────────────────────────────
+
+  /**
+   * `about:`, extension pages, the PDF viewer and friends have no annotatable
+   * document (or no capturable surface). Entering them must not throw and must
+   * not leave a half-mounted UI behind; the background tells the host why.
+   */
+  function restrictedReason() {
+    if (!document || !document.documentElement) return 'no-document'
+    const location = global.location || {}
+    const protocol = String(location.protocol || '')
+    const href = String(location.href || '')
+    if (protocol === 'about:' || href.indexOf('about:') === 0) return 'about-page'
+    if (
+      protocol === 'moz-extension:' ||
+      protocol === 'chrome:' ||
+      protocol === 'resource:' ||
+      protocol === 'view-source:' ||
+      protocol === 'data:' ||
+      protocol === 'jar:'
+    ) {
+      return `scheme:${protocol}`
+    }
+    const contentType = String(document.contentType || '')
+    if (contentType === 'application/pdf') return 'pdf-viewer'
+    if (/\.pdf(?:$|[?#])/i.test(href)) return 'pdf-viewer'
+    if (!document.body) return 'no-body'
+    return ''
+  }
+
+  // ── page-world console capture ─────────────────────────────────────────────
+
+  /**
+   * Runs in the page compartment (never in our isolated world): it only turns
+   * uncaught errors into `postMessage` strings. Kept as a string because the
+   * point is to execute it outside the content-script sandbox.
+   */
+  const HOOK_SOURCE = `(function () {
+  if (window.${HOOK_KEY}) return
+  window.${HOOK_KEY} = 1
+  var post = function (item) {
+    try { window.postMessage({ __dshAnno: 'console', item: item }, '*') } catch (error) {}
+  }
+  window.addEventListener('error', function (event) {
+    try {
+      if (event.target && event.target !== window && event.target.nodeType === 1) return
+      post({
+        kind: 'error',
+        message: event.message ? String(event.message) : 'page error',
+        source: event.filename ? String(event.filename) : '',
+        line: event.lineno || 0
+      })
+    } catch (error) {}
+  }, true)
+  window.addEventListener('unhandledrejection', function (event) {
+    var text = 'unhandled rejection'
+    try {
+      var reason = event.reason
+      if (reason && (reason.stack || reason.message)) text = String(reason.stack || reason.message)
+      else if (reason !== undefined) text = String(reason)
+    } catch (error) {}
+    post({ kind: 'unhandledrejection', message: text })
+  })
+})()`
+
+  function installConsoleHook() {
+    if (state.hookInstalled) return
+    state.hookInstalled = true
+    // Firefox content scripts are isolated; page errors are only visible to a
+    // listener installed in the page compartment. Calling the page window's own
+    // `eval` does that with no extra permission. The inline <script> fallback
+    // covers anything that refuses the cross-compartment call and is silently
+    // dropped by a strict page CSP — console capture is best-effort either way.
+    try {
+      const page = global.wrappedJSObject
+      if (page && typeof page.eval === 'function') {
+        page.eval(HOOK_SOURCE)
+        return
+      }
+    } catch {
+      // Fall through to the script element.
+    }
+    try {
+      const script = document.createElement('script')
+      script.textContent = HOOK_SOURCE
+      ;(document.head || document.documentElement).appendChild(script)
+      if (script.parentNode) script.parentNode.removeChild(script)
+    } catch {
+      // A page that forbids script injection simply has no console context.
+    }
+  }
+
+  function onPageMessage(event) {
+    if (!event || event.source !== global) return
+    const data = event.data
+    if (!data || typeof data !== 'object' || data.__dshAnno !== 'console') return
+    const item = data.item
+    if (!item || typeof item !== 'object') return
+    // Page-forged messages are accepted as data (never as instructions) and are
+    // bounded here so a noisy page cannot grow the record without limit.
+    const message = typeof item.message === 'string' ? P.truncate(item.message, 500) : ''
+    if (message === '') return
+    const entry = {
+      kind: typeof item.kind === 'string' ? item.kind.slice(0, 32) : 'error',
+      message,
+      at: new Date().toISOString(),
+    }
+    if (typeof item.source === 'string' && item.source !== '') entry.source = P.truncate(item.source, 300)
+    if (typeof item.line === 'number' && Number.isFinite(item.line)) entry.line = Math.trunc(item.line)
+    state.consoleErrors.push(entry)
+    while (state.consoleErrors.length > 10) state.consoleErrors.shift()
+  }
+
+  // ── records + badges ───────────────────────────────────────────────────────
+
+  function byCreatedAt(left, right) {
+    const a = Date.parse(String(left.createdAt || '')) || 0
+    const b = Date.parse(String(right.createdAt || '')) || 0
+    if (a !== b) return a - b
+    return String(left.id) < String(right.id) ? -1 : 1
+  }
+
+  function orderedRecords() {
+    return [...state.records.values()].sort(byCreatedAt)
+  }
+
+  function withObserverPaused(fn) {
+    const observer = state.observer
+    if (observer) {
+      try {
+        observer.disconnect()
+      } catch {
+        // Already disconnected; nothing to pause.
+      }
+    }
+    try {
+      return fn()
+    } finally {
+      if (observer) observeNow()
+    }
+  }
+
+  /**
+   * Re-resolve anchors and repaint badges. Highlighting is a page mutation, so
+   * it runs inside a paused observer and only when annotation mode is off —
+   * while the user is annotating, marks are removed so captured paths describe
+   * the page's real text structure.
+   */
+  function refreshRecords(options) {
+    if (!ui) return
+    const mode = (options && options.mode) || 'stale'
+    if (state.hidden) {
+      withObserverPaused(() => ns.hydrate.clearMarks())
+      state.placements.clear()
+      ui.setBadges([])
+      return
+    }
+    withObserverPaused(() => ns.hydrate.clearMarks())
+    const records = orderedRecords()
+    let pending = records
+    if (mode !== 'all') {
+      pending = records.filter((record) => {
+        const placement = state.placements.get(record.id)
+        return !placement || !ns.hydrate.isFresh(placement)
+      })
+    }
+    if (mode === 'all') state.placements.clear()
+    if (pending.length > 0) {
+      for (const item of ns.hydrate.resolveAll(pending, document)) {
+        state.placements.set(item.record.id, item.placement)
+      }
+    }
+    for (const id of [...state.placements.keys()]) {
+      if (!state.records.has(id)) state.placements.delete(id)
+    }
+    const items = []
+    const placements = []
+    const ordered = orderedRecords()
+    for (let index = 0; index < ordered.length; index += 1) {
+      const record = ordered[index]
+      const placement = state.placements.get(record.id)
+      if (!placement) continue
+      placements.push({ record, placement })
+      items.push({
+        id: record.id,
+        index: index + 1,
+        pageRect: placement.pageRect,
+        state: record.state || 'open',
+        comment: record.comment || '',
+        note: record.resolution && typeof record.resolution.note === 'string' ? record.resolution.note : '',
+        kind: record.anchor && record.anchor.kind ? record.anchor.kind : '',
+      })
+    }
+    ui.setBadges(items)
+    if (!state.active) withObserverPaused(() => ns.hydrate.applyMarks(placements))
+  }
+
+  function upsertRecord(record) {
+    if (!record || typeof record.id !== 'string') return
+    state.records.set(record.id, record)
+    refreshRecords({ mode: 'stale' })
+  }
+
+  function removeRecord(id) {
+    if (!state.records.delete(id)) return
+    state.placements.delete(id)
+    refreshRecords({ mode: 'stale' })
+  }
+
+  function replaceRecords(list) {
+    state.records.clear()
+    for (const record of Array.isArray(list) ? list : []) {
+      if (record && typeof record.id === 'string') state.records.set(record.id, record)
+    }
+    refreshRecords({ mode: 'all' })
+  }
+
+  function queryRecords() {
+    return send(MSG.background.query, { url: String((global.location && global.location.href) || '') }).then(
+      (reply) => {
+        const normalized = normalizeReply(reply)
+        if (normalized.ok === false) return
+        if (Array.isArray(normalized.records)) replaceRecords(normalized.records)
+      },
+    )
+  }
+
+  // ── annotation mode ────────────────────────────────────────────────────────
+
+  function activeMode() {
+    return state.pick && state.pick.mode ? state.pick.mode : 'auto'
+  }
+
+  function syncHud() {
+    if (!ui) return
+    ui.setHud({ visible: state.active, mode: activeMode(), connected: state.connected })
+  }
+
+  function enterMode(source, options) {
+    const config = options || {}
+    if (state.restricted) return
+    if (state.hidden) {
+      // An explicit activation always reveals the layers: activating while
+      // hidden would otherwise look like nothing happened.
+      state.hidden = false
+      ui.setHidden(false)
+      persistPrefs()
+    }
+    state.activeSource = source || 'user'
+    if (!state.active) {
+      state.active = true
+      ui.setHud({ visible: true, mode: activeMode(), connected: state.connected })
+      // A selection made before activation goes straight to the composer.
+      if (!config.skipSelection) captureExistingSelection()
+    } else {
+      syncHud()
+    }
+  }
+
+  function captureExistingSelection() {
+    const selection = global.getSelection ? global.getSelection() : null
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
+    const captured = ns.anchor.selection(selection)
+    if (captured) openComposerFor(captured)
+  }
+
+  function leaveMode(reason) {
+    if (!state.active) return
+    state.active = false
+    state.activeSource = ''
+    const pick = state.pick
+    state.pick = null
+    state.anchorState = null
+    state.pointer.down = false
+    state.pointer.dragging = false
+    state.selectionGesture = false
+    if (ui) {
+      if (ui.isComposerOpen()) ui.closeComposer()
+      ui.setHover(null)
+      ui.setMarquee(null)
+      ui.setCursor(null)
+      ui.setPickBanner(null)
+      ui.setHud({ visible: false })
+    }
+    // Leaving annotation mode without answering an outstanding pick would hang
+    // the agent until its timeout, so answer it now.
+    if (pick && reason !== 'pick-done' && reason !== 'pick-cancelled') {
+      void send(MSG.background.pickResult, { pickId: pick.pickId, ok: false, reason: 'cancelled' })
+    }
+    refreshRecords({ mode: 'stale' })
+  }
+
+  function toggleMode() {
+    if (state.active) leaveMode('toggle')
+    else enterMode('user')
+  }
+
+  // ── composer ───────────────────────────────────────────────────────────────
+
+  function summaryOf(anchor) {
+    if (!anchor) return ''
+    if (anchor.kind === 'selection') {
+      const exact = anchor.quote && typeof anchor.quote.exact === 'string' ? anchor.quote.exact : ''
+      return `“${P.truncate(exact, 48)}”`
+    }
+    if (anchor.kind === 'element') {
+      const fingerprint = anchor.fingerprint || {}
+      const tag = fingerprint.tag ? String(fingerprint.tag) : 'element'
+      const text = fingerprint.textExcerpt ? P.truncate(String(fingerprint.textExcerpt), 36) : ''
+      return text ? `<${tag}> ${text}` : `<${tag}>`
+    }
+    const pageRect = anchor.pageRect || { w: 0, h: 0 }
+    return `${Math.round(pageRect.w)}×${Math.round(pageRect.h)}`
+  }
+
+  function openComposerFor(anchorState) {
+    if (!anchorState || !anchorState.anchor) {
+      if (ui) ui.toast(t('anchorFailed'), 'error')
+      return
+    }
+    const errors = ns.anchor.validate(anchorState.anchor)
+    if (errors.length > 0) {
+      if (ui) ui.toast(`${t('anchorInvalid')}: ${errors[0]}`, 'error')
+      return
+    }
+    state.anchorState = anchorState
+    const rect =
+      anchorState.viewportRect ||
+      ns.geom.pageToViewport(anchorState.anchor.rect || anchorState.anchor.pageRect || { x: 0, y: 0, w: 0, h: 0 })
+    ui.setHover(null)
+    ui.setMarquee(null)
+    ui.setCursor(null)
+    ui.openComposer({
+      kind: anchorState.anchor.kind,
+      summary: summaryOf(anchorState.anchor),
+      rect: ns.geom.roundRect(rect),
+      // A pick may be answered by pointing alone; a user annotation needs words.
+      allowEmpty: state.pick !== null,
+    })
+  }
+
+  function handleCancel() {
+    if (!ui) return
+    const pick = state.pick
+    ui.closeComposer()
+    state.anchorState = null
+    if (!pick) return
+    state.pick = null
+    ui.setPickBanner(null)
+    syncHud()
+    void send(MSG.background.pickResult, { pickId: pick.pickId, ok: false, reason: 'cancelled' })
+    if (state.activeSource === 'pick') leaveMode('pick-cancelled')
+  }
+
+  function buildDraft(anchor, comment, intent) {
+    const draft = {
+      url: String((global.location && global.location.href) || ''),
+      title: String((document && document.title) || ''),
+      anchor,
+      comment: String(comment == null ? '' : comment).slice(0, P.LIMITS.commentChars),
+      pageContext: ns.anchor.pageContext(state.consoleErrors),
+    }
+    if (intent) draft.intent = intent
+    return draft
+  }
+
+  function viewportSize() {
+    return {
+      width: Math.round(Number(global.innerWidth) || 0),
+      height: Math.round(Number(global.innerHeight) || 0),
+      devicePixelRatio: Math.round((Number(global.devicePixelRatio) || 1) * 100) / 100,
+    }
+  }
+
+  /** The crop rectangle in viewport CSS px, clipped and allowed to be degenerate. */
+  function cropRectFor(anchorState) {
+    const live = ns.anchor.liveViewportRect(anchorState) || { x: 0, y: 0, w: 0, h: 0 }
+    const size = viewportSize()
+    const clipped = ns.geom.intersection(ns.geom.roundRect(live), { x: 0, y: 0, w: size.width, h: size.height })
+    return ns.geom.roundRect(clipped)
+  }
+
+  function finishPickSuccess(pick) {
+    if (!pick) return
+    state.pick = null
+    if (ui) ui.setPickBanner(null)
+    syncHud()
+    if (state.activeSource === 'pick') leaveMode('pick-done')
+  }
+
+  /**
+   * A pick is answered with one `anno.pick.result` carrying the draft plus the
+   * crop rect: the background owns id creation and the screenshot, then relays
+   * to the host. The submit fallback keeps an older background working.
+   */
+  function sendPickAnswer(pick, draft, cropRect, viewport) {
+    return send(MSG.background.pickResult, { pickId: pick.pickId, ok: true, record: draft, cropRect, viewport }).then(
+      (reply) => {
+        const normalized = normalizeReply(reply)
+        if (normalized.ok !== false) return normalized
+        return send(MSG.background.submit, {
+          record: draft,
+          cropRect,
+          viewport,
+          pickId: pick.pickId,
+        }).then((fallback) => {
+          const second = normalizeReply(fallback)
+          if (second.ok === false || !second.record || typeof second.record.id !== 'string') return second
+          return send(MSG.background.pickResult, { pickId: pick.pickId, ok: true, record: second.record }).then(
+            () => second,
+          )
+        })
+      },
+    )
+  }
+
+  function handleSend(payload) {
+    if (!ui) return
+    const anchorState = state.anchorState
+    if (!anchorState || state.submitting) return
+    const text = payload && typeof payload.text === 'string' ? payload.text : ''
+    const intent = payload && typeof payload.intent === 'string' ? payload.intent : ''
+    const pick = state.pick
+    const draft = buildDraft(anchorState.anchor, text, intent)
+    const cropRect = cropRectFor(anchorState)
+    const viewport = viewportSize()
+    state.submitting = true
+    ui.setComposerError('')
+    ui.setComposerBusy(true)
+
+    const request = pick
+      ? sendPickAnswer(pick, draft, cropRect, viewport)
+      : send(MSG.background.submit, { record: draft, cropRect, viewport }).then(normalizeReply)
+
+    request.then((reply) => {
+      state.submitting = false
+      if (!ui) return
+      const normalized = normalizeReply(reply)
+      if (normalized.ok === false) {
+        ui.setComposerBusy(false)
+        const reason = replyError(normalized)
+        ui.setComposerError(reason || t('sendFailed'))
+        return
+      }
+      ui.setComposerBusy(false)
+      ui.closeComposer()
+      state.anchorState = null
+      // The optimistic badge needs an id; an older background may omit the
+      // record, in which case a query fills the gap.
+      if (normalized.record && typeof normalized.record.id === 'string') upsertRecord(normalized.record)
+      else void queryRecords()
+      finishPickSuccess(pick)
+      ui.toast(t('saved'), 'ok')
+    })
+  }
+
+  // ── pick lifecycle ─────────────────────────────────────────────────────────
+
+  function normalizePickMode(value) {
+    return value === 'selection' || value === 'element' || value === 'region' ? value : 'auto'
+  }
+
+  function handlePickRequest(message) {
+    const pickId = String(message.pickId || '')
+    if (!pickId) return
+    state.pick = {
+      pickId,
+      mode: normalizePickMode(message.mode),
+      prompt: String(message.prompt || ''),
+      timeoutMs: Number(message.timeoutMs) || 0,
+    }
+    if (ui) ui.setPickBanner({ prompt: state.pick.prompt, mode: state.pick.mode })
+    // Never discard an open composer: the draft the user is writing wins and
+    // becomes the pick answer on send.
+    if (!ui.isComposerOpen()) enterMode('pick')
+    else syncHud()
+  }
+
+  function handlePickCancel(message) {
+    if (!state.pick) return
+    if (message.pickId && String(message.pickId) !== state.pick.pickId) return
+    state.pick = null
+    state.anchorState = null
+    if (ui) {
+      ui.setPickBanner(null)
+      if (ui.isComposerOpen()) ui.closeComposer()
+      ui.toast(t('pickCancelled'))
+    }
+    if (state.activeSource === 'pick') leaveMode('pick-cancelled')
+    else syncHud()
+  }
+
+  // ── gestures ───────────────────────────────────────────────────────────────
+
+  function marqueeRect(x, y) {
+    return ns.geom.normalizeRect({
+      x: state.pointer.startX,
+      y: state.pointer.startY,
+      w: x - state.pointer.startX,
+      h: y - state.pointer.startY,
+    })
+  }
+
+  function scheduleHover(x, y) {
+    state.hoverPoint = { x, y }
+    if (state.hoverFrame) return
+    state.hoverFrame = global.requestAnimationFrame(() => {
+      state.hoverFrame = 0
+      const point = state.hoverPoint
+      if (!point || !state.active || state.hidden) return
+      updateHover(point.x, point.y)
+    })
+  }
+
+  function updateHover(x, y) {
+    if (!ui) return
+    if (activeMode() === 'selection') {
+      ui.setHover(null)
+      ui.setCursor({ x, y })
+      return
+    }
+    ui.setCursor({ x, y })
+    const element = ns.anchor.meaningfulAt(x, y)
+    if (!element) {
+      ui.setHover(null)
+      return
+    }
+    const rect = ns.geom.rectOf(element.getBoundingClientRect())
+    ui.setHover({ rect, label: ns.anchor.chipLabel(element, rect) })
+  }
+
+  function onPointerDown(event) {
+    if (!state.active || event.button !== 0) return
+    if (ns.text.isOurs(event.target)) return
+    const mode = activeMode()
+    state.pointer.x = event.clientX
+    state.pointer.y = event.clientY
+    state.pointer.startX = event.clientX
+    state.pointer.startY = event.clientY
+    state.pointer.shift = event.shiftKey === true
+    state.pointer.down = true
+    state.pointer.dragging = false
+    if (event.shiftKey === true || mode === 'selection') {
+      // Native text selection owns this drag; we only read it on pointerup.
+      state.selectionGesture = true
+      return
+    }
+    state.selectionGesture = false
+    // Suppress text selection, link/image dragging and control activation while
+    // the gesture layer is armed.
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  function onPointerMove(event) {
+    if (!state.active) return
+    state.pointer.x = event.clientX
+    state.pointer.y = event.clientY
+    if (state.pointer.down) {
+      const distance = Math.hypot(event.clientX - state.pointer.startX, event.clientY - state.pointer.startY)
+      const threshold = Number(P.MAX_CLICK_MOVEMENT_PX) || 6
+      const wantsRegion = activeMode() === 'auto' || activeMode() === 'region'
+      if (!state.pointer.dragging && wantsRegion && distance >= threshold) {
+        state.pointer.dragging = true
+        ui.setHover(null)
+      }
+      if (state.pointer.dragging) {
+        event.preventDefault()
+        event.stopPropagation()
+        const rect = marqueeRect(event.clientX, event.clientY)
+        if (rect) ui.setMarquee(rect)
+        ui.setCursor({ x: event.clientX, y: event.clientY })
+        return
+      }
+    }
+    scheduleHover(event.clientX, event.clientY)
+  }
+
+  function onPointerUp(event) {
+    if (!state.active) return
+    const wasDown = state.pointer.down
+    const dragging = state.pointer.dragging
+    state.pointer.down = false
+    state.pointer.dragging = false
+
+    if (state.selectionGesture) {
+      state.selectionGesture = false
+      // The browser commits the native selection after mouseup, so read it on
+      // the next turn of the event loop.
+      global.setTimeout(() => {
+        if (!state.active) return
+        const selection = global.getSelection ? global.getSelection() : null
+        if (!selection || selection.isCollapsed) return
+        const captured = ns.anchor.selection(selection)
+        if (captured) openComposerFor(captured)
+      }, 0)
+      return
+    }
+    if (!wasDown) return
+    if (ns.text.isOurs(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (ui) ui.setMarquee(null)
+
+    const mode = activeMode()
+    if (dragging && (mode === 'auto' || mode === 'region')) {
+      const rect = marqueeRect(event.clientX, event.clientY)
+      if (rect && rect.w >= 4 && rect.h >= 4) {
+        const captured = ns.anchor.region(rect)
+        if (captured) {
+          openComposerFor(captured)
+          return
+        }
+      }
+      if (mode === 'region') return
+    }
+    if (mode === 'auto' || mode === 'element') {
+      const element = ns.anchor.meaningfulAt(event.clientX, event.clientY)
+      if (!element) return
+      const captured = ns.anchor.element(element)
+      if (captured) openComposerFor(captured)
+    }
+  }
+
+  function onClickCapture(event) {
+    if (!state.active) return
+    if (ns.text.isOurs(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  function onMouseDownCapture(event) {
+    if (!state.active || state.selectionGesture) return
+    if (ns.text.isOurs(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  function onDragStart(event) {
+    if (!state.active) return
+    if (ns.text.isOurs(event.target)) return
+    event.preventDefault()
+  }
+
+  function onKeyDown(event) {
+    if (!event || event.repeat) return
+    const key = String(event.key || '').toLowerCase()
+    if (event.altKey && event.shiftKey && (event.code === 'KeyA' || key === 'a')) {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleMode()
+      return
+    }
+    if (event.key !== 'Escape') return
+    if (!ui || !state.active) return
+    // An open composer handles its own Esc: window capture runs first, so it
+    // must not steal the key from the textarea.
+    if (ui.isComposerOpen()) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (state.pick) handleCancel()
+    else leaveMode('escape')
+  }
+
+  // ── re-anchoring loop ──────────────────────────────────────────────────────
+
+  function onRehydrateTick() {
+    if (!state.hidden) refreshRecords({ mode: 'stale' })
+  }
+
+  function isOwnNode(node) {
+    return ns.text.isOurs(node)
+  }
+
+  function onMutations(mutations) {
+    for (const mutation of mutations) {
+      if (isOwnNode(mutation.target)) continue
+      if (mutation.type === 'attributes') continue
+      if (state.scheduler) state.scheduler.request()
+      return
+    }
+  }
+
+  function observeNow() {
+    if (!state.observer || !document.body) return
+    try {
+      state.observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    } catch {
+      // The body was replaced by the page; the next mutation pass fails too but
+      // must not throw into the page.
+    }
+  }
+
+  function startObserver() {
+    if (!global.MutationObserver || !document.body) return
+    try {
+      state.observer = new global.MutationObserver(onMutations)
+      observeNow()
+    } catch {
+      state.observer = null
+    }
+  }
+
+  function onViewportChange() {
+    if (!state.active || !ui) return
+    if (state.scrollFrame) return
+    state.scrollFrame = global.requestAnimationFrame(() => {
+      state.scrollFrame = 0
+      if (state.active && state.hoverPoint) updateHover(state.hoverPoint.x, state.hoverPoint.y)
+    })
+  }
+
+  // ── prefs (browser.storage.local under `anno.prefs`) ───────────────────────
+
+  function storageAvailable() {
+    return !!(api && api.storage && api.storage.local)
+  }
+
+  function persistPrefs() {
+    state.prefs = Object.assign({}, state.prefs, { hidden: state.hidden })
+    if (!storageAvailable()) return
+    try {
+      const result = api.storage.local.set({ [MSG.prefs]: state.prefs })
+      if (result && typeof result.catch === 'function') result.catch(() => undefined)
+    } catch {
+      // Private windows may refuse storage; the in-memory flag still works.
+    }
+  }
+
+  function applyHidden(hidden, persist) {
+    const value = hidden === true
+    if (value === state.hidden) return
+    state.hidden = value
+    if (ui) ui.setHidden(value)
+    if (value) {
+      withObserverPaused(() => ns.hydrate.clearMarks())
+      if (ui) ui.setBadges([])
+    } else {
+      refreshRecords({ mode: 'all' })
+    }
+    if (persist) persistPrefs()
+  }
+
+  function loadPrefs() {
+    if (!storageAvailable()) return Promise.resolve()
+    return Promise.resolve()
+      .then(() => api.storage.local.get(MSG.prefs))
+      .then((stored) => {
+        const prefs = stored && stored[MSG.prefs]
+        if (!prefs || typeof prefs !== 'object') return
+        state.prefs = prefs
+        if (prefs.hidden === true) {
+          state.hidden = true
+          if (ui) ui.setHidden(true)
+        }
+      })
+      .catch(() => undefined)
+  }
+
+  function onStorageChanged(changes, area) {
+    if (area !== 'local' || !changes || !changes[MSG.prefs]) return
+    const next = changes[MSG.prefs].newValue
+    if (!next || typeof next !== 'object') return
+    state.prefs = next
+    applyHidden(next.hidden === true, false)
+  }
+
+  // ── background → content ───────────────────────────────────────────────────
+
+  function handleRecordsMessage(message) {
+    const list = Array.isArray(message.records) ? message.records : []
+    replaceRecords(list)
+  }
+
+  function handleEventMessage(message) {
+    const kind = String(message.event || '')
+    const record = message.record
+    if (!record || typeof record.id !== 'string') return
+    if (kind === 'deleted') {
+      removeRecord(record.id)
+      return
+    }
+    upsertRecord(record)
+    if (
+      kind === 'updated' &&
+      record.resolution &&
+      typeof record.resolution.note === 'string' &&
+      record.resolution.note !== ''
+    ) {
+      if (ui) ui.toast(`${t('agentNote')}: ${P.truncate(record.resolution.note, 160)}`)
+    }
+  }
+
+  function connectionToHud(value) {
+    if (value === 'connected' || value === 'open') return 'ok'
+    if (value === 'connecting' || value === 'idle') return 'warn'
+    if (value === 'offline' || value === 'no-token' || value === 'error') return 'off'
+    return ''
+  }
+
+  function handleStatusMessage(message) {
+    state.connection = String(message.connection || '')
+    state.connected = connectionToHud(state.connection)
+    if (message.outbox && typeof message.outbox.count === 'number') state.outbox = message.outbox.count
+    syncHud()
+  }
+
+  function handleActivate(message) {
+    const recordId = message.recordId ? String(message.recordId) : ''
+    if (recordId !== '') {
+      focusRecord(recordId)
+      return
+    }
+    toggleMode()
+  }
+
+  function focusRecord(recordId) {
+    const placement = state.placements.get(recordId)
+    if (!placement) {
+      void queryRecords().then(() => {
+        const retry = state.placements.get(recordId)
+        if (retry) scrollToPlacement(retry)
+      })
+      return
+    }
+    scrollToPlacement(placement)
+  }
+
+  function scrollToPlacement(placement) {
+    const height = Number(global.innerHeight) || 0
+    const top = Math.max(0, placement.pageRect.y - height / 3)
+    try {
+      global.scrollTo({ top, behavior: 'smooth' })
+    } catch {
+      try {
+        global.scrollTo(0, top)
+      } catch {
+        // A page that overrides scrollTo: nothing to do.
+      }
+    }
+  }
+
+  /**
+   * Firefox delivers the message and an optional `{ ok: true }` reply; unknown
+   * types return undefined so nothing else claims them.
+   */
+  function onRuntimeMessage(message) {
+    if (!message || typeof message !== 'object') return undefined
+    // Tolerate `{ type, payload: {...} }` from older builds; flat fields win.
+    const flat =
+      message.payload && typeof message.payload === 'object' ? Object.assign({}, message.payload, message) : message
+    const type = flat.type
+    if (type === MSG.content.records) {
+      handleRecordsMessage(flat)
+      return Promise.resolve({ ok: true })
+    }
+    if (type === MSG.content.event) {
+      handleEventMessage(flat)
+      return Promise.resolve({ ok: true })
+    }
+    if (type === MSG.content.status) {
+      handleStatusMessage(flat)
+      return Promise.resolve({ ok: true })
+    }
+    if (type === MSG.content.pickRequest) {
+      handlePickRequest(flat)
+      return Promise.resolve({ ok: true })
+    }
+    if (type === MSG.content.pickCancel) {
+      handlePickCancel(flat)
+      return Promise.resolve({ ok: true })
+    }
+    if (type === MSG.content.activate) {
+      handleActivate(flat)
+      return Promise.resolve({ ok: true })
+    }
+    return undefined
+  }
+
+  // ── boot ───────────────────────────────────────────────────────────────────
+
+  function start() {
+    const reason = restrictedReason()
+    if (reason) {
+      state.restricted = reason
+      return
+    }
+    ui = ns.ui.create({
+      onSend: handleSend,
+      onCancel: handleCancel,
+      onToggleHidden: () => applyHidden(!state.hidden, true),
+      onExit: () => leaveMode('hud'),
+    })
+    ui.mount()
+    ui.setHidden(state.hidden)
+    installConsoleHook()
+    global.addEventListener('message', onPageMessage, false)
+    global.addEventListener('keydown', onKeyDown, true)
+    global.addEventListener('pointerdown', onPointerDown, true)
+    global.addEventListener('pointermove', onPointerMove, true)
+    global.addEventListener('pointerup', onPointerUp, true)
+    global.addEventListener('mousedown', onMouseDownCapture, true)
+    global.addEventListener('click', onClickCapture, true)
+    global.addEventListener('dragstart', onDragStart, true)
+    global.addEventListener('scroll', onViewportChange, true)
+    global.addEventListener('resize', onViewportChange, true)
+    if (api && api.runtime && api.runtime.onMessage) {
+      try {
+        api.runtime.onMessage.addListener(onRuntimeMessage)
+      } catch {
+        // Another content script instance already registered.
+      }
+    }
+    if (api && api.storage && api.storage.onChanged) {
+      try {
+        api.storage.onChanged.addListener(onStorageChanged)
+      } catch {
+        // Storage listener unavailable in this context.
+      }
+    }
+    state.scheduler = ns.hydrate.createScheduler(onRehydrateTick, REHYDRATE_INTERVAL_MS)
+    startObserver()
+    void loadPrefs()
+    void send(MSG.background.ready, {
+      url: String((global.location && global.location.href) || ''),
+      title: String((document && document.title) || ''),
+      restricted: false,
+    }).then((reply) => {
+      const normalized = normalizeReply(reply)
+      if (Array.isArray(normalized.records)) replaceRecords(normalized.records)
+      else void queryRecords()
+      if (normalized.status) handleStatusMessage(normalized.status)
+    })
+  }
+
+  function boot() {
+    const reason = restrictedReason()
+    if (reason) {
+      // Say so once and stay out of the page's way: the background reports the
+      // limitation to the host instead of the user staring at a dead shortcut.
+      state.restricted = reason
+      void send(MSG.background.ready, {
+        url: String((global.location && global.location.href) || ''),
+        title: String((document && document.title) || ''),
+        restricted: true,
+        reason,
+      })
+      return
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', start, { once: true })
+      return
+    }
+    start()
+  }
+
+  boot()
+})(globalThis)

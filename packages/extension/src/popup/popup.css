@@ -1,0 +1,406 @@
+/*
+ * Toolbar popup styling.
+ *
+ * Two themes from the same tokens: light by default, dark when the platform
+ * asks for it. No framework, no external font, and every control keeps a
+ * visible keyboard focus ring so the popup stays usable without a mouse.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --surface: #f6f7f9;
+  --surface-raised: #ffffff;
+  --border: #d8dbe0;
+  --border-strong: #b6bbc4;
+  --text: #16181d;
+  --text-muted: #5b616c;
+  --accent: #1d4ed8;
+  --accent-text: #ffffff;
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --idle: #6b7280;
+  --chip: #eef1f5;
+  --danger-surface: #fdecec;
+  --radius: 8px;
+  --gap: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #17191d;
+    --surface-raised: #1f2228;
+    --border: #33373f;
+    --border-strong: #4a4f59;
+    --text: #e9ebef;
+    --text-muted: #a2a8b3;
+    --accent: #8fb1ff;
+    --accent-text: #0d1117;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --idle: #9aa1ad;
+    --chip: #2a2e35;
+    --danger-surface: #34191a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 380px;
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font:
+    13px / 1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.status-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.status-bar__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.status-bar__label {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.status-bar__detail {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--idle);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--idle) 22%, transparent);
+}
+
+.dot--ok {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.dot--pending {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.dot--bad {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent);
+}
+
+.badge {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.content {
+  display: grid;
+  gap: var(--gap);
+  padding: 12px 14px;
+}
+
+.panel {
+  padding: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.panel__title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.form {
+  display: grid;
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field--host {
+  flex: 1 1 auto;
+}
+
+.field--port {
+  flex: 0 0 92px;
+}
+
+.field__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+label {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+code {
+  font:
+    11px / 1.4 ui-monospace,
+    SFMono-Regular,
+    "Cascadia Mono",
+    Consolas,
+    monospace;
+}
+
+.form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button {
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button--secondary {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.page-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.page-url {
+  margin: 2px 0 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.records {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.record {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.record__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.record__time {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.record__open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.record__open:hover {
+  text-decoration: underline;
+}
+
+.record__comment {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.record__resolution {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.record__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.record__actions button {
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.record__actions button[data-action="delete"] {
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--border-strong));
+  background: var(--danger-surface);
+  color: var(--bad);
+}
+
+.record__actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chip {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.chip--open {
+  background: color-mix(in srgb, var(--warn) 18%, var(--chip));
+  color: var(--warn);
+}
+
+.chip--resolved {
+  background: color-mix(in srgb, var(--ok) 18%, var(--chip));
+  color: var(--ok);
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.feedback {
+  min-height: 32px;
+  margin: 0;
+  padding: 8px 14px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.feedback--ok {
+  color: var(--ok);
+}
+
+.feedback--warn {
+  color: var(--warn);
+}
+
+.feedback--error {
+  color: var(--bad);
+}

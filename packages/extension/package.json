@@ -1,0 +1,18 @@
+{
+  "name": "dsh-annotate-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Firefox/Zen MV3 extension that sends page annotations to a DeepSeek Harness host plugin over ws://127.0.0.1:3080/ext/anno.",
+  "//readme": "Loaded straight from this folder as a temporary add-on: about:debugging#/runtime/this-firefox -> Load Temporary Add-on -> manifest.json. There is no build step, no bundler, no TypeScript, and no dependency: manifest.json, the classic background/content scripts, and the popup are shipped exactly as written.",
+  "//dependencies": "Intentionally empty. The workspace has no registry access and the extension must stay auditable, so nothing here is installed; scripts below only shell out to `npx web-ext` on a machine that already has it.",
+  "//protocol": "src/shared/protocol.js is ESM and only used by tooling; the browser loads the generated classic copy src/shared/protocol.global.js. Never edit either copy by hand - regenerate both with `pnpm run sync-protocol` in the repository root.",
+  "scripts": {
+    "//lint": "Static validation of manifest.json plus the shipped files (web-ext is invoked through npx; it is not a dependency of this package).",
+    "lint": "npx web-ext lint --source-dir .",
+    "//run": "Open a throwaway Firefox profile with this extension loaded and reload it on file changes.",
+    "run": "npx web-ext run --source-dir . --browser firefox",
+    "//build": "Produce an unsigned zip under dist/ for signing at https://addons.mozilla.org.",
+    "build": "npx web-ext build --source-dir . --artifacts-dir dist --overwrite-dest"
+  },
+  "type": "module"
+}

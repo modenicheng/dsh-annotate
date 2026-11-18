@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "dsh-annotate",
+    "description": "Mark text, elements, or regions in Firefox/Zen and hand them to the agent with a cropped screenshot.",
+    "detail": "docs/DETAIL.md"
+  }
+}

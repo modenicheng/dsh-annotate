@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# DSH sandbox recovery scratch
+.acl-recovery/
+
+# Extension packaging output
+web-ext-artifacts/
+*.xpi
+
+# Logs
+*.log
+
+# OS noise
+.DS_Store
+
+# Build and coverage artifacts
+dist/
+coverage/

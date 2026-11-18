@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "dsh-annotate",
+  "version": "0.1.0",
+  "description": "Annotate text, elements, or regions in Firefox/Zen and hand them to DeepSeek Harness with a cropped screenshot.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dsh-annotate@modenic.top",
+      "strict_min_version": "128.0"
+    }
+  },
+  "permissions": ["storage", "alarms", "tabs", "activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": {
+    "scripts": [
+      "src/shared/protocol.global.js",
+      "src/background/core.js",
+      "src/background/socket.js",
+      "src/background/outbox.js",
+      "src/background/capture.js",
+      "src/background/routing.js",
+      "src/background/main.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/shared/protocol.global.js",
+        "src/content/anchor.js",
+        "src/content/hydrator.js",
+        "src/content/ui.js",
+        "src/content/main.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "dsh-annotate",
+    "default_popup": "src/popup/popup.html"
+  },
+  "commands": {
+    "annotate-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+A"
+      },
+      "description": "Annotate the current page"
+    }
+  }
+}

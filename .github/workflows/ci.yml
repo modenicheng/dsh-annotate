@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-workspace.yaml
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Check generated protocol copies
+        run: node scripts/check-sync.mjs
+
+      - name: Check JavaScript syntax
+        run: node scripts/check-syntax.mjs
+
+      - name: Run unit tests
+        run: node --test "packages/*/test/*.test.js"
+
+      - name: Biome format and lint
+        run: npx --yes @biomejs/biome@2.4.14 check .
+
+  manifest:
+    name: extension manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate the extension manifest
+        run: node scripts/check-manifest.mjs

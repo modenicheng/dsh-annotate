@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>dsh-annotate</title>
+    <link rel="stylesheet" href="popup.css">
+    <!-- Classic scripts only: the shared protocol is generated as a global. -->
+    <script src="../shared/protocol.global.js"></script>
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <header class="status-bar">
+      <span id="connection-dot" class="dot dot--idle" aria-hidden="true"></span>
+      <div class="status-bar__text">
+        <p id="connection-label" class="status-bar__label">Connecting</p>
+        <p id="connection-detail" class="status-bar__detail">ws://127.0.0.1:3080/ext/anno</p>
+      </div>
+      <span id="pending-badge" class="badge" hidden></span>
+    </header>
+
+    <main class="content">
+      <section class="panel" aria-labelledby="bridge-heading">
+        <h2 id="bridge-heading" class="panel__title">Host bridge</h2>
+        <form id="settings-form" class="form" autocomplete="off" novalidate>
+          <div class="field-row">
+            <div class="field field--host">
+              <label for="host">Host</label>
+              <input id="host" name="host" type="text" spellcheck="false" inputmode="url" placeholder="127.0.0.1">
+            </div>
+            <div class="field field--port">
+              <label for="port">Port</label>
+              <input id="port" name="port" type="number" min="1" max="65535" inputmode="numeric" placeholder="3080">
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field__label-row">
+              <label for="token">Bridge token</label>
+              <button id="toggle-token" class="link-button" type="button" aria-pressed="false" aria-controls="token">
+                Show
+              </button>
+            </div>
+            <input
+              id="token"
+              name="token"
+              type="password"
+              spellcheck="false"
+              autocomplete="off"
+              aria-describedby="token-hint"
+              placeholder="Paste the token from $DSH_HOME/ext-bridge-token"
+            >
+            <p id="token-hint" class="hint">
+              Contents of <code>$DSH_HOME/ext-bridge-token</code>. The host writes that file on its first run.
+            </p>
+          </div>
+
+          <div class="form__actions">
+            <button id="save" class="button" type="submit">Save and reconnect</button>
+            <button id="flush" class="button button--secondary" type="button">Flush outbox</button>
+          </div>
+          <p id="outbox-summary" class="hint">Outbox empty.</p>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="page-heading">
+        <h2 id="page-heading" class="panel__title">This page</h2>
+        <p id="page-title" class="page-title">No page information</p>
+        <p id="page-url" class="page-url"></p>
+        <ul id="records" class="records" aria-label="Annotations on this page"></ul>
+        <p id="records-empty" class="empty">No annotations on this page.</p>
+      </section>
+    </main>
+
+    <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+  </body>
+</html>

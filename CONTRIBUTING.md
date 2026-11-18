@@ -1,0 +1,99 @@
+# Contributing
+
+Thanks for helping with dsh-annotate. This is a small, deliberately boring
+repository: plain ESM JavaScript, no build step, and no runtime dependencies in
+the host plugin.
+
+## Prerequisites
+
+- Node.js 22 or newer (CI runs 22 and 24).
+- Git. pnpm is optional; the workspace has no third-party dependencies to
+  install.
+- Firefox or Zen for extension work. Load the unpacked extension through
+  `about:debugging`.
+
+## Layout
+
+| Path | What lives there |
+|---|---|
+| `packages/protocol/` | Wire format and record validation; the single source of truth. |
+| `packages/plugin/` | DSH host bundle: websocket bridge, JSONL store, `annotate_*` tools. |
+| `packages/extension/` | Firefox MV3 extension: background socket, content scripts, popup. |
+| `scripts/` | Sync, validation, and check scripts. |
+| `docs/` | [Roadmap](docs/PLAN.md) and [decisions](docs/DECISIONS.md). |
+
+## First checkout
+
+```sh
+git config core.hooksPath .githooks   # required: enables the local hooks
+chmod +x .githooks/*                  # macOS/Linux only, if the hooks are not executable
+pnpm run sync-protocol                # only if generated protocol files drifted
+node --test "packages/*/test/*.test.js"
+```
+
+`pnpm install` is not part of the setup: every package is dependency-free. The
+only tool fetched on demand is Biome, pinned in the npm scripts.
+
+## Commit format
+
+Subjects follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>)!: <description>
+```
+
+- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`,
+  `ci`, `chore`, `revert`.
+- Scope is optional and lowercase: letters, digits, `/`, `.`, `-`.
+- `!` marks a breaking change; `(scope)` and `!` are optional.
+- The description after `: ` is 1–72 characters, so the whole subject stays
+  readable in `git log --oneline`.
+
+Examples: `feat(extension): capture region screenshots`,
+`fix(plugin): close sockets during shutdown`, `docs: explain the bridge token`.
+
+### Hooks
+
+`.githooks/commit-msg` rejects a subject that does not match the format and
+prints the expected shape and examples. `.githooks/pre-commit` runs:
+
+1. `node scripts/check-sync.mjs` — generated protocol copies match the source.
+2. `node scripts/check-syntax.mjs` — every JavaScript file parses.
+3. `node --test "packages/*/test/*.test.js"` — unit tests.
+
+The pre-commit hook exits cleanly when `node` is not on `PATH`. On macOS/Linux
+the hook files need the executable bit; on Windows Git runs them through its
+own shell, so setting `core.hooksPath` is enough. Hook files are committed with
+LF endings (see `.gitattributes`); do not convert them to CRLF.
+
+Bypass a check only when you know why: `git commit --no-verify` skips both
+hooks for that one commit. CI still runs the same checks.
+
+## Formatting and checks
+
+| Command | Purpose |
+|---|---|
+| `pnpm run fmt` | Format `packages/**` and `scripts/**` with Biome. |
+| `pnpm run fmt:check` | Fail if any file is unformatted. |
+| `pnpm run lint` | Run Biome's recommended lint rules. |
+| `pnpm run check` | Format check + lint + sync check + tests. |
+| `pnpm run check:manifest` | Validate `packages/extension/manifest.json`. |
+
+Run `pnpm run fmt` before committing; CI checks formatting on every push.
+Biome is pinned in `package.json` and fetched through `npx --yes`, so these
+commands need network access the first time. The hooks and tests never do.
+
+## Generated files
+
+`packages/plugin/src/protocol.js` and
+`packages/extension/src/shared/protocol.js` are generated: edit
+`packages/protocol/src/index.js`, then run `pnpm run sync-protocol` and commit
+the regenerated copies. `scripts/check-sync.mjs` fails the build otherwise. A
+wire-format change also bumps `PROTOCOL_VERSION` and updates the protocol tests.
+
+## Pull requests
+
+Keep the change focused, add or update tests for behaviour, and make sure
+`pnpm run check` passes locally (or say plainly which command you could not
+run). By contributing you agree to license your work under the MIT license in
+[LICENSE](LICENSE).
