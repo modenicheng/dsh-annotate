@@ -11,7 +11,8 @@
 
 import { ensureToken, annotationsDir } from './src/paths.js'
 import { AnnotationStore } from './src/store.js'
-import { createBridge } from './src/bridge.js'
+import { createBridge, tokenMatches } from './src/bridge.js'
+import { createSessionCatalog, registerSessionsRoute } from './src/sessions.js'
 import { createTools } from './src/tools.js'
 
 export const name = 'dsh-annotate'
@@ -47,6 +48,15 @@ export async function apply(ctx) {
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => bridge.attach(webCtx.webServer), 'dsh-annotate: /ext/anno bridge')
+    webCtx.effect(
+      () =>
+        registerSessionsRoute(webCtx.webServer, {
+          catalog: createSessionCatalog({ get: (service) => ctx.get(service), logger }),
+          token,
+          matchesToken: tokenMatches,
+        }),
+      'dsh-annotate: /ext/anno/sessions catalog',
+    )
     logger.info?.(`annotations: listening on ${webCtx.webServer.getOrigin?.() ?? 'the host webserver'}${''}`)
   })
 

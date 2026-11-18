@@ -20,6 +20,14 @@ export const WS_PATH = '/ext/anno'
 /** Health/discovery endpoint served next to the socket. */
 export const HEALTH_PATH = '/ext/anno/health'
 
+/**
+ * Flat, newest-first Session catalog backing the overlay's target picker.
+ *
+ * The picker answers "which conversation does this annotation belong to?", so
+ * the list is ordered by activity and never grouped by workspace.
+ */
+export const SESSIONS_PATH = '/ext/anno/sessions'
+
 /** Bridge token file name, relative to `$DSH_HOME`. */
 export const TOKEN_FILE = 'ext-bridge-token'
 
@@ -59,6 +67,7 @@ export const LIMITS = {
   quoteChars: 4_000,
   imageBase64Chars: 32 * 1024 * 1024,
   listLimit: 200,
+  sessionsLimit: 100,
 }
 
 /** Every frame a client may send to the host. */

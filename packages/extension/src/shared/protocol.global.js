@@ -22,6 +22,14 @@ const WS_PATH = '/ext/anno'
 /** Health/discovery endpoint served next to the socket. */
 const HEALTH_PATH = '/ext/anno/health'
 
+/**
+ * Flat, newest-first Session catalog backing the overlay's target picker.
+ *
+ * The picker answers "which conversation does this annotation belong to?", so
+ * the list is ordered by activity and never grouped by workspace.
+ */
+const SESSIONS_PATH = '/ext/anno/sessions'
+
 /** Bridge token file name, relative to `$DSH_HOME`. */
 const TOKEN_FILE = 'ext-bridge-token'
 
@@ -61,6 +69,7 @@ const LIMITS = {
   quoteChars: 4_000,
   imageBase64Chars: 32 * 1024 * 1024,
   listLimit: 200,
+  sessionsLimit: 100,
 }
 
 /** Every frame a client may send to the host. */
@@ -400,5 +409,5 @@ function sameDocument(record, url) {
   }
 }
 
-globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, TOKEN_FILE, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateRecord, normalizeRecord, truncate, describeAnchor, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
+globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, TOKEN_FILE, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateRecord, normalizeRecord, truncate, describeAnchor, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
 })()
