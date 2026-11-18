@@ -204,3 +204,11 @@ would have to explain why the bridge no longer talks to a plain local host. The
 regression check lives in the manifest job, and the extension boot test pins the
 resulting behaviour: with a plain address the health probe goes to `http://` and
 the socket URL is `ws://`.
+
+**Verified.** Confirmed in a real browser on 2026-11-18 — Firefox 159.0, the
+extension loaded as a temporary add-on from `about:debugging`. With the explicit
+policy in place the bridge reaches a plain `dsh web` over `ws://127.0.0.1:…/ext/anno`,
+the token handshake completes, and the console no longer prints the "Upgrading
+insecure request … to use wss" message. Both gate branches were also exercised by
+hand: removing the policy and injecting `upgrade-insecure-requests` each fail
+`check-manifest`, and restoring the policy passes it.

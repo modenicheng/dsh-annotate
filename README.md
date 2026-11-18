@@ -12,10 +12,11 @@ cropped screenshot, DOM selectors, and page context. The model can also ask you
 to point at something (`annotate_pick`) when a request is ambiguous.
 
 > **Status: early development.** The protocol, the host plugin, and the
-> extension are implemented and covered by tests; the host half is verified
-> against a live `dsh web` instance, while the browser half still needs a real
-> Firefox/Zen session. See [docs/PLAN.md](docs/PLAN.md) for what is proven and
-> what is not.
+> extension are implemented and covered by tests. The host half is verified
+> against a live `dsh web` instance, and the extension's bridge connection is
+> verified in a real Firefox 159.0 session (token handshake over `ws://127.0.0.1`);
+> the capture gestures still need a pass in a real browser. See
+> [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
 
 ## Architecture
 
@@ -259,9 +260,9 @@ and the generated-file rule.
 
 | Phase | Scope | State |
 |---|---|---|
-| M0 | Protocol, repository base, CI, hooks | done (hosted CI has not run yet) |
+| M0 | Protocol, repository base, CI, hooks | done; CI green on GitHub Actions (Node 22 and 24) |
 | M1 | Host plugin, storage loop, tools | implemented and verified against a live `dsh web` instance: health route, token handshake, create → ack → broadcast, query across query-string changes, resolve/delete, idempotent replay, attachment-backed crop |
-| M2 | Extension capture: gestures, overlay, crop, outbox | implemented; loads and boots in a headless harness, **not yet exercised in a real Firefox/Zen session** |
+| M2 | Extension capture: gestures, overlay, crop, outbox | implemented; the bridge connects from a real Firefox 159.0 session, the gestures themselves are **not yet exercised in a real browser** |
 | M3 | Re-anchoring and agent-initiated picks | implemented on both sides (hydrator fallback chains, pick banner, timeout and cancel); browser behaviour unverified |
 | M4 | Developer context, session routing, multi-window | planned |
 | M5 | Signing and distribution | planned |
