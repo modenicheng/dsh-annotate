@@ -151,6 +151,79 @@ the session that should act on them.
   scanning unbounded data.
 - The popup stays responsive with 500+ stored annotations.
 
+## M4.5 — Discovery and Desktop
+
+**Goal:** the extension finds a host whose port is not `3080`, and the token
+paste stays a one-time step rather than one per launch. Desktop is the case that
+forces this — its launcher picks the port — but the same work covers
+`dsh --profile <name> --port 0` and every custom port.
+
+Design and rationale: [DISCOVERY.md](DISCOVERY.md) (decisions D20–D22).
+
+### M4.5a — Host publishes
+
+**Status:** implemented.
+
+- Protocol: `LOCATE_PATH`, `LOCATE_PORTS`, `LOCATE_HOST`, `ENDPOINT_FILE`,
+  `DISCOVERY_APP`, `isInstanceId()`, and `instanceId` in `/ext/anno/health`;
+  copied to both consumers like every other constant.
+- Host: an endpoint record at `$DSH_HOME/ext-bridge-endpoint.json` (address
+  only, atomic, `0600` on POSIX, removed on clean shutdown) and a loopback
+  locator on `30810–30812` that answers one GET with the origin — neither
+  carries the token. The locator starts when the bound port is not `3080`, the
+  bind address is IPv4 loopback, and config `discovery` is not `off`; the record
+  is written in every case.
+- `scripts/smoke-discovery.mjs`: record shape and permissions, absence of any
+  token in the record or the locator, locator answer, `instanceId` agreement
+  with health, and refusal of a foreign `Host`.
+- Unit tests: `packages/plugin/test/discovery.test.js` (record, atomic write,
+  permissions, removal, trigger matrix) and
+  `packages/plugin/test/locator.test.js` (response rules, port fallback,
+  disposal).
+
+**Acceptance criteria (a):**
+
+- A host on `--port 0` writes a record containing the bound port and starts a
+  locator on `30810`; a default host on `3080` starts no locator and still
+  writes the record.
+- The locator answers only `GET /ext/anno/locate`, refuses a foreign `Host`
+  with `403`, sends no `access-control-allow-origin`, and returns no field that
+  contains the token.
+- Neither the record nor the locator answer contains a 64-hex token; the token
+  file remains the only host-side copy.
+- `pnpm run check` and `smoke-ws.mjs` stay green.
+
+### M4.5b — Extension discovers
+
+**Status:** planned.
+
+- Extension: a `connection` preference (`auto` for fresh installs, `manual` for
+  existing ones), the resolution chain (stored address → one round of locator
+  ports plus the default port → nothing), candidate ranking by preferred
+  instance, last instance, focus time, and start time, an `instanceId` check
+  against health, and popup support: the mode switch, the address-only
+  endpoint-file import, the discovered-hosts list, and the discovery status
+  line. The token field and its single-source handling are untouched.
+
+**Acceptance criteria (b):**
+
+- With a token already pasted, restarting the host twice on new ports reconnects
+  the extension within 10 s with no user action.
+- Two live hosts: the popup lists both, the most recently focused one wins when
+  nothing is preferred, and **Use this host** survives an extension reload.
+- Manual mode is unchanged (the existing `endpoints` and `boot` tests pass
+  without edits); an unreachable host shows the token-file hint instead of a
+  bare timeout.
+
+### M4.5c — Verification and documentation
+
+**Status:** planned.
+
+- README (`Desktop` section, security model, data table), `DETAIL.md`, and the
+  roadmap row; the Windows and Linux checklist in
+  [DISCOVERY.md](DISCOVERY.md#13-testing); a real Desktop run on at least one
+  platform.
+
 ## M5 — Signing and distribution
 
 **Goal:** a normal user can install both halves and upgrade them safely.

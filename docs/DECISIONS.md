@@ -531,3 +531,101 @@ portalled card with the stored crop (`/ext/anno/image?id=…` served the PNG), t
 page title, `127.0.0.1:3099/`, the quote, the comment, and
 `bug · open · 11/19 19:32 · 截图 57 KB`; the routes answered 403 without
 `sec-fetch-site: same-origin`.
+
+## D20 — Discovery is a loopback locator, not a proxy
+
+**Status.** Implemented in M4.5a — `packages/plugin/src/locator.js` — with the
+consuming half (the extension's resolution chain) still planned as M4.5b.
+Design in [DISCOVERY.md](DISCOVERY.md).
+
+**Decision.** When the host's bound port is not `3080` and the bind address is
+IPv4 loopback, the plugin opens a second, tiny HTTP listener on
+`127.0.0.1:30810–30812`. It answers exactly one request —
+`GET /ext/anno/locate` — with the host's current origin, a per-process
+`instanceId`, and timestamps. It carries no token, no annotation data, and no
+websocket. It is not a proxy and it does not mount a second bridge.
+
+**Why.** A fixed address is the only thing a browser extension can use to find a
+host whose port moves, but the fixed address does not have to carry data. A
+websocket proxy would be a second implementation of the wire protocol (close
+codes, ping/pong, frame caps, backpressure) on the critical path, holding the
+token itself and needing its own client check because the token can no longer
+admit the client. A second bridge listener avoids the relay but duplicates
+`/ext/anno/health`, the upgrade route, and every route added later under
+`/ext/anno/*`. A locator moves one string and leaves the bridge as the only data
+path. The asymmetry is also what the security model already assumes: the port is
+visible to every local process (`netstat`, `ss`), the token is not.
+
+**Consequences.** The repository's "no extra port" property becomes "no extra
+port on the default deployment"; a non-default host reserves one of three
+loopback ports. The locator is a new unauthenticated surface whose contract is
+deliberately narrow and must stay that way: `GET` only, stateless, no CORS
+header, a `Host` allowlist against DNS rebinding, `no-store`, IPv4 loopback
+only, and no field that could ever be confused with a secret. If a future
+feature needs the locator to return more, that is a new decision. The extension
+needs no manifest change: `http://127.0.0.1/*` already covers every port.
+
+## D21 — The endpoint record carries the address; the token keeps one home
+
+**Status.** Implemented in M4.5a for the host half —
+`packages/plugin/src/discovery.js` writes and removes the record; the popup
+import is M4.5b.
+
+**Decision.** On every start the plugin writes
+`$DSH_HOME/ext-bridge-endpoint.json` — mode `0600` on POSIX, atomically renamed,
+removed on clean shutdown only when it still carries this process's
+`instanceId`. It holds the origin, the `instanceId`, the profile label, and
+timestamps, and **never the token**. The popup can import it through a file
+picker or a drop to fill the address; the token stays what it is today, pasted
+once from `$DSH_HOME/ext-bridge-token`, which remains the only file on the host
+that holds it. A token-bearing record, a token import, and a native-messaging
+host are all out of scope.
+
+**Why.** A browser extension cannot read files, so the port-in-a-file idea is
+only half a mechanism until something reads the file; the cheapest reader that
+needs no installation is the user, through a file input. That same constraint
+decides the token question: a second copy of it in the record would only help
+if the extension could read the file — which it cannot without a
+native-messaging host installed per browser and per OS, a cost this project is
+not taking on. Without that host, duplication buys nothing and costs
+permanently: a second secret to rotate, audit, and accidentally share, and a
+second answer to "where does the token live?". The token is stable, so the
+paste is a one-time cost; the address is not, so the record and the locator
+carry it instead.
+
+**Consequences.** Desktop onboarding is unchanged from today for the token — one
+paste — and the address needs no action at all after that. The record is useful
+exactly when the locator is not: all three ports taken, a non-loopback bind, an
+IPv6 loopback bind, and tooling or support sessions that want to know where the
+host is. It is not sensitive, so it is documented as such rather than as a
+secret. Two profiles share one path, so the record describes the most recently
+started instance and the locator is the live view; that is why the extension
+ranks instances and why the record's origin is only a fallback. Zero-paste
+remains reachable through a native-messaging host, but as a new decision that
+would read `ext-bridge-token` directly rather than widening this one.
+
+## D22 — Discovery is triggered by the port, not by "is Desktop"
+
+**Status.** Implemented in M4.5a: `shouldLocate()` in
+`packages/plugin/src/discovery.js`, called from `packages/plugin/index.js`.
+
+**Decision.** The locator starts when the bound port is a number, the bind
+address is IPv4 loopback, the port is not `3080`, and the plugin config
+`discovery` is not `off` — in that order of checks. There is no detection of the
+Desktop application, no profile-name check, and no dependency on a launcher
+environment variable.
+
+**Why.** Desktop is one cause of a moving port, not the condition. A run with
+`--port 0` produces exactly the same problem, and so does any custom `--port`;
+tying the fix to the product would leave those users with the manual popup. A
+Desktop marker is also outside this repository: it would be an undocumented
+contract with an application whose launcher we do not own, and it would fail
+silently the day it changed — while the port is a fact the plugin already has.
+
+**Consequences.** Every non-default host exposes the locator, which is the intent;
+the stock `127.0.0.1:3080` deployment stays exactly as it is today. Two cases
+stay manual and are documented rather than guessed at: a host bound to a
+non-loopback interface (the extension has no permission for that origin) and an
+IPv6 loopback bind (the locator is IPv4). `dsh --profile <name> --port 0` doubles
+as the test harness for the whole feature on any OS, so the Desktop application
+does not have to be installed to verify it.

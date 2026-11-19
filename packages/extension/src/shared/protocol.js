@@ -58,6 +58,56 @@ export const IMAGE_PATH = '/ext/anno/image'
 /** Bridge token file name, relative to `$DSH_HOME`. */
 export const TOKEN_FILE = 'ext-bridge-token'
 
+// ── discovery ───────────────────────────────────────────────────────────────
+//
+// A host whose port the launcher chose (`--port 0`, DSH Desktop) has to say
+// where it is. Two addresses-only artifacts do that, and neither may ever
+// carry the token: the token answers "whether", these answer "where".
+
+/**
+ * The name a host publishes so a client can tell a DSH bridge from whatever
+ * else happens to answer on the same port.
+ */
+export const DISCOVERY_APP = 'dsh-annotate'
+
+/**
+ * Where a host publishes its current origin on a fixed loopback port. `GET`
+ * only and anonymous by design: it returns an address, never the token.
+ */
+export const LOCATE_PATH = '/ext/anno/locate'
+
+/**
+ * Locator ports, tried in order. They sit above the default webserver port and
+ * below every OS ephemeral range, so the OS is unlikely to hand one out; three
+ * of them survive one being taken by an unrelated process or a second host.
+ */
+export const LOCATE_PORTS = [30810, 30811, 30812]
+
+/** The locator binds IPv4 loopback only, never the host's configured address. */
+export const LOCATE_HOST = '127.0.0.1'
+
+/**
+ * Endpoint record: the address a host last bound to, written on every start so
+ * a human, a script, or a popup file import can read it. Address only — the
+ * token has exactly one home, {@link TOKEN_FILE}.
+ */
+export const ENDPOINT_FILE = 'ext-bridge-endpoint.json'
+
+/** A per-process host id, 16 lowercase hex characters. */
+const INSTANCE_ID = /^[0-9a-f]{16}$/
+
+/**
+ * Whether a value could be a host's `instanceId`.
+ *
+ * It ties a locator answer to the health answer for the same host, so a stale
+ * answer — or a different process reusing an origin — is dropped rather than
+ * connected to.
+ * @param {unknown} value
+ */
+export function isInstanceId(value) {
+  return typeof value === 'string' && INSTANCE_ID.test(value)
+}
+
 /** The extension must say hello within this window or the socket is closed. */
 export const HELLO_TIMEOUT_MS = 5_000
 

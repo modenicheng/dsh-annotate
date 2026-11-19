@@ -19,6 +19,11 @@ to point at something (`annotate_pick`) when a request is ambiguous.
 > from the DSH composer as a `dsh-anno:` mention renders as a chip, is routed to
 > the conversation the window is showing, and shows its content and crop on
 > hover — verified end to end in a live Web Client.
+> Not covered yet: a host whose port is not `3080` (DSH Desktop picks its port
+> at launch) still needs its address typed into the popup. The host side of
+> discovery — the endpoint record and the loopback locator — is implemented and
+> verified against a live `--port 0` host; the extension does not read either
+> yet (M4.5b). Design and rationale: [docs/DISCOVERY.md](docs/DISCOVERY.md).
 > See [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
 
 ## Architecture
@@ -33,11 +38,12 @@ flowchart LR
     POP <-->|"storage / messages"| BG
   end
 
-  BG <-->|"ws://127.0.0.1:3080/ext/anno  (hello {token, version}, frames both ways)"| Bridge
+  BG <-->|"ws://127.0.0.1:PORT/ext/anno  (hello {token, version}, frames both ways)"| Bridge
 
   subgraph Host["DSH host (`dsh web`) — dsh-annotate bundle"]
     WS["webServer\nregister · registerUpgrade"]
     Bridge["/ext/anno WebSocket bridge\n(RFC 6455 via ws)"]
+    Locator["/ext/anno/locate\nloopback locator 30810-30812\n(origin + instanceId only)"]
     Health["/ext/anno/health\nprotocol version + counts\n+ wsUrl (scheme negotiation)"]
     Sessions["/ext/anno/sessions\nsession catalog (target picker)"]
     Store["AnnotationStore\nappend-only event log"]
@@ -51,23 +57,32 @@ flowchart LR
     Store --> Tools
   end
 
+  BG -.->|"GET /ext/anno/locate\n(only when the port is not 3080;\nhost side done, extension side planned)"| Locator
+
   Tools -->|"compact previews / full record + image"| Agent["Model / agent session"]
   Agent -->|"annotate_pick"| Bridge
 
   subgraph Storage["Where data lives"]
     Q["queue.jsonl\n($DSH_HOME/annotations)"]
     Tkn["$DSH_HOME/ext-bridge-token\n(0600, constant-time compare)"]
+    Rec["$DSH_HOME/ext-bridge-endpoint.json\n(0600, address only)"]
     BSt["Browser storage.local\ntoken · offline outbox · prefs"]
   end
   Store --> Q
   Attach -.->|"stores attachment ref only"| Q
   Host --> Tkn
+  Host -.-> Rec
+  POP -.->|"import: address only (planned)"| Rec
   Browser --> BSt
 ```
 
-There is no extra daemon and no extra port. The bridge is mounted on the DSH
-host webserver and lives exactly as long as `dsh web` does. Both sides are plain
-ESM JavaScript with no build step.
+There is no extra daemon, and on the default deployment no extra port. The
+bridge is mounted on the DSH host webserver and lives exactly as long as
+`dsh web` does. A host whose port is not `3080` also opens one small loopback
+*locator* so a browser can find it; it answers a single address lookup and
+carries no annotation data. Both sides are plain ESM JavaScript with no build
+step. The locator ships today; the extension's use of it is M4.5b — see
+[docs/DISCOVERY.md](docs/DISCOVERY.md).
 
 ### `ws://` or `wss://`: the host decides
 
@@ -96,6 +111,34 @@ The popup accepts a bare host and port (`127.0.0.1` + `3080`, the pre-existing
 shape, kept so old settings keep working) or a whole URL
 (`wss://anno.example.com`). A typed scheme is an explicit override for setups
 where the probe is unavailable; leaving it out is the normal case.
+
+### Desktop, and a port that moves
+
+DSH Desktop composes the same Web bundle, but its launcher chooses the port, so
+the default `127.0.0.1:3080` is wrong on every launch. The host now publishes
+where it is; the extension does not read that yet, so the popup's fixed address
+is still what you type on a Desktop host.
+
+The answer splits the two questions the popup answers by hand
+([docs/DISCOVERY.md](docs/DISCOVERY.md)):
+
+- **Where is it now?** When the port is not `3080`, the host opens a loopback
+  *locator* on `30810–30812` that answers one `GET /ext/anno/locate` with its
+  origin — no token, no annotation data. On start the host also writes
+  `$DSH_HOME/ext-bridge-endpoint.json` with the same address, for manual entry,
+  tooling, and the cases the locator cannot cover. Both are implemented; the
+  extension work — probe the locator, verify the answer against
+  `/ext/anno/health`, connect, and let the popup import the record — is M4.5b.
+  The scheme stays the host's decision, as above.
+- **Which host may I talk to?** Unchanged: the bridge token, pasted once from
+  `$DSH_HOME/ext-bridge-token`. The token is not copied into any other file —
+  the extension cannot read files anyway, and a second copy would only add a
+  thing to rotate and leak.
+
+Nothing in the bridge changes: the locator publishes an address, the websocket
+stays the only data path, and a stock `dsh web` on `3080` behaves exactly as it
+does today. D20–D22 in [docs/DECISIONS.md](docs/DECISIONS.md) record why a
+proxy, a second bridge, and token-carrying files were rejected.
 
 ### Behind an HTTPS reverse proxy
 
@@ -168,7 +211,12 @@ The extension has no build step. Load it as a temporary add-on:
    `$DSH_HOME/ext-bridge-token` (`%USERPROFILE%\.dsh\ext-bridge-token` on
    Windows). The address field takes `host` + `port` (default
    `127.0.0.1` / `3080`) or a full URL such as `wss://anno.example.com`; with no
-   scheme the extension asks the host which one to use.
+   scheme the extension asks the host which one to use. On a host whose port is
+   not `3080`, `$DSH_HOME/ext-bridge-endpoint.json` holds the bound origin
+   (`"origin": "http://127.0.0.1:51234"`) — copy it into the address field; the
+   popup import and automatic discovery are M4.5b. The token is still pasted
+   once from `$DSH_HOME/ext-bridge-token`
+   ([docs/DISCOVERY.md](docs/DISCOVERY.md)).
 4. Press `Alt+Shift+A` on a page to enter annotation mode: select text, click
    an element, or drag a region, then press Enter. The comment is optional —
    with an empty one the mark is sent on its own (the button reads
@@ -196,6 +244,13 @@ The bridge is local-only by design:
   only anonymous endpoint is `/ext/anno/health`, which reports the protocol
   version, open-annotation/client counts, and the scheme/URL a browser should
   use — never annotation content.
+- **Discovery publishes an address, not a secret.** The loopback locator answers
+  one `GET` with the host's origin and a per-process id; it returns no token and
+  no annotation data, sends no CORS header, and refuses a `Host` that is not
+  loopback, so a web page can neither read the answer nor cause a state change.
+  The endpoint record carries the same address and timestamps and no secret
+  either; the token stays in `ext-bridge-token`, pasted once by the user. See
+  [docs/DISCOVERY.md](docs/DISCOVERY.md).
 - **Bounded input.** Frames are capped at 32 MiB, records are validated against
   `packages/protocol/src/index.js`, and the store only keeps references to
   screenshots that DSH's own attachment service accepts.
@@ -226,6 +281,7 @@ broadcast changes back to connected browsers.
 | `$DSH_HOME/annotations/queue.jsonl` | Append-only event log (`put`, `patch`, `del`, `img`), folded in memory at startup and compacted when it grows stale. |
 | DSH attachment service | Cropped screenshots; the log stores only the attachment reference. |
 | `$DSH_HOME/ext-bridge-token` | Bridge token, generated on first use with mode `0600`. |
+| `$DSH_HOME/ext-bridge-endpoint.json` | The listening origin, `instanceId`, profile label, and timestamps — address only, no token, written atomically on every start with mode `0600`. Used for manual entry, tooling, and hosts the locator cannot reach. |
 | Browser `storage.local` | Extension token, offline outbox, UI preferences, and the endpoint the host advertised last (so a restart reconnects without probing again). |
 
 `$DSH_HOME` defaults to `~/.dsh` (`%USERPROFILE%\.dsh` on Windows). It is shared
@@ -239,6 +295,7 @@ pnpm run sync-protocol                              # copy the protocol into bot
 node --test "packages/*/test/*.test.js"             # works in PowerShell and cmd
 pnpm run check                                      # Biome + sync + syntax + tests
 node scripts/smoke-ws.mjs ws://127.0.0.1:3080/ext/anno   # verify a booted bridge, no browser needed
+node scripts/smoke-discovery.mjs                    # verify the record + locator of a --port 0 host
 ```
 
 `smoke-ws.mjs` drives the real socket: it reads `$DSH_HOME/ext-bridge-token`,
@@ -246,6 +303,13 @@ checks that `/ext/anno/health` advertises the same scheme as the URL under test,
 creates an annotation with a 1×1 PNG crop, queries it back, resolves it, and
 replays the id to prove idempotency. Run it after installing the bundle and
 after any protocol change; it accepts a `wss://` URL as well as `ws://`.
+
+`smoke-discovery.mjs` is its discovery counterpart: start a host with
+`dsh --profile anno --port 0`, then run the script. It reads
+`$DSH_HOME/ext-bridge-endpoint.json`, probes the three locator ports, and fails
+unless the record's `instanceId` matches both the locator answer and
+`/ext/anno/health` — and unless neither the record nor the answer contains
+anything shaped like the token.
 
 The quoted glob is intentional: Node expands it itself, which keeps the command
 identical on Windows, macOS, and Linux. `pnpm run check` fetches the pinned
@@ -273,6 +337,7 @@ and the generated-file rule.
 | M3.6 | Target picker and queued delivery into another Session | delivered and verified in a live Web Client — the mention arrives as one atomic chip the user can read and remove before sending (D17), and an annotation submitted without picking a target is routed to the conversation the window is showing (D18). The overlay's picker rows are still unexercised in a real browser |
 | M3.7 | Chip hover card: the annotation's content and its click-time crop | implemented and verified in a live Web Client — hovering the chip opens the product's `HoverCard` with the page, quote or element, comment, and the stored screenshot, read back over same-origin routes; the record carries the frame frozen at click time (D19) |
 | M4 | Developer context, session routing, multi-window | planned |
+| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | host side delivered (M4.5a): the record is written on every start, the locator answers on `30810–30812` when the port is not `3080`, and `/ext/anno/health` carries the `instanceId` that ties them together. Extension discovery and the popup import (M4.5b) are planned; design in [docs/DISCOVERY.md](docs/DISCOVERY.md), decisions D20–D22 |
 | M5 | Signing and distribution | planned |
 
 The detailed deliverables and acceptance criteria are in

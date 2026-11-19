@@ -69,8 +69,10 @@ export function describeError(error) {
  * @param {(input: { data: Uint8Array, mediaType: string, name?: string }) => Promise<any>} [options.saveImage]
  * @param {(record: any) => void | Promise<void>} [options.onCreated] Side effect of one accepted create (routed delivery).
  * @param {{ info?: Function, warn?: Function, debug?: Function }} [options.logger]
+ * @param {string} [options.instanceId] This process's discovery id, published so a
+ *   locator answer can be matched to the health answer of the same host.
  */
-export function createBridge({ store, token, saveImage, onCreated, logger = {} }) {
+export function createBridge({ store, token, saveImage, onCreated, logger = {}, instanceId }) {
   const log = {
     info: logger.info ?? (() => {}),
     warn: logger.warn ?? (() => {}),
@@ -421,6 +423,10 @@ export function createBridge({ store, token, saveImage, onCreated, logger = {} }
         const body = JSON.stringify({
           ok: true,
           version: PROTOCOL_VERSION,
+          // The locator's `instanceId` must equal this one: it is how the
+          // extension drops a stale answer, or an origin another process has
+          // since taken over, instead of connecting to the wrong host.
+          instanceId: typeof instanceId === 'string' ? instanceId : null,
           secure: endpoint.secure,
           wsUrl: endpoint.wsUrl,
           wsPath: WS_PATH,

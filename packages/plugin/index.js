@@ -3,34 +3,47 @@
  *
  * Mounts one websocket endpoint (`/ext/anno`) and one health route on the DSH
  * host webserver, keeps annotations in an append-only log under `$DSH_HOME`,
- * and exposes them to the model as `annotate_*` tools. No daemon, no extra
- * port: it lives and dies with `dsh web`.
+ * and exposes them to the model as `annotate_*` tools. No daemon, and on the
+ * default `3080` deployment no extra port: it lives and dies with `dsh web`. A
+ * host whose port the launcher chose also publishes that address — a record
+ * file and, when the port is not `3080`, a loopback locator — so a browser can
+ * find it without a second data path (see `docs/DISCOVERY.md`).
  *
  * @module dsh-annotate
  */
 
+import { randomBytes } from 'node:crypto'
+
 import { ensureToken, annotationsDir } from './src/paths.js'
 import { AnnotationStore } from './src/store.js'
 import { createBridge, tokenMatches } from './src/bridge.js'
+import { createDiscovery, isIpv4Loopback, shouldLocate } from './src/discovery.js'
 import { createFocusStore, focusedSession, registerFocusRoute } from './src/focus.js'
+import { startLocator } from './src/locator.js'
 import { createAnnotationMentions } from './src/mentions.js'
 import { registerPresentationRoutes } from './src/presentation.js'
 import { createMentionQueue, registerQueueRoutes } from './src/queue.js'
 import { createSessionCatalog, registerSessionsRoute } from './src/sessions.js'
 import { createTools } from './src/tools.js'
-import { describeAnchor, formatAnnoMention } from './src/protocol.js'
+import { LOCATE_HOST, describeAnchor, formatAnnoMention } from './src/protocol.js'
 
 export const name = 'dsh-annotate'
 export const inject = ['tools']
 
 /** Annotation tools are additive: a profile without `webServer` still lists them. */
-export async function apply(ctx) {
+export async function apply(ctx, config = {}) {
   const log = typeof ctx.logger === 'function' ? ctx.logger('dsh-annotate') : console
   const logger = {
     debug: (...args) => log.debug?.(...args),
     info: (...args) => log.info?.(...args),
     warn: (...args) => log.warn?.(...args),
   }
+
+  // One id per process, shared by the three things that must agree on "who is
+  // this host": the locator answer, the endpoint record, and `/ext/anno/health`.
+  const instanceId = randomBytes(8).toString('hex')
+  /** Discovery is on unless a profile turns it off; an unknown value is on. */
+  const discoveryMode = config?.discovery === 'off' ? 'off' : 'auto'
 
   const store = new AnnotationStore({ dir: annotationsDir(), logger })
   await store.load()
@@ -50,6 +63,7 @@ export async function apply(ctx) {
   const bridge = createBridge({
     store,
     token,
+    instanceId,
     logger,
     onCreated: async (record) => {
       const routed = record.routing?.sessionId
@@ -132,7 +146,52 @@ export async function apply(ctx) {
         }),
       'dsh-annotate: /ext/anno/item and /ext/anno/image',
     )
-    logger.info?.(`annotations: listening on ${webCtx.webServer.getOrigin?.() ?? 'the host webserver'}${''}`)
+    logger.info?.(`annotations: listening on ${webCtx.webServer.getOrigin?.() ?? 'the host webserver'}`)
+
+    // ── discovery ───────────────────────────────────────────────────────────
+    // Both artifacts answer "where is this host", never "may I talk to it": the
+    // token stays in `$DSH_HOME/ext-bridge-token` and nothing here reads it.
+    // The record is written on every start, because it is the manual and
+    // diagnostic path; the locator only exists for a port that moves.
+    const discovery = createDiscovery({
+      webServer: webCtx.webServer,
+      focus,
+      profile: ctx.get('profileContext')?.name ?? null,
+      logger,
+      instanceId,
+    })
+
+    webCtx.effect(() => {
+      // The write is tracked so a stop that lands mid-write cannot leave a
+      // record behind: the disposer removes the file the write just created.
+      const written = discovery.write()
+      return async () => {
+        await written
+        await discovery.dispose()
+      }
+    }, 'dsh-annotate: endpoint record')
+
+    if (shouldLocate({ port: webCtx.webServer.port, host: webCtx.webServer.host, mode: discoveryMode })) {
+      webCtx.effect(() => {
+        // `startLocator` returns before the bind settles, so this disposer can
+        // still close a listener that wins the race a moment later.
+        const locator = startLocator({ card: () => discovery.card(), logger })
+        void locator.ready.then((port) => {
+          if (port !== null) logger.info?.(`annotations: locator on ${LOCATE_HOST}:${port}`)
+        })
+        return () => locator.dispose()
+      }, 'dsh-annotate: locator')
+    } else if (
+      discoveryMode === 'auto' &&
+      webCtx.webServer.port !== undefined &&
+      !isIpv4Loopback(webCtx.webServer.host)
+    ) {
+      // The extension has no permission for a non-loopback origin, so there is
+      // nothing to publish that it could use. Say so instead of failing later.
+      logger.warn?.(
+        `annotations: no locator on ${webCtx.webServer.host}: automatic discovery needs an IPv4 loopback bind; use the endpoint record or a manual address`,
+      )
+    }
   })
 
   ctx.effect(
