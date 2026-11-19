@@ -91,12 +91,15 @@
       targetTip.textContent = workspace
       setVisible(targetTip, true)
       const rowRect = row.getBoundingClientRect()
-      const panelRect = targetPanel.getBoundingClientRect()
+      // The tip is a child of `.target` — its offset parent, and the same box the
+      // panel is positioned in. Measuring against the panel instead shifted the
+      // bubble up by the button's height, so it sat on the previous row and fell
+      // off the clip on the first one.
+      const baseRect = target.getBoundingClientRect()
       const width = targetTip.offsetWidth || 120
-      const right = panelRect.right + 8
-      const fitsRight = right + width <= document.documentElement.clientWidth - 8
-      targetTip.style.top = `${Math.round(rowRect.top - panelRect.top + (rowRect.height - targetTip.offsetHeight) / 2)}px`
-      targetTip.style.left = fitsRight ? `${Math.round(panelRect.width + 8)}px` : `${Math.round(-width - 8)}px`
+      const fitsRight = baseRect.right + 8 + width <= document.documentElement.clientWidth - 8
+      targetTip.style.top = `${Math.round(rowRect.top - baseRect.top + (rowRect.height - targetTip.offsetHeight) / 2)}px`
+      targetTip.style.left = fitsRight ? `${Math.round(baseRect.width + 8)}px` : `${Math.round(-width - 8)}px`
       targetTip.dataset.side = fitsRight ? 'right' : 'left'
     }
 
