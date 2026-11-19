@@ -17,3 +17,4 @@ web-ext-artifacts/
 # Build and coverage artifacts
 dist/
 coverage/
+.tmp-*
