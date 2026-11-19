@@ -1,40 +1,39 @@
 # Release and distribution
 
-Status: evaluation, 2026-11-19. Nothing described here is implemented yet.
+Status: plan, revised 2026-11-19. Nothing described here is implemented yet.
 [M5 in PLAN.md](PLAN.md) is the short acceptance list; this document is the
-design behind it and the ground truth it has to satisfy.
+design behind it and the ground truth it has to satisfy. Decisions D14–D16 in
+[DECISIONS.md](DECISIONS.md) fix the scope and the compatibility rule this plan
+follows.
 
 Scope: the extension half across browser engines, the host half as a DSH bundle,
 and the CI that turns a tag into artifacts. It does not cover DSH releases.
 
 ## 1. What "all mainstream engines" means
 
-There is no single "browser" to support. There are three extension platforms
-with three different packaging units, and two mobile platforms with their own
-rules:
+There is no single "browser" to support, but only two extension platforms are
+in scope: Chromium and Gecko. WebKit was evaluated and excluded (D14, §3.3) — it
+is an Apple-gated delivery channel that costs US$99/year and a review cycle per
+release.
 
 | Engine | Browsers | Extension unit | Store | Account fee | Review |
 |---|---|---|---|---|---|
-| Chromium | Chrome, Edge, Brave, Vivaldi, Opera, Arc, Yandex | `.zip` / `.crx` | Chrome Web Store (CWS); Edge Add-ons optional | US$5 once (Google), free (Microsoft) | days; longer for `<all_urls>` |
-| Gecko | Firefox, Zen, LibreWolf, Waterfox, Floorp | `.zip` / signed `.xpi` | addons.mozilla.org (AMO) or self-hosted signed XPI | free | hours (unlisted) to days (listed) |
-| WebKit | Safari (macOS, iOS, iPadOS) | an app containing the extension | Mac App Store / iOS App Store | US$99/year | days, every release |
+| Chromium | Chrome, Edge, Brave, Vivaldi, Opera, Arc, Yandex | `.zip` | Chrome Web Store (CWS); Edge Add-ons optional | US$5 once (Google), free (Microsoft) | days; longer for `<all_urls>` |
+| Gecko | Firefox, Zen, LibreWolf, Waterfox, Floorp | `.zip` / signed `.xpi` | addons.mozilla.org (AMO) or a self-hosted signed XPI | free | hours (unlisted) to days (listed) |
 
 Mobile is a different product, not a smaller desktop:
 
 - **Firefox for Android** runs MV3 extensions but has no keyboard shortcuts
   (`commands` is unavailable on Android) and a different popup surface, so the
   primary `Alt+Shift+A` gesture disappears.
-- **Safari on iOS** requires a Mac to build, prompts for Local Network access,
-  suspends background work, and — decisively — the bridge is loopback-only, so
-  a phone cannot reach a `dsh web` bound to the Mac's `127.0.0.1` at all.
 - **Chromium on Android** has no extension support in any mainstream browser.
+- **Safari on iOS** is moot twice over: the bridge is loopback-only, so a phone
+  cannot reach a `dsh web` bound to the Mac's `127.0.0.1`, and iOS suspends the
+  background worker that owns the socket.
 
-**Verdict.** "Chromium + Firefox" covers the large majority of desktop users and
-is a two-package problem. WebKit is not a third manifest variant: it is an
-Apple-gated delivery channel with a yearly fee, a macOS build host, and a review
-loop on every release. "All mainstream engines" is reachable, but only as two
-tiers with different cost profiles — not as one release pipeline that happens to
-emit three files.
+**Verdict.** Two packages, two stores, one pipeline. Chromium and Gecko cover the
+large majority of desktop users; what remains is the platform seam in §3.1, not
+a second product.
 
 ## 2. What the current extension assumes
 
@@ -106,38 +105,33 @@ needed for release, not for porting:
   drops users on ESR.
 - Firefox for Android is a separate decision (§5).
 
-### 3.3 WebKit (Safari)
+### 3.3 WebKit (Safari) — out of scope
 
-Safari supports `background.scripts` (14+) and `content_security_policy`, so the
-Firefox target is a reasonable starting point, but the delivery pipeline is
-Apple's:
+Decided 2026-11-19 (D14). Safari is not a third manifest variant: the extension
+must live inside a native container app built with Xcode, every release goes
+through App Store review, and the Mac App Store is the only channel a normal user
+can follow. Distribution outside the store is officially allowed with a
+Developer ID signature plus notarization, but in practice it still requires the
+"allow unsigned extensions" developer toggle
+([Apple forum thread](https://developer.apple.com/forums/thread/782005)) — which
+is developer mode by another name. That is US$99/year and a review loop on every
+release, for the smallest audience of the three engines.
 
-- The extension must live inside a native container app built with Xcode, either
-  converted from the WebExtension with `safari-web-extension-converter` or
-  hand-maintained. There is no buildless install path and no store that accepts
-  a zip.
-- macOS distribution outside the Mac App Store officially requires a
-  Developer ID signature plus notarization, but developers report that Safari
-  still requires the "allow unsigned extensions" developer toggle for such
-  builds ([Apple forum thread](https://developer.apple.com/forums/thread/782005));
-  treat the Mac App Store as the only channel a normal user can follow.
-- Every release goes through App Store review again. Store review latency is now
-  part of the product's upgrade path.
-- `tabs.captureVisibleTab` is reported as supported since Safari 14 (MDN), but
-  the popup layout, the `commands` suggested key, and the overlay/gesture code
-  all need a real Safari pass. Budget for surprises.
-- iOS is out of scope for this product: the bridge is loopback-only, so the
-  phone cannot reach the host, and iOS suspends the background worker that owns
-  the socket.
+The porting cost alone would be manageable: `background.scripts` works (14+), so
+the Gecko target is a starting point, and the popup, the `commands` suggested
+key, `tabs.captureVisibleTab`, and the overlay would need one real Safari pass.
+The delivery model is what disqualifies it.
 
-Cost: roughly 5-10 engineering days plus US$99/year, a macOS CI runner, and a
-per-release review loop. That is a different order of magnitude from Chromium,
-and it buys the smallest audience of the three engines.
+iOS is ruled out separately: the bridge is loopback-only, so a phone cannot reach
+the host, and iOS suspends the background worker that owns the socket.
+
+Revisit only if someone funds the account and the per-release review time — and
+then as its own track, not as a third target in this pipeline.
 
 ## 4. Release engineering
 
 The shape you described — semver tag on main, CI builds, automated publish,
-generated changelog — is right. Five things need to change in the details.
+generated changelog — is right. Several details need to change.
 
 ### 4.1 One product version, one protocol version
 
@@ -157,18 +151,35 @@ numbers guarantee that a release forgets one.
 
 Version sources that must be bumped atomically: `packages/plugin/package.json`,
 `packages/extension/manifest.json`, the tag, the changelog, and (only when the
-wire changes) `PROTOCOL_VERSION` plus the two generated copies.
+wire changes) `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` plus the two generated
+copies.
 
-### 4.2 Chrome's version format forbids semver prereleases
+Note the split of duties: the product version names a release and appears in
+store listings; the protocol version is the only thing a connection checks
+(§7, D15). Neither is ever compared to the other.
 
-Chrome accepts one to four dot-separated integers and nothing else; `0.2.0-rc.1`
-is not installable, and `0.2.0.1` sorts *after* `0.2.0`, so an rc numbered that
-way would outrank the final release. AMO is looser, Chrome is not.
+### 4.2 Prereleases never go to a store
 
-Therefore: **prereleases never reach the stores.** They go to GitHub
-pre-release artifacts, AMO unlisted signing, and CWS trusted testers. Store
-versions are `MAJOR.MINOR.PATCH` only. This decision has to exist before the
-first tag, not after the first rejection.
+Chrome accepts one to four dot-separated integers as a version and nothing else;
+`0.2.0-rc.1` cannot be installed. AMO keeps a monotonic version sequence per
+add-on ID, so a prerelease uploaded as `0.2.0.1` permanently outranks the
+eventual `0.2.0` for that ID. Both facts make prereleases hostile to store
+channels, independently of review time.
+
+Policy (D16): a store only ever receives finals, `MAJOR.MINOR.PATCH`, with an
+integer manifest version. Prereleases are GitHub pre-releases that interested
+users install themselves:
+
+- Chromium: an unpacked directory (developer mode). Without a store there is no
+  other way to install it.
+- Gecko: a temporary add-on from `about:debugging`, or a signed build under a
+  **separate beta add-on ID** (`…-beta@…`). One add-on ID cannot host both
+  channels; the beta ID has its own version sequence and update manifest.
+
+The beta artifacts are built from the same tag as the final, never from a
+different commit, so "prerelease" means "not published", not "different code".
+The documentation has to say plainly that a prerelease install is manual and,
+on Firefox, temporary unless the beta build is signed.
 
 ### 4.3 Two-phase pipeline: tag builds, release publishes
 
@@ -219,10 +230,14 @@ manifests.
 | Artifact | Produced by | Goes to |
 |---|---|---|
 | `dsh-annotate-firefox-<v>.zip` | `web-ext build` on the gecko target | GitHub Release; AMO upload |
-| `dsh-annotate-firefox-<v>.xpi` | `web-ext sign --channel unlisted` | GitHub Release + update manifest (self-hosting only) |
+| `dsh-annotate-firefox-<v>.xpi` | `web-ext sign --channel unlisted` | beta channel and self-hosting |
 | `dsh-annotate-chromium-<v>.zip` | zip of the chromium target | GitHub Release; CWS upload; Edge upload |
 | `dsh-annotate-plugin-<v>.tgz` | `npm pack` | GitHub Release; npm |
 | `checksums.txt` | SHA-256 over the above | GitHub Release |
+
+Prerelease builds reuse the same targets, carry a `-beta` suffix in the artifact
+name, and use the beta add-on ID in the gecko manifest. They are never uploaded
+to CWS, and AMO sees them only as unlisted signing under that ID.
 
 Build both extension targets from one source tree with a small
 `scripts/build-extension.mjs` that copies the shared files and writes the
@@ -291,19 +306,54 @@ timestamp. Rewrite the criterion as: the unsigned artifacts are rebuilt from the
 tag in CI with a published checksum, and the signed XPI is identified by the
 AMO version and its signing hash. Do not promise byte-identical signed output.
 
+### 4.10 Adjacent infrastructure worth having
+
+Cheap, and directly useful for this repository:
+
+- **Dry run.** `workflow_dispatch` with `dry_run: true` builds, validates, and
+  renders the release notes without uploading. Store versions are permanent, so
+  the pipeline must be testable without burning one.
+- **Validate what ships.** Run `check-manifest` and the store pre-flight against
+  the generated target directory and the zip contents, not the source tree. The
+  source tree is not the artifact.
+- **Dependency updates.** Renovate or Dependabot for `ws`, the pinned action
+  SHAs, and `web-ext`. With no devDependencies the noise is minimal and the
+  security value is real.
+- **Dependency review and audit.** `actions/dependency-review-action` on PRs and
+  a production-only `pnpm audit`, which stays cheap with one runtime dependency.
+- **CodeQL for JavaScript.** The content script parses untrusted DOM and builds
+  selectors from it; static analysis is worth the free minutes.
+- **A Windows CI job.** The README documents PowerShell paths and the tests are
+  path-sensitive, but CI runs `ubuntu-latest` only today.
+- **Build provenance.** `actions/attest-build-provenance` for the zips, so a
+  downloaded artifact can be tied to the commit and workflow that produced it.
+- **Staged rollout on CWS.** Publish a version to a percentage of users, watch
+  it, then go to 100%. With store review in the loop this is the only canary a
+  store-distributed extension can have.
+- **Rollback procedures.** CWS can roll back to a previous published version,
+  AMO has version rollback for listed add-ons, and the npm half rolls back with
+  `npm deprecate` plus a patch release. Write the three commands down before the
+  first release, not during the first incident.
+- **`SECURITY.md`.** A disclosure address; reviewers and users both look for it,
+  and an extension that reads every page should have one.
+
+Deliberately not worth it here: SBOM generation for a five-file extension,
+signed commits (protected tags are enough), a documentation site, and full
+end-to-end browser automation on every push. One Playwright Chromium load of the
+built target per release, plus a manual Firefox checklist, is the useful subset.
+
 ## 5. Support tiers and sequencing
 
 | Tier | Targets | Gate |
 |---|---|---|
 | T1 | Firefox/Zen via AMO listed | today's behaviour, signed |
 | T2 | Chromium desktop via CWS (+ Edge) | platform seam in §3.1 |
-| T3 | Safari macOS via Mac App Store | only if the product needs WebKit enough to fund US$99/year + review latency |
-| T4 | Firefox for Android | needs a non-keyboard entry point; separate UX pass |
-| — | Safari iOS, Chromium Android | not applicable to a loopback bridge |
+| T3 | Firefox for Android | needs a non-keyboard entry point; separate UX pass |
+| — | Safari (all platforms), Chromium Android | out of scope (D14) |
 
-Statement discipline: until T3 ships, the README should say "Firefox and
-Chromium", not "all browsers". A support claim that Safari users can disprove in
-one minute is worse than a narrow claim.
+Statement discipline: the README and both store listings say "Firefox and
+Chromium". No "all browsers" claim. Safari is a documented non-goal, not a
+pending target.
 
 ## 6. Host bundle distribution
 
@@ -323,22 +373,40 @@ one minute is worse than a narrow claim.
   manager's `updateBundle` only lists registry packages installed under their
   own name.
 
-## 7. Compatibility policy (release-blocking)
+## 7. Compatibility policy: protocol only (D15)
 
-`bridge.js:160` requires an exact protocol version match: a plugin update
-therefore disconnects every installed extension until that extension is updated
-— and store review can delay the extension by days. The two halves are released
-on different clocks (npm is instant, CWS/AMO are not), so exact-match gating
-makes every release a potential outage.
+Decided 2026-11-19. A connection is accepted or rejected on the protocol version
+alone. No product version — neither the extension's manifest version nor the
+plugin's package version — is compared across the bridge, in either direction.
+Product versions name releases; they are not a compatibility signal.
 
-Before the first public release:
+Why: the halves are released on different clocks. npm is instant; CWS and AMO
+are not, and review can take days. Any check that couples the two product
+versions turns a store review delay into an outage for everyone already
+installed — which is exactly what an exact-match protocol check does today
+(`bridge.js:160-167`).
 
-- `/ext/anno/health` advertises `{ protocol, minProtocol, caps }`.
-- The host accepts a window (at minimum the previous protocol version), and
-  prefers capability flags (`hello.ok` already carries `caps`) over version
-  equality.
-- Both sides render an actionable state — "update the extension" / "update the
-  plugin" with the required version — instead of a silent reconnect loop.
+The contract:
+
+- `hello` carries `{ token, protocol }` and never a product version. It already
+  carries only the protocol version (`bridge.js:155-168`); keep it that way.
+- The host accepts a window: `MIN_PROTOCOL ≤ protocol ≤ PROTOCOL_VERSION`. The
+  window spans at least the previous protocol version; shrinking it is an
+  announced decision, never a side effect of a release.
+- `/ext/anno/health` advertises `{ protocol, minProtocol, caps }` so a client can
+  explain a mismatch before it connects.
+- Differences inside the window are negotiated with `caps` (`hello.ok` already
+  carries them), not inferred from a number.
+- The UI says "this extension is too old for the installed plugin" or the
+  reverse, with both protocol numbers; it never renders a product-version
+  comparison.
+
+`PROTOCOL_VERSION` and the new `MIN_PROTOCOL_VERSION` live in
+`packages/protocol/src/index.js`, are copied by `sync-protocol.mjs` like
+everything else, and change only when the wire changes.
+
+`engines.dsh` is a different check in a different place: it is package metadata
+that DSH evaluates at install time, and it never reaches the socket.
 
 ## 8. Estimated effort
 
@@ -348,10 +416,11 @@ Before the first public release:
 | Chromium QA (capture, popup, reconnect, pick, permissions audit) | 3-5 d |
 | Store assets and listings (icons, screenshots, privacy policy, EN/ZH copy) | 2-3 d |
 | Release automation (build matrix, draft release, changelog, npm, AMO, CWS) | 4-6 d |
-| Protocol compatibility window | 1-2 d |
-| Safari packaging and App Store (separate track) | 5-10 d + US$99/yr |
+| Protocol window (`MIN_PROTOCOL`, health, UI states) | 1-2 d |
+| Beta channel (separate add-on ID, unpacked builds, install docs) | 1 d |
 
-T1+T2 lands in roughly two to three working weeks. T3 is its own project.
+T1+T2 lands in roughly two working weeks, plus the store review calendars, which
+run in parallel and cannot be compressed.
 
 ## 9. Open questions
 
@@ -362,5 +431,7 @@ T1+T2 lands in roughly two to three working weeks. T3 is its own project.
    items) enough for v1?
 3. Is the extension's public name settled? It must be available on AMO, CWS, and
    npm, and must not collide with the existing `dsh-annotate` package.
-4. Who reviews and publishes the draft release — a single maintainer, or does it
+4. How long does the protocol window stay open — one release cycle, or a fixed
+   number of months? The answer becomes `MIN_PROTOCOL_VERSION`'s bump rule.
+5. Who reviews and publishes the draft release — a single maintainer, or does it
    need a second pair of eyes before a store submission?

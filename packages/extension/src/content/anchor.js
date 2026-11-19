@@ -965,7 +965,9 @@
       for (const element of stack) {
         if (!element || element.nodeType !== 1) continue
         if (isOurs(element) || element.id === HOST_ID) continue
-        if (element === document.documentElement) continue
+        // The document shell always intersects, so it says nothing about what
+        // the user boxed.
+        if (element === document.documentElement || element === document.body) continue
         if (found.has(element)) continue
         const rect = rectOf(element.getBoundingClientRect())
         const ratio = areaOf(intersection(rect, viewportRect)) / regionArea
@@ -973,18 +975,33 @@
         found.set(element, ratio)
       }
     }
-    return [...found.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 5)
-      .map(([element, ratio]) => {
-        const text = cheapText(element)
-        return compact({
-          tag: String(element.tagName || '').toLowerCase(),
-          selector: cssPath(element),
-          textExcerpt: text ? P.truncate(text, Math.min(LIMITS.excerptChars, 120)) : '',
-          intersectionRatio: Math.round(ratio * 100) / 100,
+    return (
+      [...found.entries()]
+        .sort((left, right) => right[1] - left[1])
+        // Three is enough to describe a region; a longer list is payload, not context.
+        .slice(0, 3)
+        .map(([element, ratio]) => {
+          const text = cheapText(element)
+          return compact({
+            tag: String(element.tagName || '').toLowerCase(),
+            selector: cssPath(element),
+            // Page frameworks inline their state as text; quoting it back to the
+            // model is noise the user cannot recognise.
+            textExcerpt: text && !looksLikePayload(text) ? P.truncate(text, Math.min(LIMITS.excerptChars, 80)) : '',
+            intersectionRatio: Math.round(ratio * 100) / 100,
+          })
         })
-      })
+    )
+  }
+
+  /**
+   * Whether a text node's content is a serialized payload rather than prose.
+   * GitHub (and most SSR frameworks) embed `{"props":…}` blobs in the tree.
+   * @param {string} text
+   */
+  function looksLikePayload(text) {
+    const head = text.trimStart().slice(0, 1)
+    return head === '{' || head === '['
   }
 
   function anchorElementFor(viewportRect, pageRect) {
@@ -1005,16 +1022,26 @@
   function regionState(viewportRect) {
     const normalized = normalizeRect(viewportRect)
     if (!normalized || normalized.w < 1 || normalized.h < 1) return null
-    const pageRect = roundRect(viewportToPage(normalized))
-    const anchorElement = anchorElementFor(normalized, pageRect)
+    // A drag that starts past an edge (or runs past one) must not persist a
+    // negative or off-screen box: the page rect would point outside the
+    // document and the crop would be clipped anyway.
+    const inside = intersection(normalized, {
+      x: 0,
+      y: 0,
+      w: Number(global.innerWidth) || 0,
+      h: Number(global.innerHeight) || 0,
+    })
+    if (!inside || inside.w < 1 || inside.h < 1) return null
+    const pageRect = roundRect(viewportToPage(inside))
+    const anchorElement = anchorElementFor(inside, pageRect)
     const anchor = {
       kind: 'region',
       pageRect,
-      viewportRect: roundRect(normalized),
+      viewportRect: roundRect(inside),
       ...(anchorElement ? { anchorElement } : {}),
-      intersectingElements: intersectingElementsOf(normalized),
+      intersectingElements: intersectingElementsOf(inside),
     }
-    return { anchor, viewportRect: normalized, live: null }
+    return { anchor, viewportRect: inside, live: null }
   }
 
   // ── page context ───────────────────────────────────────────────────────────
