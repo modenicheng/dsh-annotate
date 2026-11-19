@@ -373,6 +373,35 @@ test('a submitted draft keeps the click-time snapshot in the queued record', asy
   assert.deepEqual(JSON.parse(JSON.stringify(answer.record.snapshot)), snapshot)
 })
 
+test('the page names the chip, even when no target Session was picked', async () => {
+  // The Host routes an untargeted annotation to the Session on screen, so the
+  // label has to survive even though `routing.sessionId` is absent: the Host
+  // cannot reproduce the page's own wording for "批注 · …".
+  const { ns, events } = await bootBackground({
+    fetch: async () => ({ ok: true, status: 200, json: async () => healthBody() }),
+  })
+  const answer = await events.onMessage.listeners[0](
+    {
+      type: 'anno.submit',
+      record: {
+        url: 'http://127.0.0.1:3099/',
+        title: 'Greeting',
+        anchor: { kind: 'region', pageRect: { x: 1, y: 2, w: 30, h: 40 }, viewportRect: { x: 1, y: 2, w: 30, h: 40 } },
+        comment: '',
+        routing: { source: 'user', label: '批注 · 30×40' },
+      },
+      cropRect: { x: 1, y: 2, w: 30, h: 40 },
+      viewport: { width: 800, height: 600, devicePixelRatio: 1 },
+    },
+    { tab: { id: 1, windowId: 1, url: 'http://127.0.0.1:3099/' } },
+  )
+
+  assert.equal(answer.ok, true)
+  assert.equal(answer.record.routing.label, '批注 · 30×40')
+  assert.equal(answer.record.routing.sessionId, undefined)
+  assert.equal(ns.PROTOCOL.validateRecord(answer.record).length, 0)
+})
+
 test('every script listed by the manifest exists', async () => {
   const manifest = JSON.parse(await readScript('manifest.json'))
   const referenced = new Set()

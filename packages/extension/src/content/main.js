@@ -658,13 +658,15 @@
     if (state.snapshot) draft.snapshot = state.snapshot
     if (intent) draft.intent = intent
     // A picked target turns the annotation into a queued mention: the Host
-    // stores it, the Web Client appends it to that Session's composer.
-    if (state.targetId !== '') {
-      draft.routing = {
-        source: 'user',
-        sessionId: state.targetId,
-        label: fill(t('chipLabel'), { summary: summaryOf(anchor) }),
-      }
+    // stores it, the Web Client appends it to that Session's composer. The label
+    // is written even when no target was picked, because the Host routes an
+    // untargeted annotation to the Session the user is looking at and would
+    // otherwise have to name the chip itself — in a language it does not share
+    // with this page.
+    draft.routing = {
+      source: 'user',
+      ...(state.targetId === '' ? {} : { sessionId: state.targetId }),
+      label: fill(t('chipLabel'), { summary: summaryOf(anchor) }),
     }
     return draft
   }

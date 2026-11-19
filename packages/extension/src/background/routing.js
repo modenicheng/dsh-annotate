@@ -393,6 +393,12 @@
       routing: {
         source: routing.source,
         ...(typeof routing.sessionId === 'string' && routing.sessionId !== '' ? { sessionId: routing.sessionId } : {}),
+        // The page names the chip in its own language; the Host has no copy of
+        // those strings, and an untargeted annotation still needs one because it
+        // is routed there instead.
+        ...(typeof draft.routing?.label === 'string' && draft.routing.label !== ''
+          ? { label: draft.routing.label }
+          : {}),
       },
       state: 'open',
     })
