@@ -157,11 +157,12 @@ the session that should act on them.
 
 **Deliverables**
 
-- Signed extension (`.xpi`) via Mozilla Add-ons; reproducible `web-ext build`
-  artifacts and checksums.
-- Release workflow: tag, test, package, sign, publish artifacts, changelog.
-- Install and upgrade documentation, compatibility matrix (Firefox/Zen/DSH
-  versions), and a privacy note (no data leaves the machine).
+- Signed Firefox extension (`.xpi`) via Mozilla Add-ons and a Chrome Web Store
+  listing; unsigned `web-ext`/zip artifacts rebuilt from the tag with checksums.
+- Release workflow: tag, test, package, draft release, changelog, and publishing
+  to npm, AMO, and CWS; prereleases stay off the stores (D16).
+- Install and upgrade documentation, compatibility matrix (Firefox/Zen,
+  Chromium, and DSH versions), and a privacy note (no data leaves the machine).
 - Protocol migration: version bump policy, compatibility window, and data
   migration for `queue.jsonl` if the record shape changes.
 
@@ -171,7 +172,11 @@ the session that should act on them.
   developer mode.
 - A fresh machine can follow the README from clone to first annotation in
   under ten minutes.
-- Release artifacts are reproducible from a tag, and CI verifies the tag's
-  tests before publishing.
+- Unsigned release artifacts are reproducible from a tag with published
+  checksums, and CI verifies the tag's tests before publishing; the signed XPI
+  is identified by its AMO version and signing hash.
 - Install and upgrade paths need no registry access beyond the published
   package sources, and the plugin remains installable offline from a checkout.
+
+The distribution design behind these criteria — target matrix, CI shape, store
+APIs, and the decisions D14–D16 — is in [DISTRIBUTION.md](DISTRIBUTION.md).

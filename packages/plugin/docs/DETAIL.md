@@ -21,6 +21,7 @@
 | `annotate_get` | 读一条：裁剪图 + 完整锚点 JSON |
 | `annotate_resolve` | 标记已处理，备注即时显示在页面角标 |
 | `annotate_pick` | 让用户在浏览器里点一下，阻塞等待结果 |
+| `annotate_delete` | 直接删除批注（记录、裁剪图、角标一起消失），用于清理测试痕迹 |
 | `annotate_clear` | 批量清理历史 |
 
 ## 数据落在哪

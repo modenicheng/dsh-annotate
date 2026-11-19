@@ -308,3 +308,71 @@ input actions are the documented face for programmatic editing — the same
 mechanism the built-in QueueDock uses. That is the next step; the polling,
 queue, routes, ack, and the picker's data path are all already verified
 independently of it.
+
+## D14 — The extension targets Chromium and Gecko; WebKit is out of scope
+
+**Decision.** The browser extension supports Chromium and Gecko. Safari is not a
+target: no App Store listing, no Xcode project, no macOS runner, and no
+WebKit-specific branch in the release pipeline.
+
+**Why.** WebKit's cost is the delivery model, not the port. The extension must
+ship inside a native container app built with Xcode, every release re-enters App
+Store review, and outside the Mac App Store the install still requires Safari's
+"allow unsigned extensions" developer toggle. That is US$99/year plus a review
+calendar per release, for the smallest of the three audiences. iOS is impossible
+independently: the bridge is loopback-only, so a phone cannot reach the host, and
+iOS suspends the background worker that owns the socket. Porting would be days
+rather than weeks (`background.scripts` works in Safari 14+), which is exactly
+why the decision has to be about distribution rather than capability.
+
+**Consequences.** "All mainstream browser engines" becomes "Chromium and Gecko"
+in the README, the store listings, and the compatibility matrix; Safari becomes
+a documented non-goal so nobody waits for it. The release pipeline builds two
+extension targets, and the platform seam is designed for two engines instead of
+being generalized for three. Revisiting requires someone to fund the Apple
+account and the per-release review time, and would be its own track.
+
+## D15 — A connection is negotiated by protocol version only
+
+**Decision.** The bridge accepts or rejects a connection on the protocol version
+alone. It never compares product versions — neither the extension's manifest
+version nor the plugin's package version — in either direction. `hello` carries
+`{ token, protocol }`; the host accepts
+`MIN_PROTOCOL ≤ protocol ≤ PROTOCOL_VERSION`; `/ext/anno/health` advertises both
+bounds plus `caps`; differences inside the window are negotiated with `caps`.
+
+**Why.** The halves are released on different clocks: the DSH bundle updates
+through npm in seconds, while the extension waits for store review, which can
+take days. An exact-match check turns that delay into an outage for every
+already-installed extension, which is what `bridge.js` did. Product versions
+name releases; using them as a compatibility signal tied an install artifact to
+a runtime contract that changes on a different schedule.
+
+**Consequences.** `PROTOCOL_VERSION` and the new `MIN_PROTOCOL_VERSION` are
+protocol constants, copied into both consumers like everything else and bumped
+only when the wire changes. Keeping the previous version accepted is a standing
+obligation: dropping it is an announced decision, not a release side effect.
+`engines.dsh` stays, but as an install-time admission check in package metadata;
+it never reaches the socket.
+
+## D16 — Prereleases are not published to a store
+
+**Decision.** No prerelease version goes to any store. Stores receive finals
+only, `MAJOR.MINOR.PATCH` with an integer manifest version. Prereleases are
+GitHub pre-releases that users install themselves: an unpacked directory for
+Chromium, and for Firefox either a temporary add-on or a signed build under a
+separate beta add-on ID.
+
+**Why.** Chrome's version format is one to four dot-separated integers, so
+`0.2.0-rc.1` cannot be installed at all — and a prerelease numbered `0.2.0.1`
+sorts after `0.2.0`. AMO keeps a monotonic version sequence per add-on ID, so
+that same prerelease would permanently outrank the final release for that ID.
+Both are properties of the stores rather than of the release tooling, and both
+make "just publish the rc" impossible.
+
+**Consequences.** Two channels with two identities: the release ID, a
+`…-beta@…` ID whose version sequence is independent, and an unpacked Chromium
+build that has no identity at all. Beta artifacts are built from the same tag as
+the final, so the difference is publication, never code. The documentation must
+state that a prerelease install is manual and, on Firefox, temporary unless the
+beta build is signed.

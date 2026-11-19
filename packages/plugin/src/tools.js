@@ -229,6 +229,62 @@ export function createTools({ store, bridge }) {
     },
 
     {
+      name: 'annotate_delete',
+      description:
+        'Delete annotations outright instead of resolving them: the record, its crop, and its badge all go away. ' +
+        'Use this for noise the user never meant to keep (test marks, stale captures) — resolving leaves the mark on ' +
+        'their page, so prefer annotate_resolve when the work was actually done.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Annotation ids to delete.',
+          },
+        },
+        required: ['ids'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          required: ['deleted', 'missing'],
+          additionalProperties: false,
+          properties: {
+            deleted: { type: 'array', items: { type: 'string' } },
+            missing: { type: 'array', items: { type: 'string' } },
+          },
+        },
+        render: (_args, value) => {
+          const typed = /** @type {any} */ (value)
+          const parts = [`deleted ${typed.deleted.length}`]
+          if (typed.missing.length > 0) parts.push(`${typed.missing.length} not found`)
+          return [{ type: 'text', text: parts.join(', ') }]
+        },
+      },
+      async execute(args) {
+        const query = /** @type {any} */ (args)
+        const ids = Array.isArray(query.ids) ? query.ids.filter((id) => typeof id === 'string' && id !== '') : []
+        const deleted = []
+        const missing = []
+        for (const id of ids) {
+          const current = store.get(id)
+          if (current === undefined) {
+            missing.push(id)
+            continue
+          }
+          await store.delete(id)
+          // Same frame the overlay already listens to, so the badge disappears
+          // without waiting for the next snapshot refresh.
+          bridge.broadcast({ t: 'anno.event', type: 'deleted', record: { ...current, id }, seq: store.seq })
+          deleted.push(id)
+        }
+        return { deleted, missing }
+      },
+    },
+
+    {
       name: 'annotate_pick',
       description:
         'Ask the user to point at something in their browser, then continue with the result. The page shows a banner ' +

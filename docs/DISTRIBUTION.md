@@ -42,9 +42,9 @@ All of the following is accurate for Firefox and wrong or unsupported elsewhere:
 1. `packages/extension/manifest.json` declares `background.scripts`
    (lines 26-37). Chromium MV3 requires `background.service_worker` and rejects
    the `scripts` form. Firefox still has no service-worker background
-   (`background.service_worker`: Firefox = not supported, Chrome 88+, Safari
-   15.4+, per MDN compatibility data). There must be at least two background
-   shapes, so at least two manifests.
+   (`background.service_worker`: Firefox = not supported, Chrome 88+, per MDN
+   compatibility data). There must be at least two background shapes, so at
+   least two manifests.
 2. `host_permissions` lists `ws://127.0.0.1/*` and `wss://…` (lines 21-24).
    Chromium match patterns accept only `http`, `https`, `*`, and `file`
    ([Chrome docs](https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns)),
