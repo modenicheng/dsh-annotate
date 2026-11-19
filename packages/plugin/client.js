@@ -120,35 +120,79 @@ window.__ModuleLoader__.load({
      * picked, its mention lands at the end of that Session's composer the next
      * time the Session is open. Nothing is sent, and no turn starts.
      */
+    /** TEMP diagnostic: the module realm's console does not reach the page. */
+    function trace(reason) {
+      try {
+        document.documentElement.setAttribute('data-dsh-anno-trace', reason)
+      } catch {}
+    }
+
+    /**
+     * Hand one queued mention to its Session's composer.
+     *
+     * Two faces, because a Session the user is looking at does not always have a
+     * live Agent binding (`binding()` only answers for a retained Agent). With a
+     * binding the documented "append" initialization does the work; without one
+     * the session-scope input facade still inserts the mention as an atomic
+     * reference chip at the caret.
+     * @returns whether the mention was taken
+     */
+    function deliver(ctx, item) {
+      try {
+        const binding = ctx.sessions.binding(item.sessionId)
+        if (binding !== undefined) {
+          const result = ctx.uiConversation.input.requestDraftInitialization(binding, {
+            prompt: item.mention,
+            whenDraftExists: 'append',
+          })
+          if (result === 'applied') {
+            trace('applied-append')
+            return true
+          }
+          trace(`init-${String(result)}`)
+        }
+        const scope = ctx.sessions.scope(item.sessionId)
+        if (scope === undefined) {
+          trace('wait-no-scope')
+          return false
+        }
+        const input = ctx.uiConversation.input.for(scope)
+        const span = input.captureInsertion()
+        const inserted = input.insertReference(
+          {
+            source: 'anno',
+            ref: item.mention,
+            // No `appearance`: the draft schema only knows session/file/folder,
+            // and an unlabelled reference still renders as an atomic chip.
+            label: typeof item.label === 'string' && item.label !== '' ? item.label : item.mention,
+            clipboardText: item.mention,
+          },
+          span,
+        )
+        trace(inserted ? 'inserted-reference' : 'insert-refused')
+        return inserted === true
+      } catch (error) {
+        trace(`throw-${String(error).slice(0, 60)}`)
+        return false
+      }
+    }
+
     async function appendQueued(ctx) {
       const url = `${window.location.origin}/ext/anno/queue?all=1`
       const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
-      if (!response.ok) return
+      if (!response.ok) return trace(`http-${response.status}`)
       const body = await response.json()
       const items = Array.isArray(body?.items) ? body.items : []
+      trace(`items-${items.length}`)
       if (items.length === 0) return
 
       const acked = []
       for (const item of items) {
         if (typeof item?.id !== 'string' || typeof item?.mention !== 'string') continue
         if (delivered.has(item.id)) continue
-        const binding = ctx.sessions.binding(item.sessionId)
-
-        // Only a retained Session can take a draft; anything else stays queued.
-        if (binding === undefined) continue
-        try {
-          // `append` is the documented semantics for "add these paragraphs after
-          // whatever the user already wrote" — and it keeps existing chips whole.
-          const result = ctx.uiConversation.input.requestDraftInitialization(binding, {
-            prompt: item.mention,
-            whenDraftExists: 'append',
-          })
-
-          if (result !== 'applied') continue
+        if (deliver(ctx, item)) {
           delivered.add(item.id)
           acked.push(item.id)
-        } catch (error) {
-          console.warn(`dsh-annotate: could not append queued mention ${item.id}: ${String(error)}`)
         }
       }
       if (acked.length === 0) return

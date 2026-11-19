@@ -289,3 +289,22 @@ are gated by `Sec-Fetch-Site: same-origin` instead, which a cross-site request
 cannot forge, and both routes are `no-store`. A page that omits the header gets
 an honest 403 rather than a guess. The Client poll is a 4 s interval plus
 `visibilitychange`; an entry for a Session that is not retained simply waits.
+
+## D13 — The queue's client reader cannot reach a composer through `sessions.binding`/`scope`
+
+**Finding (2026-11-19).** `ctx.sessions.binding(id)` and `ctx.sessions.scope(id)`
+both return `undefined` for a Session that is displayed in the Client, so the
+first delivery path — `requestDraftInitialization(binding, {whenDraftExists:
+'append'})` or `uiConversation.input.for(scope).insertReference(...)` — never
+runs. Verified by tracing the reader's own branch into a DOM attribute
+(`data-dsh-anno-trace`) after the module realm's console proved invisible to the
+page console: the recorded reason is `wait-no-scope` with the target Session open
+and its title in the header.
+
+**Consequence.** Delivery is implemented and queued correctly host-side, but does
+not land in the composer yet. The remaining seam is a Session-scope Slot
+component (`conversation.composer.dock`), whose props carry `sessionId` and whose
+input actions are the documented face for programmatic editing — the same
+mechanism the built-in QueueDock uses. That is the next step; the polling,
+queue, routes, ack, and the picker's data path are all already verified
+independently of it.
