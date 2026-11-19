@@ -186,20 +186,34 @@ window.__ModuleLoader__.load({
         })
 
         ctx.effect(() => {
-          const poll = () => {
+          let last = 0
+          const poll = (force) => {
+            const now = Date.now()
+            // Interaction fires far more often than the queue changes.
+            if (force !== true && now - last < QUEUE_POLL_MS) return
+            last = now
             void appendQueued(ctx).catch((error) => {
               console.warn(`dsh-annotate: queue poll failed: ${String(error)}`)
             })
           }
-          const timer = setInterval(poll, QUEUE_POLL_MS)
+          const timer = setInterval(() => poll(false), QUEUE_POLL_MS)
           const onVisible = () => {
-            if (document.visibilityState === 'visible') poll()
+            if (document.visibilityState === 'visible') poll(true)
           }
+          // A hidden tab has its timers frozen, so the moment the user comes
+          // back is also the moment to look: focus and the first interaction.
+          const onInteraction = () => poll(false)
           document.addEventListener('visibilitychange', onVisible)
-          poll()
+          window.addEventListener('focus', onVisible)
+          document.addEventListener('pointerdown', onInteraction, true)
+          document.addEventListener('keydown', onInteraction, true)
+          poll(true)
           return () => {
             clearInterval(timer)
             document.removeEventListener('visibilitychange', onVisible)
+            window.removeEventListener('focus', onVisible)
+            document.removeEventListener('pointerdown', onInteraction, true)
+            document.removeEventListener('keydown', onInteraction, true)
           }
         }, 'dsh-annotate: queued mentions')
       },
