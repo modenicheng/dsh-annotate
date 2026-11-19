@@ -177,6 +177,63 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * The Session-scope seat. A Session-scope Slot component is handed the
+     * Session it belongs to and that Session's input actions — the documented
+     * face for programmatic editing — which is the only way to reach a composer
+     * whose Agent is not retained (`sessions.binding`/`scope` answer nothing
+     * for one, D13).
+     */
+    function PendingMentions({ sessionId, inputActions }) {
+      React.useEffect(() => {
+        if (typeof sessionId !== 'string' || sessionId === '' || inputActions === undefined) return undefined
+        let cancelled = false
+        const pull = async () => {
+          try {
+            const response = await fetch(
+              `${window.location.origin}/ext/anno/queue?session=${encodeURIComponent(sessionId)}`,
+              {
+                credentials: 'same-origin',
+                cache: 'no-store',
+              },
+            )
+            if (!response.ok) return
+            const body = await response.json()
+            const items = Array.isArray(body?.items) ? body.items : []
+            trace(`slot-items-${items.length}`)
+            if (cancelled || items.length === 0) return
+            const acked = []
+            for (const item of items) {
+              if (typeof item?.mention !== 'string') continue
+              const span = inputActions.captureInsertion()
+              const text = item.mention
+              if (inputActions.insertText(text, span) !== true) {
+                trace('slot-insert-refused')
+                continue
+              }
+              acked.push(item.id)
+            }
+            if (cancelled || acked.length === 0) return
+            trace('slot-appended')
+            await fetch(`${window.location.origin}/ext/anno/queue/ack`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              cache: 'no-store',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ ids: acked }),
+            })
+          } catch (error) {
+            trace(`slot-throw-${String(error).slice(0, 50)}`)
+          }
+        }
+        void pull()
+        return () => {
+          cancelled = true
+        }
+      }, [sessionId, inputActions])
+      return null
+    }
+
     async function appendQueued(ctx) {
       const url = `${window.location.origin}/ext/anno/queue?all=1`
       const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
@@ -227,6 +284,13 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.uiConversation.userText.register(annoRule), 'dsh-annotate: user-text rule')
         ctx.slots.inject('conversation.user.text.node', function* () {
           yield ctx.slots.register({ name: 'conversation.user.text.node', key: 'anno', priority: 100 }, AnnoReference)
+        })
+
+        ctx.slots.inject('conversation.composer.dock', function* () {
+          yield ctx.slots.register(
+            { name: 'conversation.composer.dock', id: 'dsh-anno-pending', order: 90 },
+            PendingMentions,
+          )
         })
 
         ctx.effect(() => {
