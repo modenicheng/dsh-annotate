@@ -22,6 +22,7 @@ const extensionRoot = dirname(here)
 const SCRIPTS = [
   'src/shared/protocol.global.js',
   'src/background/endpoints.js',
+  'src/background/discovery.js',
   'src/background/core.js',
   'src/background/socket.js',
   'src/background/outbox.js',
@@ -168,11 +169,13 @@ async function waitUntil(predicate, timeoutMs = 2_000) {
  * `main.js` starts booting as soon as it loads, so the stored token has to exist
  * before the scripts are evaluated; otherwise the first attempt stops at
  * `no-token` and no socket is ever constructed.
- * @param {{ token?: string, fetch?: (url: string) => Promise<any> }} [options]
+ * @param {{ token?: string, prefs?: Record<string, any> | null, storage?: Record<string, any> | null, fetch?: (url: string) => Promise<any> }} [options]
  */
 async function bootBackground(options = {}) {
   const {
     token = 'test-token',
+    prefs = null,
+    storage = null,
     fetch = async () => {
       throw new Error('offline')
     },
@@ -236,6 +239,8 @@ async function bootBackground(options = {}) {
   sandbox.globalThis = sandbox
   const context = vm.createContext(sandbox)
   if (token !== '') stored.set('anno.token', token)
+  if (prefs !== null) stored.set('anno.prefs', prefs)
+  if (storage !== null) for (const [key, value] of Object.entries(storage)) stored.set(key, value)
 
   for (const path of SCRIPTS) {
     const code = await readScript(path)
@@ -400,6 +405,178 @@ test('the page names the chip, even when no target Session was picked', async ()
   assert.equal(answer.record.routing.label, '批注 · 30×40')
   assert.equal(answer.record.routing.sessionId, undefined)
   assert.equal(ns.PROTOCOL.validateRecord(answer.record).length, 0)
+})
+
+/**
+ * A fetch stub that answers like a locator round plus a bridge health route.
+ * Anything else is a failure, so a request the chain should not make shows up.
+ * @param {object} [input]
+ * @param {{ port: number, body: any }[]} [input.locators] bodies by locator port
+ * @param {Record<number, any>} [input.health] health bodies by bridge port
+ */
+function discoveryStub({ locators = [], health = {} } = {}) {
+  /** @type {string[]} */
+  const calls = []
+  const fetch = async (url) => {
+    calls.push(url)
+    const parsed = new URL(url)
+    if (parsed.pathname === '/ext/anno/locate') {
+      const entry = locators.find((candidate) => candidate.port === Number(parsed.port))
+      if (entry === undefined) throw new Error('connection refused')
+      return { ok: true, status: 200, json: async () => entry.body }
+    }
+    if (parsed.pathname === '/ext/anno/health') {
+      const body = health[Number(parsed.port)]
+      if (body === undefined) throw new Error('connection refused')
+      return { ok: true, status: 200, json: async () => body }
+    }
+    throw new Error(`unexpected request ${url}`)
+  }
+  return { fetch, calls }
+}
+
+/** A `/ext/anno/locate` body for one running host. */
+function locateBody({ origin, instanceId, profile = 'desktop', focusAt = null }) {
+  const parsed = new URL(origin)
+  return {
+    // Mirrors PROTOCOL.DISCOVERY_APP; the discovery test asserts they agree.
+    app: 'dsh-marker',
+    version: 1,
+    instanceId,
+    origin,
+    wsUrl: `${parsed.protocol === 'https:' ? 'wss' : 'ws'}://${parsed.host}/ext/anno`,
+    startedAt: '2026-11-19T13:00:00.000Z',
+    focusAt,
+    profile,
+  }
+}
+
+/** A `/ext/anno/health` body for the host at `origin`. */
+function healthFor(origin, instanceId) {
+  const parsed = new URL(origin)
+  return {
+    ok: true,
+    version: 1,
+    instanceId,
+    secure: false,
+    wsUrl: `${parsed.protocol === 'https:' ? 'wss' : 'ws'}://${parsed.host}/ext/anno`,
+    wsPath: '/ext/anno',
+    openCount: 0,
+    clients: 0,
+  }
+}
+
+test('automatic discovery connects to the host the locator announces', async () => {
+  const origin = 'http://127.0.0.1:51234'
+  const id = 'aaaaaaaaaaaaaaaa'
+  const stub = discoveryStub({
+    locators: [{ port: 30810, body: locateBody({ origin, instanceId: id }) }],
+    health: { 51234: healthFor(origin, id) },
+  })
+  const { ns, sockets, stored } = await bootBackground({ prefs: { connection: 'auto' }, fetch: stub.fetch })
+
+  assert.equal(ns.PROTOCOL.DISCOVERY_APP, 'dsh-marker', 'the fixture above must match the published app name')
+  assert.equal(sockets.length, 1)
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:51234/ext/anno')
+  assert.equal(ns.netState.discoveryMode, 'auto')
+  assert.equal(ns.netState.discoverySource, 'locator')
+  assert.equal(ns.netState.instanceId, id)
+  assert.equal(ns.netState.discovered.length, 1)
+  // The host is remembered, so the next event-page start takes the fast path.
+  const remembered = stored.get('anno.address')
+  assert.equal(remembered?.origin, origin)
+  assert.equal(remembered?.instanceId, id)
+})
+
+test('a remembered host costs one probe and no locator round', async () => {
+  const origin = 'http://127.0.0.1:51234'
+  const id = 'bbbbbbbbbbbbbbbb'
+  const stub = discoveryStub({ health: { 51234: healthFor(origin, id) } })
+  const { ns, sockets } = await bootBackground({
+    prefs: { connection: 'auto' },
+    storage: {
+      'anno.address': { origin, instanceId: id, profile: 'desktop', startedAt: null, focusAt: null, at: Date.now() },
+    },
+    fetch: stub.fetch,
+  })
+
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:51234/ext/anno')
+  assert.equal(ns.netState.discoverySource, 'cached')
+  assert.deepEqual(stub.calls, [`${origin}/ext/anno/health`])
+})
+
+test('automatic discovery reports what it tried when nothing answers', async () => {
+  const stub = discoveryStub({})
+  const { ns, sockets } = await bootBackground({ prefs: { connection: 'auto' }, fetch: stub.fetch })
+
+  assert.equal(sockets.length, 0)
+  assert.equal(ns.netState.connection, 'offline')
+  assert.match(ns.netState.lastError, /no host answered/)
+  assert.match(ns.netState.lastError, /30810/)
+  assert.match(ns.netState.lastError, /ext-bridge-endpoint\.json/)
+  assert.equal(ns.netState.discoveryFailures.length, 3)
+})
+
+test('a locator answer whose health id disagrees is dropped, not connected to', async () => {
+  const origin = 'http://127.0.0.1:51234'
+  const stub = discoveryStub({
+    locators: [{ port: 30810, body: locateBody({ origin, instanceId: 'aaaaaaaaaaaaaaaa' }) }],
+    health: { 51234: healthFor(origin, 'cccccccccccccccc') },
+  })
+  const { ns, sockets } = await bootBackground({ prefs: { connection: 'auto' }, fetch: stub.fetch })
+
+  assert.equal(sockets.length, 0)
+  assert.equal(ns.netState.instanceId, '')
+  assert.equal(ns.netState.connection, 'offline')
+})
+
+test('manual mode keeps the pre-discovery path exactly', async () => {
+  const stub = discoveryStub({
+    locators: [{ port: 30810, body: locateBody({ origin: 'http://127.0.0.1:51234', instanceId: 'aaaaaaaaaaaaaaaa' }) }],
+  })
+  const { ns, sockets } = await bootBackground({
+    prefs: { connection: 'manual' },
+    storage: { 'anno.prefs': { host: '127.0.0.1', port: 3099, secure: null, connection: 'manual' } },
+    fetch: stub.fetch,
+  })
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:3099/ext/anno')
+  assert.equal(ns.netState.discoveryMode, 'manual')
+  assert.equal(ns.netState.discoverySource, 'manual')
+  // Only the configured address is probed: no locator port is touched.
+  assert.deepEqual(
+    stub.calls.filter((url) => url.includes('/locate')),
+    [],
+  )
+})
+
+test('a fresh install turns automatic discovery on, an update leaves it alone', async () => {
+  const offline = async () => {
+    throw new Error('offline')
+  }
+  const fresh = await bootBackground({ fetch: offline })
+  await fresh.events.onInstalled.fire({ reason: 'install' })
+  assert.equal(fresh.stored.get('anno.prefs')?.connection, 'auto')
+
+  const updated = await bootBackground({ fetch: offline })
+  await updated.events.onInstalled.fire({ reason: 'update' })
+  assert.equal(updated.stored.get('anno.prefs')?.connection, undefined)
+})
+
+test('the popup can run a discovery round on demand', async () => {
+  const origin = 'http://127.0.0.1:51234'
+  const stub = discoveryStub({
+    locators: [{ port: 30811, body: locateBody({ origin, instanceId: 'dddddddddddddddd' }) }],
+  })
+  const { ns, events } = await bootBackground({ prefs: { connection: 'auto' }, fetch: stub.fetch })
+  const answer = await events.onMessage.listeners[0]({ type: 'anno.popup.scan' }, {})
+
+  assert.equal(answer.ok, true)
+  assert.equal(answer.hosts.length, 1)
+  assert.equal(answer.hosts[0].origin, origin)
+  assert.deepEqual(
+    [...ns.netState.discovered].map((host) => host.origin),
+    [origin],
+  )
 })
 
 test('every script listed by the manifest exists', async () => {

@@ -1,10 +1,13 @@
 # Discovery — finding a host whose port moves
 
-**Status: M4.5a implemented, M4.5b–c planned.** The host publishes: it writes
-the endpoint record on every start and, when its bound port is not `3080`,
-serves the locator. The extension does not read either yet, so the popup still
-needs `host:port` and a pasted token, and still assumes `127.0.0.1:3080` when
-nothing is typed.
+**Status: M4.5a and M4.5b implemented; M4.5c (the cross-platform matrix, a
+real Desktop run, and distribution docs) is planned.** The host publishes: it
+writes the endpoint record on every start and, when its bound port is not
+`3080`, serves the locator. The extension consumes both: a fresh install starts
+in automatic mode, finds the host in one round, verifies it against
+`/ext/anno/health`, and the popup imports the record for the cases the locator
+cannot cover. The token is unchanged — still one paste from
+`$DSH_HOME/ext-bridge-token`.
 
 ## 1. The problem is two questions
 
@@ -456,6 +459,21 @@ unit tests.
   `boot.test.js` unchanged).
 - A missing token shows the token-file hint; importing a record fills the
   address and never the token field.
+
+Delivered, with one acceptance clause reworded rather than met: `boot.test.js`
+did change, because the background now loads a seventh script and the chain is
+tested there — its *manual-mode* cases were kept and still pass unmodified, and
+`endpoints.test.js` is untouched. Verified on Windows against a real host:
+booting the background under `node:vm` with the real `fetch` and an untouched
+default address, automatic mode probed `30810–30812`, dropped a stale locator
+answer that named a different `app`, accepted the host on `30811`, required its
+`health.instanceId` to match, and opened
+`ws://127.0.0.1:57218/ext/anno`; the chosen address was then remembered under
+`anno.address`. A unit test covers the cached fast path (one health probe, no
+round), the `4403`-style rejection hint, ranking, the record import (including
+a stray `token` field being ignored), and a fresh install opting into `auto`
+while an update keeps its stored mode. The popup side is covered by
+`check-syntax` and review, not by a DOM harness: this repository has none.
 
 **M4.5c — Verification and documentation.**
 Windows and Linux matrix above, plus a real Desktop run on Windows; README,

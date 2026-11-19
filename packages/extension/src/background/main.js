@@ -38,10 +38,7 @@
     void runAnnotateCommand()
   })
 
-  browser.runtime.onInstalled.addListener(() => {
-    void ensureAlarm()
-    void boot('installed')
-  })
+  browser.runtime.onInstalled.addListener((details) => onInstalled(details))
 
   browser.runtime.onStartup.addListener(() => {
     void ensureAlarm()
@@ -62,6 +59,42 @@
   })
 
   void boot('event-page-load')
+
+  /**
+   * Install and update handling. Returns its promise so a test (and a future
+   * caller) can await the work; Firefox ignores the value.
+   * @param {any} details
+   */
+  async function onInstalled(details) {
+    try {
+      await ensureAlarm()
+      await adoptConnectionDefault(details)
+      await boot('installed')
+    } catch (error) {
+      ns.log.warn(`install handling failed: ${ns.describeError(error)}`)
+    }
+  }
+
+  /**
+   * Give a fresh install automatic discovery, and an update nothing at all.
+   *
+   * `manual` is what every install before M4.5 did, and the absence of the key
+   * is how that is represented; writing `auto` on an update would silently
+   * ignore an address a user typed. Only `reason === 'install'` and only when
+   * the key is truly absent, so a user who already chose never has it rewritten.
+   * @param {any} details
+   */
+  async function adoptConnectionDefault(details) {
+    if (details?.reason !== 'install') return
+    try {
+      const prefs = await ns.readPrefs()
+      if (prefs.connection !== undefined) return
+      await ns.writePrefs({ connection: 'auto' })
+      ns.log.info('fresh install: automatic host discovery is on')
+    } catch (error) {
+      ns.log.warn(`could not store the discovery default: ${ns.describeError(error)}`)
+    }
+  }
 
   /** Create the keepalive alarm once; it survives event-page restarts. */
   async function ensureAlarm() {

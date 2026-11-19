@@ -55,6 +55,12 @@ export const TO_BACKGROUND_POPUP = {
   flush: 'anno.popup.flush',
   mutate: 'anno.popup.mutate',
   remove: 'anno.popup.remove',
+  /** Run one discovery round now and report what answered. */
+  scan: 'anno.popup.scan',
+  /** Remember an explicitly chosen host (its `instanceId`) and reconnect. */
+  chooseHost: 'anno.popup.choose',
+  /** Seed the address from a picked endpoint record; never the token. */
+  importRecord: 'anno.popup.import',
 }
 
 /**
@@ -69,4 +75,6 @@ export const STORAGE_KEYS = {
   lastStatus: 'anno.status',
   /** Endpoint the host advertised last time, so a restart reconnects without a probe. */
   endpoint: 'anno.endpoint',
+  /** The host that answered last (origin + instanceId), for the 12 h fast path. */
+  address: 'anno.address',
 }

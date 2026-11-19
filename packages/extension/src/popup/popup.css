@@ -404,3 +404,222 @@ code {
 .feedback--error {
   color: var(--bad);
 }
+
+/* ── discovery ──────────────────────────────────────────────────────────────
+   Everything below is appended after the base rules above, so a compound
+   selector such as `.discovery-actions .button` wins on specificity and on
+   order at the same time.
+   The two blocks that are laid out with `display` gate themselves on the
+   `hidden` attribute instead of overriding it: an author `display` would beat
+   the attribute otherwise. */
+
+.mode-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mode-field legend {
+  margin: 0 0 4px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mode-field .hint {
+  margin-top: 4px;
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.segmented__option {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segmented__option input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segmented__option span {
+  display: block;
+  padding: 5px 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.segmented__option input:checked + span {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.segmented__option input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.discovered:not([hidden]) {
+  display: grid;
+  gap: 6px;
+}
+
+.discovered__title {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hosts {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.host {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.host[aria-current="true"] {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
+.host__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.host__profile {
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.host__origin {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.host__head .chip {
+  margin-left: auto;
+}
+
+.host__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.host__focus {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.host__choose {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.discovery-actions:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.discovery-actions .hint {
+  flex: 1 1 180px;
+}
+
+.discovery-actions .button {
+  flex: 0 0 auto;
+}
+
+/* Drop target for the endpoint record; the file input itself is invisible. */
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.dropzone--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.dropzone:focus-visible,
+.dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.dropzone[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+.dropzone__text {
+  flex: 1 1 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.dropzone__button {
+  flex: 0 0 auto;
+  display: inline-block;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

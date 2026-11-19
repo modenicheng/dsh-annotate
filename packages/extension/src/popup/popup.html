@@ -9,6 +9,8 @@
     <script src="../shared/protocol.global.js"></script>
     <!-- One endpoint parser for the popup and the background. -->
     <script src="../background/endpoints.js"></script>
+    <!-- Discovery: the endpoint-record parser and the host descriptions. -->
+    <script src="../background/discovery.js"></script>
     <script src="popup.js" defer></script>
   </head>
   <body>
@@ -25,6 +27,34 @@
       <section class="panel" aria-labelledby="bridge-heading">
         <h2 id="bridge-heading" class="panel__title">Host bridge</h2>
         <form id="settings-form" class="form" autocomplete="off" novalidate>
+          <fieldset class="mode-field" aria-describedby="mode-hint">
+            <legend>Connection</legend>
+            <div class="segmented">
+              <label class="segmented__option">
+                <input id="mode-auto" type="radio" name="connection-mode" value="auto">
+                <span>Automatic (recommended)</span>
+              </label>
+              <label class="segmented__option">
+                <input id="mode-manual" type="radio" name="connection-mode" value="manual">
+                <span>Manual</span>
+              </label>
+            </div>
+            <p id="mode-hint" class="hint">The extension uses the address below, exactly as typed.</p>
+          </fieldset>
+
+          <div id="discovered" class="discovered" hidden>
+            <h3 id="discovered-title" class="discovered__title">Discovered hosts</h3>
+            <ul id="discovered-list" class="hosts" aria-labelledby="discovered-title"></ul>
+          </div>
+
+          <div id="discovery-actions" class="discovery-actions" hidden>
+            <p id="discovery-hint" class="hint" hidden>
+              A host on <code>127.0.0.1:3080</code> is tried too, but the locator only runs on a port that is not
+              3080 — if neither answered, import <code>$DSH_HOME/ext-bridge-endpoint.json</code> above.
+            </p>
+            <button id="scan-again" class="button button--secondary" type="button">Scan again</button>
+          </div>
+
           <div class="field-row">
             <div class="field field--host">
               <label for="host">Host or URL</label>
@@ -46,6 +76,16 @@
           <p id="host-hint" class="hint">
             A host and port, or a full URL such as <code>wss://anno.example.com</code> when the host is behind
             HTTPS. Without a scheme, the extension asks the host which one to use.
+          </p>
+
+          <div id="drop-zone" class="dropzone" tabindex="0" aria-describedby="import-hint">
+            <span class="dropzone__text">Drop <code>ext-bridge-endpoint.json</code> here, or</span>
+            <label class="button button--secondary dropzone__button" for="import-file">Import endpoint file…</label>
+            <input id="import-file" class="visually-hidden" type="file" accept="application/json,.json">
+          </div>
+          <p id="import-hint" class="hint">
+            Reads only the address from the record the host writes; the token below still comes from
+            <code>$DSH_HOME/ext-bridge-token</code>.
           </p>
 
           <div class="field">

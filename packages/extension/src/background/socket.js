@@ -49,6 +49,13 @@
   const DISCOVERY_TTL_MS = 10 * 60_000
   /** Background-private cache of the discovered endpoint (like the client id). */
   const DISCOVERY_KEY = ns.msg.STORAGE_KEYS.endpoint
+  /** Where the host that answered last is remembered, for the 12 h fast path. */
+  const ADDRESS_KEY = ns.msg.STORAGE_KEYS.address
+  /**
+   * Budget for one locator probe. Three of these run in parallel, so the whole
+   * round costs at most this long, and a refused loopback port answers at once.
+   */
+  const LOCATE_TIMEOUT_MS = 700
 
   /** @type {WebSocket | null} */
   let socket = null
@@ -195,7 +202,7 @@
    * One health request. Rejects on a network error, a non-2xx answer, a body
    * that is not the bridge's health JSON, or the probe budget expiring.
    * @param {string} url
-   * @returns {Promise<{ secure: boolean, wsUrl: string }>}
+   * @returns {Promise<{ secure: boolean, wsUrl: string, instanceId: string | null }>}
    */
   async function probeHealth(url) {
     if (typeof fetch !== 'function') throw new Error('fetch is unavailable in this context')
@@ -208,9 +215,12 @@
         credentials: 'omit',
       })
       if (response.ok !== true) throw new Error(`HTTP ${response.status}`)
-      const health = ns.endpoints.parseHealth(await response.json())
+      const body = await response.json()
+      const health = ns.endpoints.parseHealth(body)
       if (health === null) throw new Error('the response is not the bridge health JSON')
-      return health
+      // Read the id from the raw body rather than widening `parseHealth`: the
+      // parser is shared with the popup and its shape is a settled contract.
+      return { ...health, instanceId: ns.discovery === undefined ? null : ns.discovery.healthInstanceId(body) }
     } finally {
       clearTimeout(timer)
     }
@@ -241,16 +251,116 @@
   }
 
   /**
-   * Ask the host which URL to use.
+   * Read one JSON body for a discovery probe, with a hard deadline.
+   *
+   * `collectHosts` takes this as an injected `request`, which keeps the round a
+   * pure function of the answers it gets. The status is attached to the error so
+   * a refused port and an alien 404 read differently in `discoveryFailures`.
+   * @param {string} url
+   * @returns {Promise<any>}
+   */
+  async function readJson(url) {
+    if (typeof fetch !== 'function') throw new Error('fetch is unavailable in this context')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), LOCATE_TIMEOUT_MS)
+    try {
+      const response = await fetch(url, { signal: controller.signal, cache: 'no-store', credentials: 'omit' })
+      const body = await response.json()
+      if (response.ok !== true) {
+        throw new Error(
+          body?.error === undefined ? `HTTP ${response.status}` : `HTTP ${response.status} (${body.error})`,
+        )
+      }
+      return body
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * `http(s)://host:port` for a normalized address, with no bridge path.
+   * @param {{ host: string, port: number, secure?: boolean | null }} address
+   */
+  function originOf(address) {
+    const scheme = address.secure === true ? 'https' : 'http'
+    return `${scheme}://${ns.endpoints.formatAuthority(address)}`
+  }
+
+  /**
+   * The health-only candidate for the address the popup shows.
+   *
+   * A stock `dsh web` on 3080 has no locator (it does not need one), so it can
+   * only be found by probing the address the user did not change. It carries no
+   * `instanceId`, which is what makes ranking put it last.
+   * @param {{ host: string, port: number, secure: boolean | null }} address
+   * @returns {{ origin: string, instanceId: null, profile: null, startedAt: null, focusAt: null, port: number }}
+   */
+  function defaultCandidate(address) {
+    return {
+      origin: originOf(address),
+      instanceId: null,
+      profile: null,
+      startedAt: null,
+      focusAt: null,
+      port: address.port,
+    }
+  }
+
+  /**
+   * Probe one candidate host and, when it answers, work out where to connect.
+   *
+   * The identified host must still be served by the process that identified
+   * itself: a locator answer is a snapshot, and another host may own that port
+   * by the time this probe runs.
+   * @param {{ origin: string, instanceId: string | null, profile: string | null, startedAt: string | null, focusAt: string | null, port: number }} host
+   */
+  async function probeHost(host) {
+    const parsed = ns.endpoints.parseAddress(host.origin)
+    if (parsed.ok !== true) return null
+    const address = { host: parsed.host, port: parsed.port, secure: parsed.secure }
+    const { winner } = await probeFirst(ns.endpoints.healthCandidates(address))
+    if (winner === null) return null
+    const answeredId = winner.health.instanceId
+    if (host.instanceId !== null && answeredId !== null && answeredId !== host.instanceId) {
+      ns.log.debug(`discovery: ${host.origin} now answers as ${answeredId}, not ${host.instanceId}; ignoring it`)
+      return null
+    }
+    const selection = ns.endpoints.selectWsUrl({ address, health: winner.health })
+    return {
+      address,
+      selection,
+      healthUrl: winner.url,
+      instanceId: answeredId ?? host.instanceId ?? '',
+      host: { ...host, origin: originOf(address) },
+    }
+  }
+
+  /**
+   * Remember a host that answered: the scheme cache for this address, and the
+   * fast path for the next event-page start.
+   * @param {any} probe
+   */
+  async function rememberHost(probe) {
+    await rememberDiscovery(probe.address, { ...probe.selection, healthUrl: probe.healthUrl })
+    try {
+      const stored = ns.discovery.makeLastGood(probe.host)
+      await ns.storageSet(ADDRESS_KEY, stored)
+    } catch (error) {
+      ns.log.debug(`could not remember the host address: ${ns.describeError(error)}`)
+    }
+  }
+
+  /**
+   * The manual path: one address, one health probe, and the pre-negotiation
+   * fallback when the probe cannot answer.
    *
    * A fresh cached answer is reused; otherwise `/ext/anno/health` decides.
    * When nothing answers the probe the configured address is used as-is, which
-   * is the pre-negotiation behaviour and keeps a host whose health route is
-   * behind an auth proxy usable.
+   * keeps a host whose health route is behind an auth proxy usable.
    * @param {{ host: string, port: number, secure: boolean | null }} address
    * @param {{ force?: boolean }} [options]
    */
-  async function discover(address, { force = false } = {}) {
+  async function discoverAt(address, { force = false } = {}) {
     const cached = force ? null : await readCachedDiscovery(address)
     if (cached !== null) {
       ns.log.debug(`reusing ${cached.wsUrl} discovered ${Date.now() - cached.at} ms ago`)
@@ -283,6 +393,100 @@
       `host advertises ${winner.health.wsUrl === '' ? '(no url)' : winner.health.wsUrl} (secure ${String(winner.health.secure)}); using ${selection.wsUrl}`,
     )
     return { ...selection, healthUrl: winner.url, error: '' }
+  }
+
+  /**
+   * Automatic discovery: the host that answered last, then one ranked round.
+   *
+   * Step one costs one health probe and covers the common restart; step two
+   * covers a host that moved or was not up yet, and never runs when step one
+   * succeeded. Ranking is `discovery.js`'s job; this only decides which probes
+   * to spend.
+   * @param {{ address: { host: string, port: number, secure: boolean | null }, force: boolean }} options
+   * @returns {Promise<{ wsUrl: string, secure: boolean, source: string, healthUrl: string, error: string, instanceId: string } | null>}
+   */
+  async function discoverAutomatically({ address, force }) {
+    const preferred = typeof ns.prefs.preferredInstanceId === 'string' ? ns.prefs.preferredInstanceId : ''
+    const stored = force ? null : ns.discovery.readLastGood(await ns.storageGet(ADDRESS_KEY, null))
+    const lastInstanceId = stored === null || stored.instanceId === null ? '' : stored.instanceId
+
+    if (stored !== null) {
+      const probe = await probeHost(stored)
+      if (probe !== null) {
+        ns.log.info(`discovery: ${probe.host.origin} still answers; not probing the locator`)
+        ns.setNetState({ discovered: [probe.host], discoveryFailures: [], discoverySource: 'cached' })
+        await rememberHost(probe)
+        return {
+          ...probe.selection,
+          healthUrl: probe.healthUrl,
+          error: '',
+          instanceId: probe.instanceId,
+        }
+      }
+      ns.log.info(`discovery: ${stored.origin} did not answer; running a round`)
+    }
+
+    const round = await ns.discovery.collectHosts({ request: readJson, timeoutMs: LOCATE_TIMEOUT_MS, logger: ns.log })
+    const fallback = defaultCandidate(address)
+    const ranked = ns.discovery.rankCandidates([...round.hosts, fallback], {
+      preferredInstanceId: preferred,
+      lastInstanceId,
+    })
+    ns.setNetState({ discovered: round.hosts, discoveryFailures: round.failures })
+
+    for (const candidate of ranked) {
+      const probe = await probeHost(candidate)
+      if (probe === null) continue
+      const fromLocator = round.hosts.some((host) => host.origin === candidate.origin)
+      ns.setNetState({ discoverySource: fromLocator ? 'locator' : 'default' })
+      ns.log.info(
+        `discovery: ${probe.host.origin}${candidate.profile === null ? '' : ` (${candidate.profile})`} answered`,
+      )
+      await rememberHost(probe)
+      return {
+        ...probe.selection,
+        healthUrl: probe.healthUrl,
+        error: '',
+        instanceId: probe.instanceId,
+      }
+    }
+    return null
+  }
+
+  /**
+   * Ask the host which URL to use, in manual or automatic mode.
+   *
+   * Manual is exactly the pre-discovery behaviour; `auto` is only chosen by the
+   * preference and only for an untouched default address, so an address the user
+   * typed is never overridden by a discovered one.
+   * @param {{ host: string, port: number, secure: boolean | null }} address
+   * @param {{ force?: boolean, mode?: 'auto' | 'manual' }} [options]
+   */
+  async function discover(address, { force = false, mode = 'manual' } = {}) {
+    if (ns.discovery === undefined) {
+      // A half-loaded extension must still connect the way it did before.
+      ns.log.warn('discovery.js did not load; using the configured address')
+      ns.setNetState({ discoveryMode: 'manual', discoverySource: 'manual' })
+      return { ...(await discoverAt(address, { force })), instanceId: '' }
+    }
+    const plan = ns.discovery.planResolution({ mode, address })
+    if (plan.auto !== true) {
+      ns.setNetState({ discoveryMode: 'manual', discoverySource: 'manual', discovered: [], discoveryFailures: [] })
+      return { ...(await discoverAt(address, { force })), instanceId: '' }
+    }
+    ns.setNetState({ discoveryMode: 'auto' })
+    return discoverAutomatically({ address, force })
+  }
+
+  /**
+   * The sentence shown when automatic discovery found nothing.
+   * @param {{ host: string, port: number }} address
+   */
+  function describeNoHost(address) {
+    const urls = ns.discovery === undefined ? [] : ns.discovery.locateUrls()
+    const tried = urls.map((url) => new URL(url).host)
+    tried.push(ns.endpoints.formatAuthority(address))
+    return `no host answered on ${tried.join(' or ')}: start a host, or import $DSH_HOME/ext-bridge-endpoint.json in the popup`
   }
 
   /**
@@ -331,7 +535,8 @@
     const prefs = await ns.readPrefs()
     const token = await ns.readToken()
     const address = ns.normalizeAddress(prefs.host, prefs.port, prefs.secure ?? null)
-    ns.setNetState({ tokenPresent: token !== '' })
+    const mode = ns.discoveryModeOf(prefs)
+    ns.setNetState({ tokenPresent: token !== '', discoveryMode: mode })
 
     if (token === '') {
       ns.setNetState({
@@ -351,8 +556,28 @@
     ns.setNetState({ connection: 'connecting', lastError: null, nextRetryAt: 0, discoveryError: '' })
     void ns.publishStatus('connecting')
 
-    const discovery = await discover(address, { force: forceProbe })
+    const discovery = await discover(address, { force: forceProbe, mode })
     if (started !== generation || socket !== null) return false
+
+    if (discovery === null) {
+      // Automatic mode found nothing. This is an address problem, so say what
+      // was tried and let the existing backoff re-run the round: a host that is
+      // still starting must not need a popup visit.
+      const message = describeNoHost(address)
+      ns.setNetState({
+        connection: 'offline',
+        wsUrl: '',
+        secure: false,
+        wsUrlSource: 'configured',
+        discoveryError: message,
+        instanceId: '',
+        lastError: message,
+      })
+      ns.log.info(message)
+      void ns.publishStatus('no-host')
+      scheduleRetry()
+      return false
+    }
 
     const wsUrl = discovery.wsUrl
     ns.setNetState({
@@ -361,6 +586,7 @@
       wsUrlSource: discovery.source,
       healthUrl: discovery.healthUrl,
       discoveryError: discovery.error,
+      instanceId: discovery.instanceId ?? '',
       connection: 'connecting',
       lastError: null,
       nextRetryAt: 0,
@@ -599,6 +825,28 @@
     return connect({ reason, resetAttempts: true, forceProbe: true })
   }
 
+  /**
+   * Run one discovery round without connecting. The popup's "Scan again" uses
+   * this to explain the network state without disturbing a working socket.
+   * @returns {Promise<{ hosts: any[], failures: { port: number, error: string }[] }>}
+   */
+  async function scan() {
+    if (ns.discovery === undefined) return { hosts: [], failures: [] }
+    await ns.readPrefs()
+    const round = await ns.discovery.collectHosts({
+      request: readJson,
+      timeoutMs: LOCATE_TIMEOUT_MS,
+      logger: ns.log,
+    })
+    ns.setNetState({
+      discovered: round.hosts,
+      discoveryFailures: round.failures,
+      discoveryMode: ns.discoveryModeOf(ns.prefs),
+    })
+    void ns.publishStatus('scan')
+    return round
+  }
+
   ns.net = {
     /** @param {(frame: any) => Promise<void>} handler */
     onFrame(handler) {
@@ -607,6 +855,7 @@
     connect,
     ensure,
     reconnectNow,
+    scan,
     send,
     isOpen,
     isAuthed,

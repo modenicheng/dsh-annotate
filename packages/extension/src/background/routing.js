@@ -658,6 +658,68 @@
     }
   }
 
+  /**
+   * One discovery round, on demand, so the popup can explain what answered
+   * without disturbing a working socket.
+   */
+  async function popupScan() {
+    if (ns.net === undefined || typeof ns.net.scan !== 'function') return failure('discovery is unavailable')
+    const round = await ns.net.scan()
+    return { ok: true, hosts: round.hosts, status: ns.status() }
+  }
+
+  /**
+   * Remember an explicitly chosen host. Writing the preference is also the
+   * reconnect trigger: `main.js` reacts to the storage change, so this does not
+   * need a second code path to the socket.
+   * @param {any} message
+   */
+  async function popupChooseHost(message) {
+    const instanceId = field(message, 'instanceId')
+    if (typeof instanceId !== 'string' || instanceId === '') return failure('instanceId is required')
+    await ns.writePrefs({ preferredInstanceId: instanceId })
+    return { ok: true, status: ns.status() }
+  }
+
+  /**
+   * Seed the address from a picked endpoint record.
+   *
+   * The record is address-only by design, so this fills the address fields and
+   * the fast path and never touches the token. Every field is re-validated here
+   * because a page handed us the payload.
+   * @param {any} message
+   */
+  async function popupImportRecord(message) {
+    const origin = field(message, 'origin')
+    if (typeof origin !== 'string' || origin === '') return failure('the record has no origin')
+    const address = ns.endpoints.parseAddress(origin)
+    if (address.ok !== true) return failure(address.reason)
+    if (address.host !== '127.0.0.1' || address.secure === true) {
+      return failure('the record must name a plain http origin on 127.0.0.1')
+    }
+    const instanceId = field(message, 'instanceId')
+    if (typeof instanceId !== 'string' || !ns.PROTOCOL.isInstanceId(instanceId)) {
+      return failure('the record has no usable instanceId')
+    }
+    const host = {
+      origin: `${origin.startsWith('http://') ? origin : `http://${origin}`}`,
+      instanceId,
+      profile: typeof field(message, 'profile') === 'string' ? field(message, 'profile') : null,
+      startedAt: typeof field(message, 'startedAt') === 'string' ? field(message, 'startedAt') : null,
+      focusAt: null,
+      port: address.port,
+    }
+    let record
+    try {
+      record = ns.discovery.makeLastGood(host)
+    } catch (error) {
+      return failure(error)
+    }
+    await ns.storageSet(ns.msg.STORAGE_KEYS.address, record)
+    await ns.writePrefs({ host: address.host, port: address.port })
+    return { ok: true, status: ns.status() }
+  }
+
   /** @param {string} type @param {any} message */
   async function handlePopup(type, message) {
     switch (type) {
@@ -669,6 +731,12 @@
         return mutate({ id: field(message, 'id'), action: field(message, 'action'), note: field(message, 'note') })
       case MSG.TO_BACKGROUND_POPUP.remove:
         return mutate({ id: field(message, 'id'), action: 'delete' })
+      case MSG.TO_BACKGROUND_POPUP.scan:
+        return popupScan()
+      case MSG.TO_BACKGROUND_POPUP.chooseHost:
+        return popupChooseHost(message)
+      case MSG.TO_BACKGROUND_POPUP.importRecord:
+        return popupImportRecord(message)
       default:
         return undefined
     }

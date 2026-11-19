@@ -534,8 +534,8 @@ page title, `127.0.0.1:3099/`, the quote, the comment, and
 
 ## D20 — Discovery is a loopback locator, not a proxy
 
-**Status.** Implemented in M4.5a — `packages/plugin/src/locator.js` — with the
-consuming half (the extension's resolution chain) still planned as M4.5b.
+**Status.** Implemented in M4.5a — `packages/plugin/src/locator.js` — and
+consumed since M4.5b by `packages/extension/src/background/discovery.js`.
 Design in [DISCOVERY.md](DISCOVERY.md).
 
 **Decision.** When the host's bound port is not `3080` and the bind address is
@@ -567,9 +567,9 @@ needs no manifest change: `http://127.0.0.1/*` already covers every port.
 
 ## D21 — The endpoint record carries the address; the token keeps one home
 
-**Status.** Implemented in M4.5a for the host half —
-`packages/plugin/src/discovery.js` writes and removes the record; the popup
-import is M4.5b.
+**Status.** Implemented: M4.5a wrote and removed the record
+(`packages/plugin/src/discovery.js`), and M4.5b added the popup's address-only
+import.
 
 **Decision.** On every start the plugin writes
 `$DSH_HOME/ext-bridge-endpoint.json` — mode `0600` on POSIX, atomically renamed,

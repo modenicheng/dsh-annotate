@@ -54,6 +54,9 @@
       flush: 'anno.popup.flush',
       mutate: 'anno.popup.mutate',
       remove: 'anno.popup.remove',
+      scan: 'anno.popup.scan',
+      chooseHost: 'anno.popup.choose',
+      importRecord: 'anno.popup.import',
     },
     STORAGE_KEYS: {
       token: 'anno.token',
@@ -61,6 +64,7 @@
       prefs: 'anno.prefs',
       lastStatus: 'anno.status',
       endpoint: 'anno.endpoint',
+      address: 'anno.address',
     },
   }
 
@@ -232,6 +236,19 @@
     return next
   }
 
+  /**
+   * The discovery mode implied by the stored preferences.
+   *
+   * `auto` is opt-in: a fresh install writes it once (see `main.js`), and every
+   * install that predates the feature has no `connection` key at all, which must
+   * keep meaning exactly today's behaviour — the typed address.
+   * @param {Record<string, any>} [prefs]
+   * @returns {'auto' | 'manual'}
+   */
+  ns.discoveryModeOf = function discoveryModeOf(prefs = ns.prefs) {
+    return prefs !== null && typeof prefs === 'object' && prefs.connection === 'auto' ? 'auto' : 'manual'
+  }
+
   /** The bridge token equals the contents of `$DSH_HOME/ext-bridge-token`. */
   ns.readToken = async function readToken() {
     const raw = await ns.storageGet(ns.msg.STORAGE_KEYS.token, '')
@@ -282,6 +299,19 @@
     healthUrl: '',
     /** Why the probe failed, when it did; the socket then used the popup URL. */
     discoveryError: '',
+    /**
+     * Whether the extension finds the host itself (`auto`) or uses the typed
+     * address (`manual`). Mirrors `prefs.connection`; older installs are manual.
+     */
+    discoveryMode: 'manual',
+    /** How the current address was obtained: manual, cached, locator, or default. */
+    discoverySource: 'manual',
+    /** The chosen host's per-process id, so the popup can show which one it is. */
+    instanceId: '',
+    /** Every host the last round found, for the popup's list. */
+    discovered: [],
+    /** Locator ports that did not answer in the last round: `{ port, error }`. */
+    discoveryFailures: [],
   }
 
   /** @param {Record<string, unknown>} patch */
@@ -299,6 +329,12 @@
       wsUrlSource: state.wsUrlSource,
       healthUrl: state.healthUrl,
       discoveryError: state.discoveryError,
+      discoveryMode: state.discoveryMode,
+      discoverySource: state.discoverySource,
+      instanceId: state.instanceId,
+      discovered: state.discovered,
+      discoveryFailures: state.discoveryFailures,
+      preferredInstanceId: typeof ns.prefs.preferredInstanceId === 'string' ? ns.prefs.preferredInstanceId : '',
       host: ns.prefs.host,
       port: ns.prefs.port,
       tokenPresent: state.tokenPresent,

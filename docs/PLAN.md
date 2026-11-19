@@ -195,7 +195,8 @@ Design and rationale: [DISCOVERY.md](DISCOVERY.md) (decisions D20–D22).
 
 ### M4.5b — Extension discovers
 
-**Status:** planned.
+**Status:** implemented; the browser-side acceptance below still needs a real
+Firefox session (M4.5c).
 
 - Extension: a `connection` preference (`auto` for fresh installs, `manual` for
   existing ones), the resolution chain (stored address → one round of locator
@@ -204,6 +205,11 @@ Design and rationale: [DISCOVERY.md](DISCOVERY.md) (decisions D20–D22).
   against health, and popup support: the mode switch, the address-only
   endpoint-file import, the discovered-hosts list, and the discovery status
   line. The token field and its single-source handling are untouched.
+- `packages/extension/src/background/discovery.js` (pure: parsing, ranking,
+  one round over an injected `request`) and `test/discovery.test.js`;
+  `boot.test.js` boots the whole background with a stubbed locator, health, and
+  socket and covers the chain, the cached fast path, the no-host message, the
+  id-mismatch drop, the fresh-install default, and the popup's scan message.
 
 **Acceptance criteria (b):**
 
@@ -211,9 +217,9 @@ Design and rationale: [DISCOVERY.md](DISCOVERY.md) (decisions D20–D22).
   the extension within 10 s with no user action.
 - Two live hosts: the popup lists both, the most recently focused one wins when
   nothing is preferred, and **Use this host** survives an extension reload.
-- Manual mode is unchanged (the existing `endpoints` and `boot` tests pass
-  without edits); an unreachable host shows the token-file hint instead of a
-  bare timeout.
+- Manual mode is unchanged (the existing `endpoints` tests pass without edits,
+  and the manual-mode boot case still probes only the configured address); an
+  unreachable host shows the token-file hint instead of a bare timeout.
 
 ### M4.5c — Verification and documentation
 

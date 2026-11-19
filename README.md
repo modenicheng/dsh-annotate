@@ -19,12 +19,15 @@ to point at something (`annotate_pick`) when a request is ambiguous.
 > from the DSH composer as a `dsh-anno:` mention renders as a chip, is routed to
 > the conversation the window is showing, and shows its content and crop on
 > hover — verified end to end in a live Web Client.
-> Not covered yet: a host whose port is not `3080` (DSH Desktop picks its port
-> at launch) still needs its address typed into the popup. The host side of
-> discovery — the endpoint record and the loopback locator — is implemented and
-> verified against a live `--port 0` host; the extension does not read either
-> yet (M4.5b). Design and rationale: [docs/DISCOVERY.md](docs/DISCOVERY.md).
-> See [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
+> Not covered yet: the browser-side pass over the discovery flow. A host whose
+> port is not `3080` (DSH Desktop picks its port at launch) is published by the
+> host and found by the extension — the endpoint record, the loopback locator,
+> the resolution chain, the ranking, and the popup import all ship, and the
+> chain has been verified against a live `--port 0` host under `node:vm`. What
+> is still unproven is the same flow in a real Firefox session, and the Desktop
+> app itself (M4.5c). Design and rationale:
+> [docs/DISCOVERY.md](docs/DISCOVERY.md). See
+> [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
 
 ## Architecture
 
@@ -57,7 +60,7 @@ flowchart LR
     Store --> Tools
   end
 
-  BG -.->|"GET /ext/anno/locate\n(only when the port is not 3080;\nhost side done, extension side planned)"| Locator
+  BG -.->|"GET /ext/anno/locate\n(only when the port is not 3080)"| Locator
 
   Tools -->|"compact previews / full record + image"| Agent["Model / agent session"]
   Agent -->|"annotate_pick"| Bridge
@@ -72,7 +75,7 @@ flowchart LR
   Attach -.->|"stores attachment ref only"| Q
   Host --> Tkn
   Host -.-> Rec
-  POP -.->|"import: address only (planned)"| Rec
+  POP -.->|"import: address only"| Rec
   Browser --> BSt
 ```
 
@@ -81,8 +84,7 @@ bridge is mounted on the DSH host webserver and lives exactly as long as
 `dsh web` does. A host whose port is not `3080` also opens one small loopback
 *locator* so a browser can find it; it answers a single address lookup and
 carries no annotation data. Both sides are plain ESM JavaScript with no build
-step. The locator ships today; the extension's use of it is M4.5b — see
-[docs/DISCOVERY.md](docs/DISCOVERY.md).
+step. See [docs/DISCOVERY.md](docs/DISCOVERY.md) for the whole chain.
 
 ### `ws://` or `wss://`: the host decides
 
@@ -115,21 +117,25 @@ where the probe is unavailable; leaving it out is the normal case.
 ### Desktop, and a port that moves
 
 DSH Desktop composes the same Web bundle, but its launcher chooses the port, so
-the default `127.0.0.1:3080` is wrong on every launch. The host now publishes
-where it is; the extension does not read that yet, so the popup's fixed address
-is still what you type on a Desktop host.
+the default `127.0.0.1:3080` is wrong on every launch. That is handled: a host
+whose port moves publishes where it is, and the extension finds it.
 
-The answer splits the two questions the popup answers by hand
+The answer splits the two questions the popup used to answer by hand
 ([docs/DISCOVERY.md](docs/DISCOVERY.md)):
 
 - **Where is it now?** When the port is not `3080`, the host opens a loopback
   *locator* on `30810–30812` that answers one `GET /ext/anno/locate` with its
   origin — no token, no annotation data. On start the host also writes
   `$DSH_HOME/ext-bridge-endpoint.json` with the same address, for manual entry,
-  tooling, and the cases the locator cannot cover. Both are implemented; the
-  extension work — probe the locator, verify the answer against
-  `/ext/anno/health`, connect, and let the popup import the record — is M4.5b.
-  The scheme stays the host's decision, as above.
+  tooling, and the cases the locator cannot cover. A fresh install starts in
+  **Automatic** mode: one round probes the three locator ports plus the default
+  `3080`, ranks the answers, verifies the chosen one against
+  `/ext/anno/health` (the `instanceId` must agree), and connects. A host that
+  answered last is remembered for twelve hours, so a restart usually costs one
+  health probe. **Manual** mode is exactly the old behaviour, and a typed
+  address in Automatic mode is treated as an explicit override. The popup also
+  imports the record file and lists the hosts it found, so a wrong pick is
+  correctable. The scheme stays the host's decision, as above.
 - **Which host may I talk to?** Unchanged: the bridge token, pasted once from
   `$DSH_HOME/ext-bridge-token`. The token is not copied into any other file —
   the extension cannot read files anyway, and a second copy would only add a
@@ -219,14 +225,16 @@ The extension has no build step. Load it as a temporary add-on:
    `packages/extension/manifest.json`.
 3. Open the extension popup and paste the bridge token from
    `$DSH_HOME/ext-bridge-token` (`%USERPROFILE%\.dsh\ext-bridge-token` on
-   Windows). The address field takes `host` + `port` (default
-   `127.0.0.1` / `3080`) or a full URL such as `wss://anno.example.com`; with no
-   scheme the extension asks the host which one to use. On a host whose port is
-   not `3080`, `$DSH_HOME/ext-bridge-endpoint.json` holds the bound origin
-   (`"origin": "http://127.0.0.1:51234"`) — copy it into the address field; the
-   popup import and automatic discovery are M4.5b. The token is still pasted
-   once from `$DSH_HOME/ext-bridge-token`
-   ([docs/DISCOVERY.md](docs/DISCOVERY.md)).
+   Windows). Leave **Connection** on *Automatic* and the address at the default
+   `127.0.0.1` / `3080`, and the extension finds a host whose port moved by
+   itself. Switch to *Manual* to type an address as before (that is also what
+   every install before this feature keeps); a full URL such as
+   `wss://anno.example.com` works in either mode, and with no scheme the
+   extension asks the host which one to use. If automatic discovery cannot find
+   the host, **Import endpoint file…** reads the address from
+   `$DSH_HOME/ext-bridge-endpoint.json` — or copy its `"origin"` into the
+   address field. The token is still pasted once from
+   `$DSH_HOME/ext-bridge-token` ([docs/DISCOVERY.md](docs/DISCOVERY.md)).
 4. Press `Alt+Shift+A` on a page to enter annotation mode: select text, click
    an element, or drag a region, then press Enter. The comment is optional —
    with an empty one the mark is sent on its own (the button reads
@@ -347,7 +355,7 @@ and the generated-file rule.
 | M3.6 | Target picker and queued delivery into another Session | delivered and verified in a live Web Client — the mention arrives as one atomic chip the user can read and remove before sending (D17), and an annotation submitted without picking a target is routed to the conversation the window is showing (D18). The overlay's picker rows are still unexercised in a real browser |
 | M3.7 | Chip hover card: the annotation's content and its click-time crop | implemented and verified in a live Web Client — hovering the chip opens the product's `HoverCard` with the page, quote or element, comment, and the stored screenshot, read back over same-origin routes; the record carries the frame frozen at click time (D19) |
 | M4 | Developer context, session routing, multi-window | planned |
-| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | host side delivered (M4.5a): the record is written on every start, the locator answers on `30810–30812` when the port is not `3080`, and `/ext/anno/health` carries the `instanceId` that ties them together. Extension discovery and the popup import (M4.5b) are planned; design in [docs/DISCOVERY.md](docs/DISCOVERY.md), decisions D20–D22 |
+| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered on both sides: the host writes the record on every start, serves the locator on `30810–30812` when its port is not `3080`, and reports `instanceId` in `/ext/anno/health`; the extension resolves, ranks, verifies, and remembers the host, and the popup has the mode switch, the record import, and the discovered-hosts list. The resolution chain was verified end to end against a real `--port 0` host (three locator ports, a stale answer rejected, `instanceId` cross-check, address remembered); the real-browser session, the Windows/Linux matrix, and a Desktop run are M4.5c. Design in [docs/DISCOVERY.md](docs/DISCOVERY.md), decisions D20–D22 |
 | M5 | Signing and distribution | planned |
 
 The detailed deliverables and acceptance criteria are in
