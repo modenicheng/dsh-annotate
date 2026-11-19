@@ -38,9 +38,7 @@
   }
 
   function badgeLabel(index) {
-    const circled = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
-    const safe = Math.max(1, Math.trunc(Number(index) || 1))
-    return safe <= circled.length ? circled[safe - 1] : String(safe)
+    return String(Math.max(1, Math.trunc(Number(index) || 1)))
   }
 
   function viewportSize() {
