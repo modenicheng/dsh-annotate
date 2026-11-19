@@ -77,6 +77,7 @@
       targetFailed: 'Could not read the session list',
       targetLatest: 'Most recent session',
       targetRunning: 'running',
+      targetUntitled: 'untitled session',
       targetHint: 'The mention is appended to that session’s composer; nothing is sent.',
       chipLabel: 'annotation · {summary}',
       timeNow: 'just now',
@@ -141,6 +142,7 @@
       targetFailed: '读取会话列表失败',
       targetLatest: '最近的会话',
       targetRunning: '运行中',
+      targetUntitled: '未命名会话',
       targetHint: '批注会加到那个会话的输入框末尾，不会自动发送。',
       chipLabel: '批注 · {summary}',
       timeNow: '刚刚',
@@ -1307,7 +1309,12 @@
     /** @param {any} item */
     function targetTitle(item) {
       const title = String((item && item.title) || '').trim()
-      return title === '' ? String(item.id) : title
+      if (title !== '') return title
+      // An untitled Session is common (titles are a separate fold and can be
+      // missing); a raw uuid tells the user nothing.
+      const workspace = item && typeof item.workspace === 'object' && item.workspace !== null ? item.workspace : null
+      const name = String((workspace && workspace.title) || '').trim()
+      return name === '' ? t('targetUntitled') : `${name} · ${t('targetUntitled')}`
     }
 
     /** The detail line the list only shows for the row under the pointer. */
