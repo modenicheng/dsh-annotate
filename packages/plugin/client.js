@@ -22,31 +22,28 @@ window.__ModuleLoader__.load({
     /** How often the page checks for mentions waiting on an open Session. */
     const QUEUE_POLL_MS = 4_000
 
+    /**
+     * The reference chip's own declarations, copied from the product's
+     * `ReferenceChip` stylesheet (`refChip` / `refIcon`): an inline run in the
+     * business colour with a one-em glyph. Kept as literal declarations rather
+     * than `var()` aliases because those class names are hashed per build.
+     */
     const CSS = `
 .dsh-anno-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
+  display: inline;
   max-width: 100%;
-  padding: 0 6px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-  font-size: inherit;
-  line-height: 1.6;
-  vertical-align: baseline;
-  white-space: nowrap;
+  margin: 0 2px;
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 500;
+  white-space: inherit;
+  overflow-wrap: anywhere;
+  text-align: inherit;
 }
 .dsh-anno-chip-glyph {
-  align-self: center;
-  flex: none;
-  color: var(--dsw-alias-brand-primary);
-}
-.dsh-anno-chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  width: 1em;
+  height: 1em;
+  margin-right: 4px;
+  vertical-align: -0.125em;
 }
 `
 
@@ -78,34 +75,61 @@ window.__ModuleLoader__.load({
       },
     }
 
-    /** One annotation citation: a region glyph plus the label the Host wrote. */
+    /**
+     * The region glyph: a selection frame with corner handles and a centred
+     * bar, drawn at the product's regular one-pixel stroke once scaled to 1em.
+     * Decorative, so it inherits the chip's colour and stays out of the tree.
+     */
+    function RegionGlyph() {
+      return h(
+        'svg',
+        {
+          class: 'dsh-anno-chip-glyph',
+          width: 16,
+          height: 16,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          xmlns: 'http://www.w3.org/2000/svg',
+          'aria-hidden': 'true',
+        },
+        h(
+          'g',
+          {
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+            strokeWidth: 1.5,
+          },
+          h('path', { d: 'M7.5 4.5h9m-9 15h9m-12-12v9m15-9v9' }),
+          h('rect', { width: 3.5, height: 3.5, x: 2.75, y: 2.75, rx: 1 }),
+          h('rect', { width: 3.5, height: 3.5, x: 17.75, y: 2.75, rx: 1 }),
+          h('rect', { width: 3.5, height: 3.5, x: 2.75, y: 17.75, rx: 1 }),
+          h('rect', { width: 3.5, height: 3.5, x: 17.75, y: 17.75, rx: 1 }),
+          h('rect', { width: 7.5, height: 3.5, x: 8.25, y: 10.25, rx: 1.25 }),
+        ),
+      )
+    }
+
+    /**
+     * One annotation citation, marked up exactly like the product's
+     * `ReferenceChip` in its non-interactive form: an inline `span` whose
+     * `title` is the whole mention, a leading decorative glyph, then the label.
+     * There is no activation action to supply, so it is not a button — the same
+     * shape a folder reference takes.
+     */
     function AnnoReference({ node, raw }) {
       const { id, label } = node.data
       return h(
         'span',
-        { class: 'dsh-anno-chip', title: raw ?? label, 'data-anno-id': id },
-        h(
-          'svg',
-          {
-            class: 'dsh-anno-chip-glyph',
-            viewBox: '0 0 16 16',
-            width: 12,
-            height: 12,
-            'aria-hidden': 'true',
-          },
-          h('rect', {
-            x: 2,
-            y: 2,
-            width: 12,
-            height: 12,
-            rx: 2,
-            fill: 'none',
-            stroke: 'currentColor',
-            'stroke-width': 1.5,
-          }),
-          h('circle', { cx: 8, cy: 8, r: 2.25, fill: 'currentColor' }),
-        ),
-        h('span', { class: 'dsh-anno-chip-label' }, label === '' ? id : label),
+        {
+          class: 'dsh-anno-chip',
+          'data-ref-chip': 'anno',
+          'data-anno-id': id,
+          title: raw,
+        },
+        h(RegionGlyph, null),
+        label === '' ? id : label,
       )
     }
 

@@ -51,7 +51,11 @@ Host, and the Web Client rule.
 Rendering: `packages/plugin/client.js` registers a `UserText` rule for the
 `dsh-anno:` wire form plus a `conversation.user.text.node` renderer keyed `anno`,
 so a cited annotation is one atomic chip in the message bubble (it survives a
-reload, because the mention is what the log keeps).
+reload, because the mention is what the log keeps). The chip copies the product's
+own reference chip — inline business-coloured text at weight 500, one `1em` glyph
+with a 4px gap — and differs only in the glyph, a selection frame in place of the
+file or session icon. Like a folder reference it has no activation action, so it
+is a `span`, not a button.
 
 Context: the Host matches the same mention at `agent/pre-step`
 (`packages/plugin/src/mentions.js`) and places one `source.kind = 'annotations'`
