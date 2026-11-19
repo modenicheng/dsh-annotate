@@ -167,7 +167,12 @@
       return t('modeAuto')
     }
 
-    function toast(message, tone) {
+    /**
+     * Write one transient line into the toast element. It is named for what it
+     * does because `toast` below is the element, and appending the wrong one to
+     * the shadow root turns a function into page text.
+     */
+    function showToast(message, tone) {
       const text = String(message || '')
       if (text === '') return
       toastNode.textContent = text
@@ -235,16 +240,22 @@
       armClear()
     })
 
+    // The three nodes are exported under their CSS class names (`node` and
+    // `pick` above, `toast` here) because `index.js` appends them to the shadow
+    // root; `showToast` is the one that writes into the toast. Handing the
+    // function to `append()` instead of the element does not throw — it
+    // stringifies the body into the page — so the two names stay distinct.
     return {
       node: hud,
       pick,
+      toast: toastNode,
       syncHud,
       setHud,
       setPickBanner,
       setClearBusy,
       setClearProgress,
       disarmClear,
-      toast,
+      showToast,
       hide,
     }
   }

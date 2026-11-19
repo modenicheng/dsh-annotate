@@ -125,6 +125,8 @@
     ctx.badges = badges.install(ctx)
     ctx.refreshPositions = refreshPositions
 
+    // Every argument here is an element, never a part's behaviour: `append()`
+    // would otherwise stringify it into the page as text.
     shadow.append(
       ctx.hud.node,
       ctx.hud.pick,
@@ -175,7 +177,7 @@
       setClearBusy: ctx.hud.setClearBusy,
       setClearProgress: ctx.hud.setClearProgress,
       setPickBanner: ctx.hud.setPickBanner,
-      toast: ctx.hud.toast,
+      toast: ctx.hud.showToast,
       openComposer: ctx.composer.openComposer,
       closeComposer: ctx.composer.closeComposer,
       setComposerBusy: ctx.composer.setComposerBusy,
