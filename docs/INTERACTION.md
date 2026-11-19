@@ -78,11 +78,12 @@ rewritten — see D11.
 - **Cross-Session insertion.** Resolved: the Host keeps a durable queue
   (`$DSH_HOME/annotations/pending-mentions.json`) of mentions waiting for one
   Session, and the Web Client appends them to that Session's composer the next
-  time it is retained — `requestDraftInitialization(binding, {whenDraftExists:
-  'append'})`, so nothing is sent and no turn starts. The queue is read and
-  acknowledged over two same-origin routes (`/ext/anno/queue`,
-  `/ext/anno/queue/ack`), not over the bridge: the page never sees the
-  extension's token (D12).
+  time the user opens it. The write is a *structured* draft — the mention joins
+  the document's `references`, so the composer shows a real chip the user can
+  read and remove, not raw mention text (D17). Nothing is sent and no turn
+  starts. The queue is read and acknowledged over two same-origin routes
+  (`/ext/anno/queue`, `/ext/anno/queue/ack`), not over the bridge: the page never
+  sees the extension's token (D12).
 - **Scheme negotiation.** The bridge must know whether it is reached over `ws`
   or `wss`; the Host advertises it in `/ext/anno/health` rather than letting the
   extension guess.

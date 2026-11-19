@@ -269,7 +269,7 @@ and the generated-file rule.
 | M2 | Extension capture: gestures, overlay, crop, outbox | implemented; the bridge connects from a real Firefox 159.0 session, the gestures themselves are **not yet exercised in a real browser** |
 | M3 | Re-anchoring and agent-initiated picks | implemented on both sides (hydrator fallback chains, pick banner, timeout and cancel); browser behaviour unverified |
 | M3.5 | `dsh-anno:` mentions: client chip and pre-step context | implemented and verified in a live Web Client (Firefox 159.0): the mention renders as one chip, survives a reload, and the model answers from the anchor, comment, and crop |
-| M3.6 | Target picker and queued delivery into another Session | host side implemented and tested (durable queue, same-origin routes, `routing.sessionId` + label); the overlay picker and the Client's draft append are written but **not yet exercised in a live page** — the browser kept serving the old client bundle across the update |
+| M3.6 | Target picker and queued delivery into another Session | host side implemented and tested (durable queue, same-origin routes, `routing.sessionId` + label); delivery into a composer verified in a live Web Client — the mention arrives as one atomic chip the user can read and remove before sending (D17); the overlay's picker rows are still unexercised in a real browser |
 | M4 | Developer context, session routing, multi-window | planned |
 | M5 | Signing and distribution | planned |
 

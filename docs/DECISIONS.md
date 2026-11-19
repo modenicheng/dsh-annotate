@@ -309,6 +309,9 @@ mechanism the built-in QueueDock uses. That is the next step; the polling,
 queue, routes, ack, and the picker's data path are all already verified
 independently of it.
 
+**Superseded by D17.** The seam is that Slot component, and the write is not the
+text append this record assumed.
+
 ## D14 — The extension targets Chromium and Gecko; WebKit is out of scope
 
 **Decision.** The browser extension supports Chromium and Gecko. Safari is not a
@@ -376,3 +379,54 @@ build that has no identity at all. Beta artifacts are built from the same tag as
 the final, so the difference is publication, never code. The documentation must
 state that a prerelease install is manual and, on Firefox, temporary unless the
 beta build is signed.
+
+## D17 — A mention reaches the composer as a reference chip, written from that Session's own dock
+
+**Decision.** The Web Client's half becomes one Session-scope Slot component
+(`conversation.input.dock`, entry id `dsh-anno-queue`). It is mounted only for
+the Session the user is looking at, it pulls `GET /ext/anno/queue?session=<id>`,
+and it writes the whole document through `inputActions.setDraft({ text,
+references })`. Each queued mention joins `references` as
+`{ source: 'reference', ref: <mention>, clipboardText: <mention>, offset, length,
+label }`, appended after the last line of whatever the draft already holds. The
+`?all=1` fan-out and its `requestDraftInitialization` / `insertReference` paths
+are gone.
+
+**Why.** A composer is a Lexical editor, and a chip is a `ReferenceChipNode`
+decorator — not text. Appending the mention as text (what D12 described) puts
+`@[批注 · "…"](dsh-anno:…)` on screen as raw characters: the user cannot see what
+they are about to send, which is the one thing a chip exists to prevent.
+`setDraft` is the only plugin-facing write that rebuilds decorators, because it
+is the same call the composer uses to restore a persisted draft. Its declared
+type is `string`, but its implementation takes `DraftInput` — `resolveDraftInput`
+routes a structured snapshot to `restoreDraft`, which constructs the chip nodes.
+That is a type-level narrowing of a real capability, so it is recorded here
+rather than hidden: if a future release drops it, this is the line to re-verify.
+
+**Why that source name.** Submit serializes every chip through the codec of the
+`@` source that owns it and *refuses the message* when no owner registers that
+name (`serializeReference` → "no serializer for reference source"). Registering
+one of our own would put a second entry in the `@` menu; using the product's
+`reference` source costs nothing, because its codec is the identity: the sent
+text is exactly the mention, which is what the transcript renders back into a
+chip and what the Host parses at `agent/pre-step`. The chip carries no
+`appearance`, so the composer draws its `@` marker instead of a file or session
+icon — an annotation is neither, and the marker keeps the shipped glyph set
+untouched (D9's reasoning about not inventing product chrome).
+
+**Consequences.** Delivery happens when the Session opens, which is the moment
+the mention becomes visible and removable — the queue is not a backlog, and a
+Session the user is not looking at is never written. A composer that is busy
+(`phase !== 'plain'`) or holding a command claim, whose chip is not part of
+`references`, is left alone and retried on the next poll; a mention the draft
+already carries is acknowledged rather than inserted twice, so a lost
+acknowledgement repairs itself instead of duplicating. The write replaces the
+document, so the caret lands at the end of it — acceptable because appending is
+the only thing being asked for, and because it happens on mount rather than
+during typing.
+
+**Verified** on a live `dsh web` (3099): a routed annotation produced
+``@ 批注 · “chip delivery”`` in the editor as one atomic chip, sending it put the
+canonical mention in the message, the transcript drew it with the region glyph,
+and the model answered with the annotation's page, quote, intent, and comment —
+so the chip, the wire form, and the Host context all agree.

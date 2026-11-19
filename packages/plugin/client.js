@@ -133,18 +133,29 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** Delivered ids stay delivered even if the acknowledgement never lands. */
-    const delivered = new Set()
+    /** Queue routes the Host serves to the page it serves (same-origin only). */
+    const QUEUE_PATH = '/ext/anno/queue'
+    const QUEUE_ACK_PATH = '/ext/anno/queue/ack'
 
     /**
-     * Append queued mentions to the draft of every Session that is open.
+     * The `@` source that owns our chip.
      *
-     * The extension cannot write a draft and the Host cannot reach one, so the
-     * hand-off is a durable queue plus this reader: whatever target the user
-     * picked, its mention lands at the end of that Session's composer the next
-     * time the Session is open. Nothing is sent, and no turn starts.
+     * A chip is only sendable while some source claims it: submit serializes
+     * every occurrence through its owner's codec and refuses the message when
+     * that owner is missing. This is the product's own reference source, and its
+     * codec is the identity, so the sent text is exactly the mention — which is
+     * what the transcript renders and what the Host parses at `agent/pre-step`.
      */
-    /** TEMP diagnostic: the module realm's console does not reach the page. */
+    const REFERENCE_SOURCE = 'reference'
+
+    /**
+     * Record the last delivery decision on the document element.
+     *
+     * This module's realm has no console of its own (its output never reaches
+     * the page), so the only place a diagnostic can land where a human — or an
+     * automation — can read it is the page's own DOM.
+     * @param {string} reason
+     */
     function trace(reason) {
       try {
         document.documentElement.setAttribute('data-dsh-anno-trace', reason)
@@ -152,147 +163,135 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Hand one queued mention to its Session's composer.
+     * Fold queued mentions into the draft the composer already holds.
      *
-     * Two faces, because a Session the user is looking at does not always have a
-     * live Agent binding (`binding()` only answers for a retained Agent). With a
-     * binding the documented "append" initialization does the work; without one
-     * the session-scope input facade still inserts the mention as an atomic
-     * reference chip at the caret.
-     * @returns whether the mention was taken
+     * Everything stays in clipboard coordinates: `draft` is the whole document
+     * with chips expanded, and each reference is a span inside it. Mentions go
+     * after the last line, so a question the user already drafted survives, and
+     * a mention the draft already carries is never added twice.
+     *
+     * @param {any} state live input snapshot (`draft`, `occurrences`, `phase`, `claim`)
+     * @param {readonly any[]} items queue entries for one Session
+     * @returns {{ text?: string, references?: readonly any[], ack: readonly string[] } | undefined}
+     *   the document to write and the entries it accounts for, or undefined
+     *   when the composer cannot take an edit right now
      */
-    function deliver(ctx, item) {
-      try {
-        const binding = ctx.sessions.binding(item.sessionId)
-        if (binding !== undefined) {
-          const result = ctx.uiConversation.input.requestDraftInitialization(binding, {
-            prompt: item.mention,
-            whenDraftExists: 'append',
-          })
-          if (result === 'applied') {
-            trace('applied-append')
-            return true
-          }
-          trace(`init-${String(result)}`)
-        }
-        const scope = ctx.sessions.scope(item.sessionId)
-        if (scope === undefined) {
-          trace('wait-no-scope')
-          return false
-        }
-        const input = ctx.uiConversation.input.for(scope)
-        const span = input.captureInsertion()
-        const inserted = input.insertReference(
-          {
-            source: 'anno',
-            ref: item.mention,
-            // No `appearance`: the draft schema only knows session/file/folder,
-            // and an unlabelled reference still renders as an atomic chip.
-            label: typeof item.label === 'string' && item.label !== '' ? item.label : item.mention,
-            clipboardText: item.mention,
-          },
-          span,
-        )
-        trace(inserted ? 'inserted-reference' : 'insert-refused')
-        return inserted === true
-      } catch (error) {
-        trace(`throw-${String(error).slice(0, 60)}`)
-        return false
+    function composeDraft(state, items) {
+      // A busy composer owns the draft: adjudication and submission (and a
+      // pending command claim, whose chip is not part of `references`) would be
+      // lost by a wholesale write. The next poll retries.
+      if (state === undefined || state === null || state.phase !== 'plain' || state.claim !== undefined) {
+        return undefined
       }
+      const known = new Set(state.occurrences.map((occurrence) => occurrence.ref))
+      const ack = []
+      const fresh = []
+      for (const item of items) {
+        if (typeof item?.id !== 'string' || typeof item?.mention !== 'string' || item.mention === '') continue
+        // Accounted for either way: an entry whose mention is already in the
+        // draft describes a delivery that happened, so acknowledging is the
+        // whole repair.
+        ack.push(item.id)
+        if (known.has(item.mention)) continue
+        known.add(item.mention)
+        fresh.push(item)
+      }
+      if (fresh.length === 0) return { ack }
+      let text = state.draft
+      const references = [...state.occurrences]
+      for (const item of fresh) {
+        if (text !== '' && !text.endsWith('\n')) text += '\n'
+        references.push({
+          source: REFERENCE_SOURCE,
+          ref: item.mention,
+          offset: text.length,
+          length: item.mention.length,
+          label: typeof item.label === 'string' && item.label !== '' ? item.label : item.mention,
+          clipboardText: item.mention,
+        })
+        text += item.mention
+      }
+      return { text, references, ack }
+    }
+
+    /** Tell the Host that these entries are in a composer now. @param {readonly string[]} ids */
+    async function acknowledge(ids) {
+      await fetch(`${window.location.origin}${QUEUE_ACK_PATH}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
     }
 
     /**
-     * The Session-scope seat. A Session-scope Slot component is handed the
-     * Session it belongs to and that Session's input actions — the documented
-     * face for programmatic editing — which is the only way to reach a composer
-     * whose Agent is not retained (`sessions.binding`/`scope` answer nothing
-     * for one, D13).
+     * The dock seat that delivers queued mentions into its own Session.
+     *
+     * It is the only place holding both halves of the problem: the Session id
+     * and that Session's live input actions. Being mounted is what "the user is
+     * looking at this Session" means, so that is exactly when a delivery
+     * happens — a chip appears in the composer, visible and removable before it
+     * counts, and nothing is sent. A Session the user is not looking at is never
+     * touched, and its entries simply wait in the queue.
      */
-    function PendingMentions({ sessionId, inputActions }) {
+    function QueuedMentions({ sessionId, input, inputActions }) {
+      // The pull is asynchronous but must not restart on every keystroke, so it
+      // reads the newest state through a ref instead of a dependency.
+      const latest = React.useRef({ input, inputActions })
       React.useEffect(() => {
-        if (typeof sessionId !== 'string' || sessionId === '' || inputActions === undefined) return undefined
+        latest.current = { input, inputActions }
+      })
+
+      React.useEffect(() => {
+        if (typeof sessionId !== 'string' || sessionId === '') return undefined
         let cancelled = false
         const pull = async () => {
           try {
-            const response = await fetch(
-              `${window.location.origin}/ext/anno/queue?session=${encodeURIComponent(sessionId)}`,
-              {
-                credentials: 'same-origin',
-                cache: 'no-store',
-              },
-            )
-            if (!response.ok) return
+            const url = `${window.location.origin}${QUEUE_PATH}?session=${encodeURIComponent(sessionId)}`
+            const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+            if (!response.ok) return trace(`http-${response.status}`)
             const body = await response.json()
             const items = Array.isArray(body?.items) ? body.items : []
-            trace(`slot-items-${items.length}`)
+            trace(`queue-${items.length}`)
             if (cancelled || items.length === 0) return
-            const acked = []
-            for (const item of items) {
-              if (typeof item?.mention !== 'string') continue
-              const span = inputActions.captureInsertion()
-              const text = item.mention
-              if (inputActions.insertText(text, span) !== true) {
-                trace('slot-insert-refused')
-                continue
-              }
-              acked.push(item.id)
+            const plan = composeDraft(latest.current.input, items)
+            if (plan === undefined) return trace('busy')
+            if (plan.text !== undefined) {
+              // A structured document, not text: this is what makes the editor
+              // build a chip node instead of a run of mention characters.
+              latest.current.inputActions.setDraft({ text: plan.text, references: plan.references })
+              trace(`appended-${plan.ack.length}`)
             }
-            if (cancelled || acked.length === 0) return
-            trace('slot-appended')
-            await fetch(`${window.location.origin}/ext/anno/queue/ack`, {
-              method: 'POST',
-              credentials: 'same-origin',
-              cache: 'no-store',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ ids: acked }),
-            })
+            if (plan.ack.length > 0) await acknowledge(plan.ack)
           } catch (error) {
-            trace(`slot-throw-${String(error).slice(0, 50)}`)
+            trace(`throw-${String(error).slice(0, 48)}`)
           }
         }
         void pull()
+        const timer = setInterval(() => void pull(), QUEUE_POLL_MS)
+        // A hidden tab has its timers frozen, so the moment the user comes back
+        // is also the moment to look.
+        const onVisible = () => {
+          if (document.visibilityState === 'visible') void pull()
+        }
+        document.addEventListener('visibilitychange', onVisible)
+        window.addEventListener('focus', onVisible)
         return () => {
           cancelled = true
+          clearInterval(timer)
+          document.removeEventListener('visibilitychange', onVisible)
+          window.removeEventListener('focus', onVisible)
         }
-      }, [sessionId, inputActions])
+      }, [sessionId])
+
       return null
     }
 
-    async function appendQueued(ctx) {
-      const url = `${window.location.origin}/ext/anno/queue?all=1`
-      const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
-      if (!response.ok) return trace(`http-${response.status}`)
-      const body = await response.json()
-      const items = Array.isArray(body?.items) ? body.items : []
-      trace(`items-${items.length}`)
-      if (items.length === 0) return
-
-      const acked = []
-      for (const item of items) {
-        if (typeof item?.id !== 'string' || typeof item?.mention !== 'string') continue
-        if (delivered.has(item.id)) continue
-        if (deliver(ctx, item)) {
-          delivered.add(item.id)
-          acked.push(item.id)
-        }
-      }
-      if (acked.length === 0) return
-      try {
-        await fetch(`${window.location.origin}/ext/anno/queue/ack`, {
-          method: 'POST',
-          credentials: 'same-origin',
-          cache: 'no-store',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ids: acked }),
-        })
-      } catch (error) {
-        // The local set already prevents a second insert; the entry dies with its annotation.
-        console.warn(`dsh-annotate: queue acknowledgement failed: ${String(error)}`)
-      }
-    }
-
     return {
-      inject: ['slots', 'sessions', 'uiConversation'],
+      inject: ['slots', 'uiConversation'],
+      /** The draft composition this plugin owns; exported for its unit test. */
+      composeDraft,
       apply(ctx) {
         // One stylesheet for the whole page, removed when the plugin disposes.
         ctx.effect(() => {
@@ -310,44 +309,12 @@ window.__ModuleLoader__.load({
           yield ctx.slots.register({ name: 'conversation.user.text.node', key: 'anno', priority: 100 }, AnnoReference)
         })
 
-        ctx.slots.inject('conversation.composer.dock', function* () {
-          yield ctx.slots.register(
-            { name: 'conversation.composer.dock', id: 'dsh-anno-pending', order: 90 },
-            PendingMentions,
-          )
+        // The composer zone, not the composer dock: it is rendered for the
+        // session body's hero and composer alike, and it carries the live input
+        // state and actions the delivery needs.
+        ctx.slots.inject('conversation.input.dock', function* () {
+          yield ctx.slots.register({ name: 'conversation.input.dock', id: 'dsh-anno-queue', order: 90 }, QueuedMentions)
         })
-
-        ctx.effect(() => {
-          let last = 0
-          const poll = (force) => {
-            const now = Date.now()
-            // Interaction fires far more often than the queue changes.
-            if (force !== true && now - last < QUEUE_POLL_MS) return
-            last = now
-            void appendQueued(ctx).catch((error) => {
-              console.warn(`dsh-annotate: queue poll failed: ${String(error)}`)
-            })
-          }
-          const timer = setInterval(() => poll(false), QUEUE_POLL_MS)
-          const onVisible = () => {
-            if (document.visibilityState === 'visible') poll(true)
-          }
-          // A hidden tab has its timers frozen, so the moment the user comes
-          // back is also the moment to look: focus and the first interaction.
-          const onInteraction = () => poll(false)
-          document.addEventListener('visibilitychange', onVisible)
-          window.addEventListener('focus', onVisible)
-          document.addEventListener('pointerdown', onInteraction, true)
-          document.addEventListener('keydown', onInteraction, true)
-          poll(true)
-          return () => {
-            clearInterval(timer)
-            document.removeEventListener('visibilitychange', onVisible)
-            window.removeEventListener('focus', onVisible)
-            document.removeEventListener('pointerdown', onInteraction, true)
-            document.removeEventListener('keydown', onInteraction, true)
-          }
-        }, 'dsh-annotate: queued mentions')
       },
     }
   },
