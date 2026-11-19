@@ -30,6 +30,7 @@
       pickResult: 'anno.pick.result',
       mutate: 'anno.mutate',
       ready: 'anno.content.ready',
+      sessions: 'anno.sessions',
     },
     content: {
       records: 'anno.records',
@@ -77,6 +78,8 @@
     prefs: {},
     restricted: '',
     submitting: false,
+    /** Session the annotation is queued for; empty until the catalog answers. */
+    targetId: '',
     hookInstalled: false,
     booted: false,
     counts: { total: 0, resolved: 0 },
@@ -607,6 +610,7 @@
       summary: summaryOf(anchorState.anchor),
       rect: ns.geom.roundRect(rect),
     })
+    void loadTargets()
   }
 
   function handleCancel() {
@@ -631,7 +635,39 @@
       pageContext: ns.anchor.pageContext(state.consoleErrors),
     }
     if (intent) draft.intent = intent
+    // A picked target turns the annotation into a queued mention: the Host
+    // stores it, the Web Client appends it to that Session's composer.
+    if (state.targetId !== '') {
+      draft.routing = {
+        source: 'user',
+        sessionId: state.targetId,
+        label: fill(t('chipLabel'), { summary: summaryOf(anchor) }),
+      }
+    }
     return draft
+  }
+
+  /**
+   * Refresh the Session catalog behind the composer's target picker. The Host
+   * owns the list; a failure here must not block writing the annotation.
+   * @param {boolean} [force]
+   */
+  function loadTargets(force) {
+    if (!ui) return Promise.resolve()
+    const failed = (reason) => {
+      if (ui) ui.setTargets([], '', reason || t('targetFailed'))
+    }
+    return Promise.resolve(send(MSG.background.sessions, force === true ? { force: true } : {})).then(
+      (reply) => {
+        if (!ui) return
+        if (!reply || reply.ok !== true) {
+          failed(replyError(reply))
+          return
+        }
+        ui.setTargets(Array.isArray(reply.items) ? reply.items : [], reply.defaultSessionId || '')
+      },
+      (error) => failed(String(error && error.message ? error.message : error)),
+    )
   }
 
   function viewportSize() {
@@ -1170,6 +1206,10 @@
       onExit: () => leaveMode('hud'),
       onDelete: handleDelete,
       onClear: handleClear,
+      onTargetRequest: () => void loadTargets(),
+      onTarget: (id) => {
+        state.targetId = String(id)
+      },
     })
     ui.mount()
     ui.setHidden(state.hidden)

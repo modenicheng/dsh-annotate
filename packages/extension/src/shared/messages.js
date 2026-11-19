@@ -29,6 +29,8 @@ export const TO_BACKGROUND = {
   mutate: 'anno.mutate',
   /** The content script finished booting on this tab. */
   ready: 'anno.content.ready',
+  /** The Session catalog behind the composer's target picker. */
+  sessions: 'anno.sessions',
 }
 
 /** background → content */

@@ -682,8 +682,61 @@
         return onPickResult(message, sender)
       case MSG.TO_BACKGROUND.mutate:
         return mutate(message)
+      case MSG.TO_BACKGROUND.sessions:
+        return onSessions(message)
       default:
         return undefined
+    }
+  }
+
+  // ── session catalog ───────────────────────────────────────────────────────
+
+  /** The picker opens per composer, so a short cache keeps it snappy without lying. */
+  const SESSIONS_TTL_MS = 15_000
+  let sessionsCache = { at: 0, payload: null }
+
+  /**
+   * Read the target Session catalog over HTTP, not the bridge: the catalog is a
+   * read-only list and must not queue behind a socket that is still connecting.
+   * @param {any} message
+   */
+  async function onSessions(message) {
+    const force = field(message, 'force') === true
+    if (!force && sessionsCache.payload !== null && Date.now() - sessionsCache.at < SESSIONS_TTL_MS) {
+      return sessionsCache.payload
+    }
+    const token = await ns.readToken()
+    if (typeof token !== 'string' || token === '') return failure('the bridge token is missing')
+    const wsUrl = ns.netState.wsUrl
+    if (typeof wsUrl !== 'string' || wsUrl === '') return failure('not connected to DeepSeek Harness yet')
+
+    let url
+    try {
+      const parsed = new URL(wsUrl)
+      parsed.protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:'
+      parsed.pathname = '/ext/anno/sessions'
+      parsed.search = `?limit=50&token=${encodeURIComponent(token)}`
+      url = parsed.href
+    } catch (error) {
+      return failure(`unusable bridge address (${ns.describeError(error)})`)
+    }
+
+    try {
+      const response = await fetch(url, { cache: 'no-store' })
+      const body = await response.json()
+      if (response.ok !== true || body?.ok === false) {
+        return failure(typeof body?.message === 'string' ? body.message : `the host answered ${response.status}`)
+      }
+      const payload = {
+        ok: true,
+        items: Array.isArray(body.items) ? body.items : [],
+        defaultSessionId: typeof body.defaultSessionId === 'string' ? body.defaultSessionId : '',
+        truncated: body.truncated === true,
+      }
+      sessionsCache = { at: Date.now(), payload }
+      return payload
+    } catch (error) {
+      return failure(`could not read the session list (${ns.describeError(error)})`)
     }
   }
 

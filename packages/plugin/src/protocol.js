@@ -28,6 +28,16 @@ export const HEALTH_PATH = '/ext/anno/health'
  */
 export const SESSIONS_PATH = '/ext/anno/sessions'
 
+/**
+ * Durable hand-off from the extension to the Web Client: mentions waiting to be
+ * appended to one Session's composer. Same-origin only — the GUI is the page
+ * this Host serves, and it never sees the extension's bridge token.
+ */
+export const QUEUE_PATH = '/ext/anno/queue'
+
+/** Acknowledged queue entries are removed here; POST `{ids}`. */
+export const QUEUE_ACK_PATH = '/ext/anno/queue/ack'
+
 /** Bridge token file name, relative to `$DSH_HOME`. */
 export const TOKEN_FILE = 'ext-bridge-token'
 
@@ -68,6 +78,8 @@ export const LIMITS = {
   imageBase64Chars: 32 * 1024 * 1024,
   listLimit: 200,
   sessionsLimit: 100,
+  /** Chip label carried by a routed mention; presentation only, never identity. */
+  labelChars: 200,
 }
 
 /** Every frame a client may send to the host. */
@@ -196,6 +208,11 @@ export function validateRecord(record) {
   const routing = record.routing
   if (!isPlainObject(routing)) errors.push('record.routing must be an object')
   else if (!SOURCES.includes(routing.source)) errors.push(`record.routing.source must be one of ${SOURCES.join('|')}`)
+  if (isPlainObject(routing) && routing.label !== undefined) {
+    if (!isString(routing.label) || routing.label.length > LIMITS.labelChars) {
+      errors.push(`record.routing.label must be a string of at most ${LIMITS.labelChars} characters`)
+    }
+  }
   if (!isString(record.createdAt) || Number.isNaN(Date.parse(record.createdAt))) {
     errors.push('record.createdAt must be an ISO timestamp')
   }
@@ -243,6 +260,7 @@ export function normalizeRecord(input, clock = { now: () => new Date() }) {
       source: SOURCES.includes(routing.source) ? routing.source : 'user',
       ...(isString(routing.sessionId) ? { sessionId: routing.sessionId } : {}),
       ...(isString(routing.workspaceHint) ? { workspaceHint: routing.workspaceHint } : {}),
+      ...(isString(routing.label) ? { label: routing.label.slice(0, LIMITS.labelChars) } : {}),
     },
     state: STATES.includes(input.state) ? input.state : 'open',
     createdAt: isString(input.createdAt) ? input.createdAt : now,

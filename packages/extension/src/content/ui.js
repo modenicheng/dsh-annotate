@@ -70,6 +70,19 @@
       clearNothingResolved: 'No resolved annotations',
       clearedCount: 'Deleted {n} annotations',
       clearedPartial: 'Deleted {n}, {failed} failed',
+      targetChoose: 'Send to',
+      targetSearch: 'Search sessions…',
+      targetLoading: 'Reading sessions…',
+      targetEmpty: 'No matching session',
+      targetFailed: 'Could not read the session list',
+      targetLatest: 'Most recent session',
+      targetRunning: 'running',
+      targetHint: 'The mention is appended to that session’s composer; nothing is sent.',
+      chipLabel: 'annotation · {summary}',
+      timeNow: 'just now',
+      timeMinutes: '{n} min ago',
+      timeHours: '{n} h ago',
+      timeDays: '{n} d ago',
     },
     zh: {
       modeAuto: '批注模式',
@@ -121,6 +134,19 @@
       clearNothingResolved: '没有已解决的批注',
       clearedCount: '已删除 {n} 条批注',
       clearedPartial: '已删除 {n} 条，{failed} 条失败',
+      targetChoose: '插入到',
+      targetSearch: '搜索会话…',
+      targetLoading: '正在读取会话…',
+      targetEmpty: '没有匹配的会话',
+      targetFailed: '读取会话列表失败',
+      targetLatest: '最近的会话',
+      targetRunning: '运行中',
+      targetHint: '批注会加到那个会话的输入框末尾，不会自动发送。',
+      chipLabel: '批注 · {summary}',
+      timeNow: '刚刚',
+      timeMinutes: '{n} 分钟前',
+      timeHours: '{n} 小时前',
+      timeDays: '{n} 天前',
     },
   }
 
@@ -369,6 +395,71 @@
 .btn-primary { background: #2563eb; border-color: #3b82f6; color: #ffffff; }
 .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
 .composer-error { margin-top: 6px; color: #fca5a5; font-size: 11px; white-space: pre-wrap; }
+/* Target row: one line when collapsed, a flat searchable list when open. The
+   row detail (workspace + last activity) only exists on the active row, so the
+   list stays one line per session until the user actually inspects one. */
+.target { position: relative; margin-top: 8px; }
+.target-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e5e7eb;
+  font: 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.target-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.target-key { flex: none; color: #6b7280; }
+.target-value { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.target-caret { flex: none; color: #9ca3af; }
+.target-panel {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #0b1220;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.target-search {
+  margin: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e7eb;
+  font: 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  outline: none;
+}
+.target-list { overflow-y: auto; padding: 0 4px 4px; }
+.target-row {
+  display: block;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #e5e7eb;
+  font: 11px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.target-row[data-active="1"] { background: rgba(37, 99, 235, 0.28); }
+.target-row-title { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.target-row-meta { display: none; color: #94a3b8; font-size: 10px; }
+.target-row[data-active="1"] .target-row-meta { display: block; }
+.target-empty { padding: 8px 6px; color: #6b7280; font-size: 10px; }
 .badge {
   position: fixed;
   width: ${BADGE_PX}px;
@@ -586,6 +677,24 @@
     textarea.rows = 3
     textarea.spellcheck = false
     const chips = createElement('div', 'chips')
+    const target = createElement('div', 'target')
+    const targetButton = createElement('button', 'target-btn')
+    targetButton.type = 'button'
+    const targetKey = createElement('span', 'target-key', t('targetChoose'))
+    const targetValue = createElement('span', 'target-value', '')
+    const targetCaret = createElement('span', 'target-caret', '▾')
+    targetButton.append(targetKey, targetValue, targetCaret)
+    const targetPanel = createElement('div', 'target-panel')
+    const targetSearch = createElement('input', 'target-search')
+    targetSearch.type = 'search'
+    targetSearch.setAttribute('aria-label', t('targetSearch'))
+    targetSearch.placeholder = t('targetSearch')
+    const targetList = createElement('div', 'target-list')
+    targetList.setAttribute('role', 'listbox')
+    targetPanel.append(targetSearch, targetList)
+    target.append(targetButton, targetPanel)
+    setVisible(targetPanel, false)
+    setVisible(target, false)
     const composerFoot = createElement('div', 'composer-foot')
     const composerHint = createElement('span', 'composer-hint')
     const composerActions = createElement('div', 'composer-actions')
@@ -597,7 +706,7 @@
     composerActions.append(cancelButton, sendButton)
     composerFoot.append(composerHint, composerActions)
     const composerError = createElement('div', 'composer-error')
-    composer.append(composerHead, textarea, chips, composerFoot, composerError)
+    composer.append(composerHead, textarea, chips, target, composerFoot, composerError)
 
     const toastNode = createElement('div', 'toast')
 
@@ -615,6 +724,12 @@
       connected: '',
       composerOpen: false,
       intent: '',
+      targets: [],
+      targetId: '',
+      targetOpen: false,
+      targetQuery: '',
+      targetActive: 0,
+      targetNote: '',
       busy: false,
       toastTimer: 0,
       hoverVisible: false,
@@ -1175,10 +1290,150 @@
       handlers.onSend({ text, intent: state.intent })
     }
 
+    // ── target picker ────────────────────────────────────────────────────────
+
+    /** @param {number} ms */
+    function relativeAge(ms) {
+      if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return ''
+      const seconds = Math.max(0, Math.round((Date.now() - ms) / 1000))
+      if (seconds < 60) return t('timeNow')
+      const minutes = Math.round(seconds / 60)
+      if (minutes < 60) return fill(t('timeMinutes'), { n: minutes })
+      const hours = Math.round(minutes / 60)
+      if (hours < 24) return fill(t('timeHours'), { n: hours })
+      return fill(t('timeDays'), { n: Math.round(hours / 24) })
+    }
+
+    /** @param {any} item */
+    function targetTitle(item) {
+      const title = String((item && item.title) || '').trim()
+      return title === '' ? String(item.id) : title
+    }
+
+    /** The detail line the list only shows for the row under the pointer. */
+    function targetMeta(item) {
+      const parts = []
+      const workspace = item && typeof item.workspace === 'object' && item.workspace !== null ? item.workspace : null
+      if (workspace !== null && typeof workspace.title === 'string' && workspace.title !== '')
+        parts.push(workspace.title)
+      const age = relativeAge(item && item.updatedAt)
+      if (age !== '') parts.push(age)
+      if (item && item.running === true) parts.push(t('targetRunning'))
+      return parts.join(' · ')
+    }
+
+    function visibleTargets() {
+      const needle = state.targetQuery.trim().toLowerCase()
+      if (needle === '') return state.targets
+      return state.targets.filter((item) => {
+        const workspace = item && typeof item.workspace === 'object' && item.workspace !== null ? item.workspace : null
+        return [targetTitle(item), String(item.id), item.cwd || '', workspace?.title || '', workspace?.path || ''].some(
+          (value) => String(value).toLowerCase().includes(needle),
+        )
+      })
+    }
+
+    function renderTargetButton() {
+      const current = state.targets.find((item) => item.id === state.targetId)
+      targetValue.textContent = current ? targetTitle(current) : state.targetNote || t('targetLatest')
+      targetButton.title = current ? targetMeta(current) || targetTitle(current) : t('targetHint')
+    }
+
+    function renderTargetList() {
+      const items = visibleTargets()
+      targetList.textContent = ''
+      if (state.busy === true && items.length === 0) {
+        targetList.appendChild(createElement('div', 'target-empty', t('targetLoading')))
+        return
+      }
+      if (items.length === 0) {
+        targetList.appendChild(createElement('div', 'target-empty', state.targetNote || t('targetEmpty')))
+        return
+      }
+      if (state.targetActive >= items.length) state.targetActive = 0
+      for (const [index, item] of items.entries()) {
+        const row = createElement('button', 'target-row')
+        row.type = 'button'
+        row.setAttribute('role', 'option')
+        row.dataset.sessionId = String(item.id)
+        row.dataset.active = index === state.targetActive ? '1' : '0'
+        row.setAttribute('aria-selected', String(item.id) === state.targetId ? 'true' : 'false')
+        row.append(
+          createElement('span', 'target-row-title', targetTitle(item)),
+          createElement('span', 'target-row-meta', targetMeta(item)),
+        )
+        row.addEventListener('pointerenter', () => {
+          state.targetActive = index
+          for (const other of targetList.children) {
+            if (other.dataset) other.dataset.active = other === row ? '1' : '0'
+          }
+        })
+        row.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          chooseTarget(item.id)
+        })
+        targetList.appendChild(row)
+      }
+    }
+
+    function openTargetPanel() {
+      if (state.targetOpen || state.busy) return
+      state.targetOpen = true
+      state.targetActive = 0
+      setVisible(targetPanel, true)
+      renderTargetList()
+      targetSearch.focus()
+      handlers.onTargetRequest()
+    }
+
+    function closeTargetPanel() {
+      if (!state.targetOpen) return
+      state.targetOpen = false
+      setVisible(targetPanel, false)
+      targetSearch.value = ''
+      state.targetQuery = ''
+    }
+
+    /** @param {string} id */
+    function chooseTarget(id) {
+      state.targetId = String(id)
+      state.targetNote = ''
+      closeTargetPanel()
+      renderTargetButton()
+      handlers.onTarget(state.targetId)
+    }
+
+    /**
+     * Adopt the catalog for the current composer. The default target follows the
+     * Host's most recently active Session until the user picks another one.
+     * @param {any[]} items
+     * @param {string} [defaultId]
+     * @param {string} [note] Failure text shown in place of rows.
+     */
+    function setTargets(items, defaultId, note) {
+      state.targets = Array.isArray(items) ? items : []
+      state.targetNote = String(note || '')
+      if (state.targetId === '' && typeof defaultId === 'string' && defaultId !== '') state.targetId = defaultId
+      if (state.targetId !== '' && !state.targets.some((item) => item.id === state.targetId)) {
+        // A target that disappeared from the catalog is not a choice any more.
+        state.targetId = typeof defaultId === 'string' ? defaultId : ''
+      }
+      setVisible(target, state.composerOpen && (state.targets.length > 0 || state.targetNote !== ''))
+      renderTargetButton()
+      if (state.targetOpen) renderTargetList()
+    }
+
     function openComposer(options) {
       const config = options || {}
       state.composerOpen = true
       state.intent = ''
+      state.targetQuery = ''
+      state.targetActive = 0
+      state.targetOpen = false
+      targetSearch.value = ''
+      setVisible(targetPanel, false)
+      setVisible(target, false)
       for (const chip of chips.children) chip.setAttribute('aria-pressed', 'false')
       composerKind.textContent = composerTitle(config.kind)
       composerSummary.textContent = String(config.summary || '')
@@ -1202,6 +1457,10 @@
       state.composerOpen = false
       state.busy = false
       state.intent = ''
+      state.targetOpen = false
+      state.targetQuery = ''
+      setVisible(targetPanel, false)
+      setVisible(target, false)
       composerRect = null
       setVisible(composer, false)
       composerError.textContent = ''
@@ -1313,6 +1572,41 @@
     // layer; the host is pointer-events:none but children are not.
     composer.addEventListener('pointerdown', (event) => event.stopPropagation())
     composer.addEventListener('click', (event) => event.stopPropagation())
+    targetButton.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (state.targetOpen) closeTargetPanel()
+      else openTargetPanel()
+    })
+    targetSearch.addEventListener('input', () => {
+      state.targetQuery = targetSearch.value
+      state.targetActive = 0
+      renderTargetList()
+    })
+    targetSearch.addEventListener('keydown', (event) => {
+      const items = visibleTargets()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        closeTargetPanel()
+        return
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (items.length === 0) return
+        event.preventDefault()
+        const step = event.key === 'ArrowDown' ? 1 : -1
+        state.targetActive = (state.targetActive + step + items.length) % items.length
+        renderTargetList()
+        return
+      }
+      if (event.key === 'Enter') {
+        const item = items[state.targetActive]
+        if (item === undefined) return
+        event.preventDefault()
+        event.stopPropagation()
+        chooseTarget(item.id)
+      }
+    })
     hud.addEventListener('click', (event) => event.stopPropagation())
     pick.addEventListener('click', (event) => event.stopPropagation())
 
@@ -1390,6 +1684,7 @@
       closeComposer,
       setComposerBusy,
       setComposerError,
+      setTargets,
       refreshPositions,
       /** Close a pinned card so Esc can mean "close the card" first. */
       closeBadgeCard() {

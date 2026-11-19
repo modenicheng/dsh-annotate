@@ -39,6 +39,7 @@
       pickResult: 'anno.pick.result',
       mutate: 'anno.mutate',
       ready: 'anno.content.ready',
+      sessions: 'anno.sessions',
     },
     TO_CONTENT: {
       records: 'anno.records',

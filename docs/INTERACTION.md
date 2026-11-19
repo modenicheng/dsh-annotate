@@ -71,13 +71,14 @@ rewritten — see D11.
 
 ## Open questions
 
-- **Cross-Session insertion.** The composer renders one Session at a time. For a
-  target that is not on screen the chip has to wait for that Session to open.
-  Two candidate mechanisms: write the persisted per-Session draft
-  (`localStorage['dsh.conversation.<id>']`, read at composer mount), or navigate
-  with `ctx.uiWorkspace.openSession` and insert through `uiConversation.input`.
-  The second is the supported path; the first is a fallback that touches an
-  internal storage shape.
+- **Cross-Session insertion.** Resolved: the Host keeps a durable queue
+  (`$DSH_HOME/annotations/pending-mentions.json`) of mentions waiting for one
+  Session, and the Web Client appends them to that Session's composer the next
+  time it is retained — `requestDraftInitialization(binding, {whenDraftExists:
+  'append'})`, so nothing is sent and no turn starts. The queue is read and
+  acknowledged over two same-origin routes (`/ext/anno/queue`,
+  `/ext/anno/queue/ack`), not over the bridge: the page never sees the
+  extension's token (D12).
 - **Scheme negotiation.** The bridge must know whether it is reached over `ws`
   or `wss`; the Host advertises it in `/ext/anno/health` rather than letting the
   extension guess.

@@ -30,6 +30,16 @@ const HEALTH_PATH = '/ext/anno/health'
  */
 const SESSIONS_PATH = '/ext/anno/sessions'
 
+/**
+ * Durable hand-off from the extension to the Web Client: mentions waiting to be
+ * appended to one Session's composer. Same-origin only — the GUI is the page
+ * this Host serves, and it never sees the extension's bridge token.
+ */
+const QUEUE_PATH = '/ext/anno/queue'
+
+/** Acknowledged queue entries are removed here; POST `{ids}`. */
+const QUEUE_ACK_PATH = '/ext/anno/queue/ack'
+
 /** Bridge token file name, relative to `$DSH_HOME`. */
 const TOKEN_FILE = 'ext-bridge-token'
 
@@ -70,6 +80,8 @@ const LIMITS = {
   imageBase64Chars: 32 * 1024 * 1024,
   listLimit: 200,
   sessionsLimit: 100,
+  /** Chip label carried by a routed mention; presentation only, never identity. */
+  labelChars: 200,
 }
 
 /** Every frame a client may send to the host. */
@@ -198,6 +210,11 @@ function validateRecord(record) {
   const routing = record.routing
   if (!isPlainObject(routing)) errors.push('record.routing must be an object')
   else if (!SOURCES.includes(routing.source)) errors.push(`record.routing.source must be one of ${SOURCES.join('|')}`)
+  if (isPlainObject(routing) && routing.label !== undefined) {
+    if (!isString(routing.label) || routing.label.length > LIMITS.labelChars) {
+      errors.push(`record.routing.label must be a string of at most ${LIMITS.labelChars} characters`)
+    }
+  }
   if (!isString(record.createdAt) || Number.isNaN(Date.parse(record.createdAt))) {
     errors.push('record.createdAt must be an ISO timestamp')
   }
@@ -245,6 +262,7 @@ function normalizeRecord(input, clock = { now: () => new Date() }) {
       source: SOURCES.includes(routing.source) ? routing.source : 'user',
       ...(isString(routing.sessionId) ? { sessionId: routing.sessionId } : {}),
       ...(isString(routing.workspaceHint) ? { workspaceHint: routing.workspaceHint } : {}),
+      ...(isString(routing.label) ? { label: routing.label.slice(0, LIMITS.labelChars) } : {}),
     },
     state: STATES.includes(input.state) ? input.state : 'open',
     createdAt: isString(input.createdAt) ? input.createdAt : now,
@@ -471,5 +489,5 @@ function sameDocument(record, url) {
   }
 }
 
-globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, TOKEN_FILE, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
+globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, QUEUE_PATH, QUEUE_ACK_PATH, TOKEN_FILE, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
 })()

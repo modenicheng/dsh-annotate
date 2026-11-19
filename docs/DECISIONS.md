@@ -264,3 +264,28 @@ that later wants the readable form in the transcript would have to change what
 the chip rule matches, not what pre-step returns. Recorded after confirming in a
 live Web Client that a rewrite silently costs the chip and that the context
 message itself does reach the model (D10's `annotations` round trip).
+
+## D12 — A cross-Session mention waits in a durable queue, and never auto-sends
+
+**Decision.** When an annotation carries `routing.sessionId`, the Host stores its
+mention in `$DSH_HOME/annotations/pending-mentions.json`. The Web Client polls
+`GET /ext/anno/queue?all=1` and appends each entry to the target Session's
+composer with `requestDraftInitialization(binding, {whenDraftExists: 'append'})`,
+then acknowledges with `POST /ext/anno/queue/ack`. Nothing is sent; the user
+decides when the message leaves.
+
+**Why.** Three mechanisms were possible and two are wrong. The Host cannot write
+a draft (drafts live in the browser), and sending a message on the user's behalf
+would start a turn they did not ask for and could not review — the whole point of
+a chip is that it is visible and removable before it counts. Queueing keeps the
+browser and the Host in their own lanes: the extension posts an annotation, the
+Client adopts it when the Session is in front of the user.
+
+**Consequences.** The queue is durable, capped at 50 entries, idempotent by
+annotation id, and pruned of entries whose annotation was deleted. The queue
+routes cannot be gated by the bridge token: the page is a different trust anchor,
+and handing the GUI the extension's token would be worse than the exposure. They
+are gated by `Sec-Fetch-Site: same-origin` instead, which a cross-site request
+cannot forge, and both routes are `no-store`. A page that omits the header gets
+an honest 403 rather than a guess. The Client poll is a 4 s interval plus
+`visibilitychange`; an entry for a Session that is not retained simply waits.

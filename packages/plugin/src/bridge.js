@@ -67,9 +67,10 @@ export function describeError(error) {
  * @param {import('./store.js').AnnotationStore} options.store
  * @param {string} options.token
  * @param {(input: { data: Uint8Array, mediaType: string, name?: string }) => Promise<any>} [options.saveImage]
+ * @param {(record: any) => void | Promise<void>} [options.onCreated] Side effect of one accepted create (routed delivery).
  * @param {{ info?: Function, warn?: Function, debug?: Function }} [options.logger]
  */
-export function createBridge({ store, token, saveImage, logger = {} }) {
+export function createBridge({ store, token, saveImage, onCreated, logger = {} }) {
   const log = {
     info: logger.info ?? (() => {}),
     warn: logger.warn ?? (() => {}),
@@ -243,6 +244,15 @@ export function createBridge({ store, token, saveImage, logger = {} }) {
     const seq = await store.put(record)
     send(client, { t: 'anno.ack', reqId: frame.reqId, id: record.id, seq, state: record.state })
     broadcastEvent('created', record, seq)
+    // A routed annotation is also handed to the Web Client's queue; a delivery
+    // failure must not fail the annotation itself.
+    if (onCreated !== undefined) {
+      try {
+        await onCreated(record)
+      } catch (error) {
+        log.warn(`annotations: routed delivery failed for ${record.id}: ${describeError(error)}`)
+      }
+    }
     void store.maybeCompact().catch(() => {})
   }
 

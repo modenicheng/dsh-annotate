@@ -19,6 +19,9 @@ window.__ModuleLoader__.load({
     /** Sticky matcher for one canonical mention; shared shape with the Host parser. */
     const WIRE = /@\[((?:\\.|[^\\\]\n])*)\]\(dsh-anno:([A-Za-z0-9_-]+)\)/uy
 
+    /** How often the page checks for mentions waiting on an open Session. */
+    const QUEUE_POLL_MS = 4_000
+
     const CSS = `
 .dsh-anno-chip {
   display: inline-flex;
@@ -106,8 +109,65 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Delivered ids stay delivered even if the acknowledgement never lands. */
+    const delivered = new Set()
+
+    /**
+     * Append queued mentions to the draft of every Session that is open.
+     *
+     * The extension cannot write a draft and the Host cannot reach one, so the
+     * hand-off is a durable queue plus this reader: whatever target the user
+     * picked, its mention lands at the end of that Session's composer the next
+     * time the Session is open. Nothing is sent, and no turn starts.
+     */
+    async function appendQueued(ctx) {
+      const url = `${window.location.origin}/ext/anno/queue?all=1`
+      const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+      if (!response.ok) return
+      const body = await response.json()
+      const items = Array.isArray(body?.items) ? body.items : []
+      if (items.length === 0) return
+
+      const acked = []
+      for (const item of items) {
+        if (typeof item?.id !== 'string' || typeof item?.mention !== 'string') continue
+        if (delivered.has(item.id)) continue
+        const binding = ctx.sessions.binding(item.sessionId)
+
+        // Only a retained Session can take a draft; anything else stays queued.
+        if (binding === undefined) continue
+        try {
+          // `append` is the documented semantics for "add these paragraphs after
+          // whatever the user already wrote" — and it keeps existing chips whole.
+          const result = ctx.uiConversation.input.requestDraftInitialization(binding, {
+            prompt: item.mention,
+            whenDraftExists: 'append',
+          })
+
+          if (result !== 'applied') continue
+          delivered.add(item.id)
+          acked.push(item.id)
+        } catch (error) {
+          console.warn(`dsh-annotate: could not append queued mention ${item.id}: ${String(error)}`)
+        }
+      }
+      if (acked.length === 0) return
+      try {
+        await fetch(`${window.location.origin}/ext/anno/queue/ack`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ids: acked }),
+        })
+      } catch (error) {
+        // The local set already prevents a second insert; the entry dies with its annotation.
+        console.warn(`dsh-annotate: queue acknowledgement failed: ${String(error)}`)
+      }
+    }
+
     return {
-      inject: ['slots', 'uiConversation'],
+      inject: ['slots', 'sessions', 'uiConversation'],
       apply(ctx) {
         // One stylesheet for the whole page, removed when the plugin disposes.
         ctx.effect(() => {
@@ -124,6 +184,24 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('conversation.user.text.node', function* () {
           yield ctx.slots.register({ name: 'conversation.user.text.node', key: 'anno', priority: 100 }, AnnoReference)
         })
+
+        ctx.effect(() => {
+          const poll = () => {
+            void appendQueued(ctx).catch((error) => {
+              console.warn(`dsh-annotate: queue poll failed: ${String(error)}`)
+            })
+          }
+          const timer = setInterval(poll, QUEUE_POLL_MS)
+          const onVisible = () => {
+            if (document.visibilityState === 'visible') poll()
+          }
+          document.addEventListener('visibilitychange', onVisible)
+          poll()
+          return () => {
+            clearInterval(timer)
+            document.removeEventListener('visibilitychange', onVisible)
+          }
+        }, 'dsh-annotate: queued mentions')
       },
     }
   },
