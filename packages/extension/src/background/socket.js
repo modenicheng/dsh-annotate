@@ -17,7 +17,7 @@
 ;(() => {
   const ns = globalThis.__DSH_ANNO_BG__
   if (ns === undefined) {
-    console.error('dsh-annotate: core.js must load before socket.js')
+    console.error('dsh-marker: core.js must load before socket.js')
     return
   }
   const PROTOCOL = ns.PROTOCOL
@@ -414,7 +414,7 @@
         version: PROTOCOL.PROTOCOL_VERSION,
         token,
         clientId: await ns.ensureClientId(),
-        client: `dsh-annotate-extension/${ns.manifest.version}`,
+        client: `dsh-marker-extension/${ns.manifest.version}`,
         browser: navigator.userAgent,
       }
     } catch (error) {

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "dsh-annotate 浏览器批注",
+    "title": "dsh-marker 浏览器批注",
     "description": "在 Firefox / Zen 里划词、点选元素或框选区域，连同裁剪截图一起交给 Agent。",
     "detail": "docs/DETAIL.md"
   }

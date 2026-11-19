@@ -120,7 +120,7 @@ instance; with three, two live instances still both get one.
 
 ```json
 {
-  "app": "dsh-annotate",
+  "app": "dsh-marker",
   "version": 1,
   "instanceId": "9f1c0b7a5e2d4c31",
   "origin": "http://127.0.0.1:51234",
@@ -171,7 +171,7 @@ Path: `$DSH_HOME/ext-bridge-endpoint.json` (next to `ext-bridge-token`).
 ```json
 {
   "version": 1,
-  "app": "dsh-annotate",
+  "app": "dsh-marker",
   "instanceId": "9f1c0b7a5e2d4c31",
   "pid": 23144,
   "profile": "desktop",
@@ -216,7 +216,7 @@ health probe:
 | # | Step | Cost | Notes |
 |---|---|---|---|
 | 1 | stored last-good address (`anno.address`, TTL 12 h; separate from `anno.endpoint`, which caches the scheme answer) | one health probe | used when health answers and its `instanceId` matches the stored one, or none was stored |
-| 2 | one discovery round: the three locator ports in parallel **plus** `127.0.0.1:3080` | ≤ 500 ms | a locator answer must be `app: dsh-annotate`, name a loopback origin, and its `instanceId` must equal the health answer at that origin; the 3080 host qualifies on health alone |
+| 2 | one discovery round: the three locator ports in parallel **plus** `127.0.0.1:3080` | ≤ 500 ms | a locator answer must be `app: dsh-marker`, name a loopback origin, and its `instanceId` must equal the health answer at that origin; the 3080 host qualifies on health alone |
 | 3 | nothing answered | — | `no-host` status, the address hint, and a retry in the existing backoff |
 
 Rules:
@@ -304,7 +304,7 @@ The locator starts when all of these hold:
 A profile turns the listener off without losing the record:
 
 ```yaml
-- id: dsh-annotate
+- id: dsh-marker
   config:
     discovery: off
 ```
@@ -475,7 +475,7 @@ record (an origin), because the token file is already readable by a local host
 process.
 
 **Deferred — a GUI-page beacon.** The Web bundle could inject
-`<meta name="dsh-annotate-host" content="<origin>">` into the index and a
+`<meta name="dsh-marker-host" content="<origin>">` into the index and a
 content script could report it, giving free discovery whenever the DSH UI is
 open in the same browser. It is cheap and self-authenticating (only accept the
 beacon when `location.origin` equals the advertised origin), but it does nothing

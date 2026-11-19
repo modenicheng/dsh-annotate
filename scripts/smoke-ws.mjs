@@ -81,7 +81,7 @@ const id = annotationId()
 const record = {
   id,
   url: 'https://example.com/smoke?run=1',
-  title: 'dsh-annotate smoke test',
+  title: 'dsh-marker smoke test',
   anchor: {
     kind: 'selection',
     quote: { exact: 'smoke', prefix: 'a ', suffix: ' test' },

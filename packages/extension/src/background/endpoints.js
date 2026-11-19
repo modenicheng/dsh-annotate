@@ -32,7 +32,7 @@
   const ns = globalThis.__DSH_ANNO_BG__ ?? (globalThis.__DSH_ANNO_BG__ = {})
   const PROTOCOL = globalThis.__DSH_PROTOCOL__
   if (PROTOCOL === undefined) {
-    console.error('dsh-annotate: src/shared/protocol.global.js must load before src/background/endpoints.js')
+    console.error('dsh-marker: src/shared/protocol.global.js must load before src/background/endpoints.js')
     return
   }
 
@@ -313,7 +313,7 @@
         }
         return `could not open a websocket at ${url}${detail}: nothing accepted a plaintext ws:// upgrade on ${authority}. Either nothing is listening there, the port only speaks TLS (wss://), or the extension page policy rewrote this request to wss:// (Firefox MV3 does that by default through upgrade-insecure-requests; the manifest must declare a content_security_policy without it). ${probeAnswered ? `${probe} answered, so the port is reachable: switch the popup address to wss:// if the host is behind TLS.` : `${probe} failed too, so the extension used the address saved in the popup.`}`
       case 1015:
-        return `the port answered HTTP but refused the websocket upgrade at ${url}${detail}: there is no bridge endpoint there. Either that DSH profile does not have the dsh-annotate bundle enabled, or a reverse proxy forwards HTTP but not the Upgrade header. A plaintext ws:// sent to a TLS-only port fails earlier with code 1006, so this is not a scheme mismatch.`
+        return `the port answered HTTP but refused the websocket upgrade at ${url}${detail}: there is no bridge endpoint there. Either that DSH profile does not have the dsh-marker bundle enabled, or a reverse proxy forwards HTTP but not the Upgrade header. A plaintext ws:// sent to a TLS-only port fails earlier with code 1006, so this is not a scheme mismatch.`
       case 4400:
         return `the host rejected the handshake${detail}`
       case 4401:

@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 4/4 — gestures, messaging, wiring.
+ * dsh-marker content script 4/4 — gestures, messaging, wiring.
  *
  * The gesture layer is deliberately not an overlay element: the shadow host is
  * `pointer-events: none`, so `document.elementsFromPoint` still sees the real

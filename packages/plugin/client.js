@@ -1,5 +1,5 @@
 /**
- * dsh-annotate — Web Client half.
+ * dsh-marker — Web Client half.
  *
  * Turns the canonical `@[批注 · 那段话](dsh-anno:an-20261118-ab12cd)` mention into
  * one atomic chip inside a user message, the same way `@session` renders. The
@@ -17,7 +17,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-annotate',
+  id: 'dsh-marker',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -590,9 +590,9 @@ window.__ModuleLoader__.load({
           return () => {
             style.remove()
           }
-        }, 'dsh-annotate: chip styles')
+        }, 'dsh-marker: chip styles')
 
-        ctx.effect(() => ctx.uiConversation.userText.register(annoRule), 'dsh-annotate: user-text rule')
+        ctx.effect(() => ctx.uiConversation.userText.register(annoRule), 'dsh-marker: user-text rule')
         ctx.slots.inject('conversation.user.text.node', function* () {
           yield ctx.slots.register({ name: 'conversation.user.text.node', key: 'anno', priority: 100 }, AnnoReference)
         })

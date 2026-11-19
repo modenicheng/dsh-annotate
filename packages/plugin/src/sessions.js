@@ -7,7 +7,7 @@
  * Session the Host knows is a candidate, including ones the browser has never
  * shown; there is no per-Session state here, only reads.
  *
- * @module dsh-annotate/sessions
+ * @module dsh-marker/sessions
  */
 
 import { LIMITS, SESSIONS_PATH } from './protocol.js'

@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the numbered markers and their cards.
+ * dsh-marker content script 3/4 (ui) — the numbered markers and their cards.
  *
  * A marker is a tag pinned in viewport pixels over its anchor's document rect,
  * so scrolling moves it without re-anchoring. Hover opens the card, a short

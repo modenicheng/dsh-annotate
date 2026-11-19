@@ -229,10 +229,10 @@ manifests.
 
 | Artifact | Produced by | Goes to |
 |---|---|---|
-| `dsh-annotate-firefox-<v>.zip` | `web-ext build` on the gecko target | GitHub Release; AMO upload |
-| `dsh-annotate-firefox-<v>.xpi` | `web-ext sign --channel unlisted` | beta channel and self-hosting |
-| `dsh-annotate-chromium-<v>.zip` | zip of the chromium target | GitHub Release; CWS upload; Edge upload |
-| `dsh-annotate-plugin-<v>.tgz` | `npm pack` | GitHub Release; npm |
+| `dsh-marker-firefox-<v>.zip` | `web-ext build` on the gecko target | GitHub Release; AMO upload |
+| `dsh-marker-firefox-<v>.xpi` | `web-ext sign --channel unlisted` | beta channel and self-hosting |
+| `dsh-marker-chromium-<v>.zip` | zip of the chromium target | GitHub Release; CWS upload; Edge upload |
+| `dsh-marker-plugin-<v>.tgz` | `npm pack` | GitHub Release; npm |
 | `checksums.txt` | SHA-256 over the above | GitHub Release |
 
 Prerelease builds reuse the same targets, carry a `-beta` suffix in the artifact
@@ -357,21 +357,24 @@ pending target.
 
 ## 6. Host bundle distribution
 
-- **The npm name is taken.** `dsh-annotate` on the public registry is an
-  unrelated project (element annotation for DSH previews, `0.1.15`, different
-  repository). `dsh plugin add dsh-annotate` would install that one, and
-  `npm publish` from this repository would be rejected. Pick a scoped name
-  (`@<owner>/dsh-annotate`) or a different name before wiring CI; the cordis
-  patch's `name:` must change with it.
-- Add `repository`, `homepage`, `bugs`, and `engines.dsh`; the plugin manager
-  reads display metadata and the detail document from the package, and uses the
-  registry copy for pre-install detail rendering.
-- Declare the DSH peer packages the client half injects
-  (`@deepseek-ai/dsh-client-ui-conversation` today) so an incompatible DSH
-  refuses the install instead of failing at load.
-- Publish with provenance (OIDC) and `saveExact`-friendly versions; the
-  manager's `updateBundle` only lists registry packages installed under their
-  own name.
+- **The package is `dsh-marker` (D23).** `dsh-annotate` on the public registry
+  belongs to another maintainer's element-annotation plugin for DSH previews, so
+  the rename is what makes `npm publish` possible and `dsh plugin add dsh-marker`
+  unambiguous.
+- **The package carries its own metadata.** `repository`, `homepage`, `bugs`,
+  and `engines.dsh: ^0.2.0` are set. An `engines.dsh` range is the install-time
+  admission check and decides alone — when it is present, DSH ignores
+  `peerDependencies` — and it is evaluated with prereleases included, so a
+  `0.2.x-rc` runtime passes while an older one is refused before install.
+- **Display metadata ships inside the package.** `meta.title`,
+  `meta.description`, `docs/DETAIL.md`, and `icon.svg` are read from the
+  installed copy and from the registry copy before installation, so every one of
+  them must stay in `files`.
+- **Publish with provenance (OIDC) once CI owns the release,** and keep versions
+  `saveExact`-friendly; `updateBundle` only offers updates for registry packages
+  installed under their own name. The first publish is manual, from a clean
+  commit, because trusted publishing cannot be configured before a workflow
+  exists.
 
 ## 7. Compatibility policy: protocol only (D15)
 
@@ -429,8 +432,11 @@ run in parallel and cannot be compressed.
    needs a host-side pending-pick queue.
 2. Does the product want the Edge listing, or is CWS-only (Edge installs CWS
    items) enough for v1?
-3. Is the extension's public name settled? It must be available on AMO, CWS, and
-   npm, and must not collide with the existing `dsh-annotate` package.
+3. ~~Is the extension's public name settled?~~ Settled by D23: `dsh-marker`
+   everywhere a user types it — npm, the plugin row, and both store listings.
+   Still open is whether the GitHub repository follows the rename; until it
+   does, npm metadata points at `dsh-annotate` and GitHub redirects the old
+   URLs.
 4. How long does the protocol window stay open — one release cycle, or a fixed
    number of months? The answer becomes `MIN_PROTOCOL_VERSION`'s bump rule.
 5. Who reviews and publishes the draft release — a single maintainer, or does it

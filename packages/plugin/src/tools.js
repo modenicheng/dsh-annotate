@@ -55,7 +55,7 @@ export function createTools({ store, bridge }) {
       name: 'annotate_list',
       description:
         'List visual annotations the user left in their browser (text selections, DOM elements, or screen regions) ' +
-        'via the dsh-annotate extension. Defaults to open annotations. Use this to discover what the user marked ' +
+        'via the dsh-marker extension. Defaults to open annotations. Use this to discover what the user marked ' +
         'before asking them to explain a page again.',
       parameters: {
         type: 'object',

@@ -16,7 +16,7 @@
  * against `/ext/anno/health` and the `hello` handshake before it is trusted,
  * which is what lets a stale file be harmless.
  *
- * @module dsh-annotate/discovery
+ * @module dsh-marker/discovery
  */
 
 import { randomBytes } from 'node:crypto'

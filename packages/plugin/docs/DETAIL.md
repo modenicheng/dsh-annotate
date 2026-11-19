@@ -1,4 +1,4 @@
-# dsh-annotate
+# dsh-marker
 
 批注在浏览器里产生，上下文在 Harness 里被消费。
 

@@ -16,7 +16,7 @@
  * The mention label is presentation and may repeat; identity is the id. A label
  * is never used to look anything up.
  *
- * @module dsh-annotate/mentions
+ * @module dsh-marker/mentions
  */
 
 import { randomUUID } from 'node:crypto'

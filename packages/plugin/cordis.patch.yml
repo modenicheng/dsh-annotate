@@ -1,5 +1,5 @@
-# dsh-annotate host bundle: one row. The patch replaces nothing, so a profile
+# dsh-marker host bundle: one row. The patch replaces nothing, so a profile
 # that lacks a webserver still gets the annotation tools.
 - insert:
-    - id: dsh-annotate
-      name: dsh-annotate
+    - id: dsh-marker
+      name: dsh-marker

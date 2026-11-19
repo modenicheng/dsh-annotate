@@ -629,3 +629,39 @@ non-loopback interface (the extension has no permission for that origin) and an
 IPv6 loopback bind (the locator is IPv4). `dsh --profile <name> --port 0` doubles
 as the test harness for the whole feature on any OS, so the Desktop application
 does not have to be installed to verify it.
+
+## D23 — The product is `dsh-marker`; the wire keeps its `anno` vocabulary
+
+**Decision.** The npm package, the `cordis.patch.yml` row, the extension's
+manifest name, the AMO/CWS listings, and the prose in this repository say
+`dsh-marker`. The wire does not change: `/ext/anno/*` routes, the `annotate_*`
+tools, the `dsh-anno:` mention scheme, the `anno.*` storage keys, and the local
+`anno` development profile keep their names.
+
+**Why.** `dsh-annotate` is not a free name: another maintainer publishes an
+element-annotation plugin for DSH's own preview under it, so
+`dsh plugin add dsh-annotate` installs that package and `npm publish` from this
+repository is refused. A scope or a longer `dsh-*-annotate` variant keeps the
+collision in the one place users type. `dsh-mark` reads as Markdown here —
+`dsh-markdown`, `dsh-marktext`, and `dsh-better-markdown` already occupy that
+word in this ecosystem — and `dsh-browser-pick` names the agent-initiated pick,
+which is the secondary flow, overloads `pick` (the overlay's three mode labels
+and the Session target picker already use it), and sits beside
+`dsh-browser-use`, the `browser_*` tools, and two browser-control extensions
+already listed as "dsh browser …" on AMO. `marker` is the artifact the user
+actually sees: the numbered tag pinned over the anchor.
+
+The wire keeps `anno` because `dsh-anno:` mentions are persisted in Session
+logs. Renaming the scheme would strand every stored transcript and every
+`@[批注 · …](dsh-anno:…)` chip; routes, tool names, and storage keys are
+internal contracts with the same failure mode at smaller scale, and no user
+reads `/ext/anno`.
+
+**Consequences.** Two vocabularies coexist deliberately: the product says
+marker, the wire says anno. New wire names stay in the `anno` family rather
+than mixing `mark_*` with `annotate_*`. The locator's `app` value and the
+endpoint record's `app` field moved to `dsh-marker` while the feature is still
+unreleased, so no compatibility window is owed; after the first store upload the
+gecko id `dsh-marker@modenic.top` is fixed. The GitHub repository is still named
+`dsh-annotate` and its URLs still resolve, so npm metadata points there until it
+is renamed separately.

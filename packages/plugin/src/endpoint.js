@@ -23,7 +23,7 @@
  * 3. the forwarding headers a TLS-terminating reverse proxy sets
  *    (`x-forwarded-proto`, first value, then `x-forwarded-host`).
  *
- * @module dsh-annotate/endpoint
+ * @module dsh-marker/endpoint
  */
 
 import { WS_PATH } from './protocol.js'

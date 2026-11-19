@@ -82,7 +82,7 @@ function createBrowserStub() {
     runtime: {
       getManifest: () => ({ version: '0.1.0', manifest_version: 3 }),
       getURL: (path) => `moz-extension://test/${path}`,
-      id: 'dsh-annotate@modenic.top',
+      id: 'dsh-marker@modenic.top',
       onMessage,
       onInstalled,
       onStartup,

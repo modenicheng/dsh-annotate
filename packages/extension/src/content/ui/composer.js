@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the comment card.
+ * dsh-marker content script 3/4 (ui) — the comment card.
  *
  * The card is positioned in viewport pixels next to the outlined target and
  * flipped above it when there is no room below, because the whole point is to

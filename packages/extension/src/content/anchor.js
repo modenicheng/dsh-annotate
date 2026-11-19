@@ -1,8 +1,8 @@
 /**
- * dsh-annotate content script 1/4 — anchor extraction.
+ * dsh-marker content script 1/4 — anchor extraction.
  *
  * Turns what the user pointed at (a text selection, an element, a marquee
- * region) into the exact anchor shapes `@dsh-annotate/protocol` validates, plus
+ * region) into the exact anchor shapes `@dsh-marker/protocol` validates, plus
  * the page facts the host attaches to every record.
  *
  * Loaded as a classic script, after `shared/protocol.global.js` (which

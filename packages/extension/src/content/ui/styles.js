@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the one stylesheet.
+ * dsh-marker content script 3/4 (ui) — the one stylesheet.
  *
  * It is injected as a `<style>` inside the closed shadow root, so every rule is
  * scoped by construction: no `!important`, no page-specific guards, and the

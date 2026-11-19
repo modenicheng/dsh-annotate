@@ -41,7 +41,7 @@ even with no browser connected yet.
 
 **Deliverables**
 
-- Installable `dsh-annotate` bundle: `package.json` metadata, patch, locale
+- Installable `dsh-marker` bundle: `package.json` metadata, patch, locale
   resources, icon, detail document.
 - Token file under `$DSH_HOME` with owner-only permissions, constant-time
   comparison, hello deadline, protocol version check.

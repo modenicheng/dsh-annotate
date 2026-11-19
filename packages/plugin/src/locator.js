@@ -12,7 +12,7 @@
  * `Host` allowlist closes the DNS-rebinding route that would otherwise let one
  * try.
  *
- * @module dsh-annotate/locator
+ * @module dsh-marker/locator
  */
 
 import { createServer } from 'node:http'

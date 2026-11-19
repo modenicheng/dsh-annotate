@@ -10,7 +10,7 @@
  * Everything here is the click-time snapshot: the anchor and `snapshot` were
  * frozen when the user clicked, and nothing in this file re-reads a page.
  *
- * @module dsh-annotate/presentation
+ * @module dsh-marker/presentation
  */
 
 import { IMAGE_PATH, ITEM_PATH, describeAnchor, truncate } from './protocol.js'

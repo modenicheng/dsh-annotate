@@ -68,7 +68,7 @@ function request(port, options = {}) {
  */
 async function start(t, options = {}) {
   const handle = startLocator({
-    card: options.card ?? (() => ({ app: 'dsh-annotate', origin: 'http://127.0.0.1:51234' })),
+    card: options.card ?? (() => ({ app: 'dsh-marker', origin: 'http://127.0.0.1:51234' })),
     ports: options.ports ?? [0],
     logger: options.logger,
   })
@@ -120,7 +120,7 @@ function isRefused(error) {
 }
 
 test('GET answers the card with the mandated headers and no CORS', async (t) => {
-  const card = { app: 'dsh-annotate', version: 1, origin: 'http://127.0.0.1:51234' }
+  const card = { app: 'dsh-marker', version: 1, origin: 'http://127.0.0.1:51234' }
   const { port } = await start(t, { card: () => card })
 
   const response = await request(port, { host: `127.0.0.1:${port}` })
@@ -224,7 +224,7 @@ test('all ports occupied resolves null, warns once, and leaves the occupiers alo
 
   const warnings = []
   const handle = startLocator({
-    card: () => ({ app: 'dsh-annotate' }),
+    card: () => ({ app: 'dsh-marker' }),
     ports,
     logger: {
       warn: (message) => warnings.push(String(message)),

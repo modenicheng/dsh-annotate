@@ -40,7 +40,7 @@ async function loadClient() {
   }
   sandbox.globalThis = sandbox
   vm.runInContext(code, vm.createContext(sandbox), { filename: 'client.js' })
-  assert.equal(spec?.id, 'dsh-annotate', 'the module registers itself under its id')
+  assert.equal(spec?.id, 'dsh-marker', 'the module registers itself under its id')
   return spec.factory(() => ({ createElement() {} }))
 }
 

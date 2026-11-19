@@ -17,7 +17,7 @@
   if (PROTOCOL === undefined) {
     // Without the protocol no frame can be encoded or validated, so say so
     // loudly instead of half-booting and failing later with obscure errors.
-    console.error('dsh-annotate: src/shared/protocol.global.js must load before src/background/*.js')
+    console.error('dsh-marker: src/shared/protocol.global.js must load before src/background/*.js')
   }
   ns.PROTOCOL = PROTOCOL
   ns.manifest = browser.runtime.getManifest()
@@ -77,7 +77,7 @@
    */
   const ENDPOINTS = ns.endpoints
   if (ENDPOINTS === undefined) {
-    console.error('dsh-annotate: src/background/endpoints.js must load before src/background/core.js')
+    console.error('dsh-marker: src/background/endpoints.js must load before src/background/core.js')
   }
 
   ns.ALARM_NAME = ALARM_NAME
@@ -86,7 +86,7 @@
   ns.contentMessageTypes = new Set(Object.values(ns.msg.TO_BACKGROUND))
   ns.popupMessageTypes = new Set(Object.values(ns.msg.TO_BACKGROUND_POPUP))
 
-  const LOG_PREFIX = 'dsh-annotate'
+  const LOG_PREFIX = 'dsh-marker'
 
   ns.log = {
     debug: (...args) => console.debug(`${LOG_PREFIX}:`, ...args),

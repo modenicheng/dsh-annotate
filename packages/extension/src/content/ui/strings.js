@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the language table.
+ * dsh-marker content script 3/4 (ui) — the language table.
  *
  * Two locales, keyed identically. `pickLanguage` is the only place that maps a
  * browser locale onto a table, so the rest of the UI never inspects a locale

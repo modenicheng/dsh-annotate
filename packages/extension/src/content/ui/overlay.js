@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the outlines and guides.
+ * dsh-marker content script 3/4 (ui) — the outlines and guides.
  *
  * Three different things share these nodes: the transient hover box (what is
  * under the pointer right now), the locked outline (what the open composer or a

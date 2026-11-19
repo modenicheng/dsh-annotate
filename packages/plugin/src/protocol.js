@@ -1,7 +1,7 @@
 // GENERATED FILE — do not edit. Source: packages/protocol/src/index.js
 // Regenerate with: pnpm run sync-protocol
 /**
- * `@dsh-annotate/protocol` — the single source of truth for the wire format
+ * `@dsh-marker/protocol` — the single source of truth for the wire format
  * shared by the DSH host plugin and the Firefox/Zen extension.
  *
  * Deliberately one dependency-free file: `scripts/sync-protocol.mjs` copies it
@@ -68,7 +68,7 @@ export const TOKEN_FILE = 'ext-bridge-token'
  * The name a host publishes so a client can tell a DSH bridge from whatever
  * else happens to answer on the same port.
  */
-export const DISCOVERY_APP = 'dsh-annotate'
+export const DISCOVERY_APP = 'dsh-marker'
 
 /**
  * Where a host publishes its current origin on a fixed loopback port. `GET`

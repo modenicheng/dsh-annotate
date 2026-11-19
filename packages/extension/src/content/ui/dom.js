@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the small, dependency-free helpers.
+ * dsh-marker content script 3/4 (ui) — the small, dependency-free helpers.
  *
  * `createElement` is the only node factory the UI uses: it always assigns text
  * through `textContent`, never `innerHTML`, so no page-derived string is ever

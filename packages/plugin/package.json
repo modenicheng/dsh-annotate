@@ -1,10 +1,19 @@
 {
-  "name": "dsh-annotate",
+  "name": "dsh-marker",
   "version": "0.1.1",
   "description": "Visual annotation bridge: mark text, elements, or regions in Firefox/Zen and hand them to DeepSeek Harness as first-class context",
   "type": "module",
   "license": "MIT",
   "main": "./index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modenicheng/dsh-annotate.git",
+    "directory": "packages/plugin"
+  },
+  "homepage": "https://github.com/modenicheng/dsh-annotate#readme",
+  "bugs": {
+    "url": "https://github.com/modenicheng/dsh-annotate/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -36,13 +45,17 @@
     }
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": "^0.2.0"
   },
   "keywords": [
     "dsh",
     "dsh-plugin",
     "annotation",
+    "marker",
+    "browser",
     "firefox",
+    "zen",
     "deepseek-harness"
   ]
 }

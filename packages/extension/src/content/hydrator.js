@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 2/4 — re-anchoring ("hydrator").
+ * dsh-marker content script 2/4 — re-anchoring ("hydrator").
  *
  * Given a stored anchor, find where it is on the page *now*. Every modality has
  * an ordered fallback chain; the last resort is always a floating pin at the

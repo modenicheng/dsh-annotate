@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 — the annotation UI.
+ * dsh-marker content script 3/4 — the annotation UI.
  *
  * Everything the user can see or touch lives in one closed shadow root on
  * `#dsh-anno-root`, with `:host { all: initial }`, so page CSS cannot deform it

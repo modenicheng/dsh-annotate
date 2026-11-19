@@ -1,9 +1,9 @@
 {
-  "name": "@dsh-annotate/protocol",
+  "name": "@dsh-marker/protocol",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Wire protocol, data model, and validators for dsh-annotate",
+  "description": "Wire protocol, data model, and validators for dsh-marker",
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",

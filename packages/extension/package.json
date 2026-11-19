@@ -1,5 +1,5 @@
 {
-  "name": "dsh-annotate-extension",
+  "name": "dsh-marker-extension",
   "version": "0.1.0",
   "private": true,
   "description": "Firefox/Zen MV3 extension that sends page annotations to a DeepSeek Harness host plugin over the bridge websocket (ws:// or wss://, as advertised by the host).",

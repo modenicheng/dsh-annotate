@@ -1,4 +1,4 @@
-# dsh-annotate
+# dsh-marker
 
 [![CI](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml/badge.svg)](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -40,7 +40,7 @@ flowchart LR
 
   BG <-->|"ws://127.0.0.1:PORT/ext/anno  (hello {token, version}, frames both ways)"| Bridge
 
-  subgraph Host["DSH host (`dsh web`) — dsh-annotate bundle"]
+  subgraph Host["DSH host (`dsh web`) — dsh-marker bundle"]
     WS["webServer\nregister · registerUpgrade"]
     Bridge["/ext/anno WebSocket bridge\n(RFC 6455 via ws)"]
     Locator["/ext/anno/locate\nloopback locator 30810-30812\n(origin + instanceId only)"]
@@ -173,10 +173,20 @@ Requirements: Node.js 22+ and a DSH installation with the Web profile. Firefox
 
 ### Host plugin
 
-The host plugin is an ordinary DSH bundle. Its one runtime dependency (`ws`) is
-installed into the profile by the same `plugin add` call, so the machine needs
-the npm registry reachable once. Development uses an isolated `anno` profile so
-the daily `web` profile is left untouched; you can pick any profile name.
+The host plugin is an ordinary DSH bundle, published as `dsh-marker`:
+
+```sh
+# install into the profile you boot (add --profile <name> for another one)
+dsh plugin add dsh-marker
+```
+
+`plugin add` pulls the bundle from the npm registry together with its one
+runtime dependency (`ws`), so the machine needs the registry reachable once.
+The plugin manager reads the title, description, detail page, and icon from the
+installed package; nothing else is copied into the profile by hand.
+
+Development uses an isolated `anno` profile so the daily `web` profile is left
+untouched, and installs from this checkout instead of the registry:
 
 ```sh
 # 1. Create the isolated profile from the shipped Web template (once).
@@ -194,7 +204,7 @@ On Windows use the same commands in PowerShell, with a Windows path such as
 `D:\coding\dsh-annotate\packages\plugin`.
 
 If the bundle is installed but not active, open **Plugins** in the DSH Web UI
-and enable `dsh-annotate`. The same page can install a local bundle directly
+and enable `dsh-marker`. The same page can install a local bundle directly
 (**Add plugin**), which is the easier route if you prefer the GUI.
 
 ### Extension

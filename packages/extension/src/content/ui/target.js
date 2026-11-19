@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the session target picker.
+ * dsh-marker content script 3/4 (ui) — the session target picker.
  *
  * An annotation is stored for a page, not for a Session, so the composer has to
  * ask where the mention goes. The Host owns the catalog: this part only renders

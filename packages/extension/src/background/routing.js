@@ -20,7 +20,7 @@
 ;(() => {
   const ns = globalThis.__DSH_ANNO_BG__
   if (ns === undefined) {
-    console.error('dsh-annotate: core.js must load before routing.js')
+    console.error('dsh-marker: core.js must load before routing.js')
     return
   }
   const PROTOCOL = ns.PROTOCOL

@@ -11,7 +11,7 @@
  * hint older than {@link FOCUS_TTL_MS} is discarded rather than resurrected:
  * yesterday's focus is not today's intent.
  *
- * @module dsh-annotate/focus
+ * @module dsh-marker/focus
  */
 
 import { readFile, rename, writeFile } from 'node:fs/promises'

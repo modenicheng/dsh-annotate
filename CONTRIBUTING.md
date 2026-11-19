@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping with dsh-annotate. This is a small, deliberately boring
+Thanks for helping with dsh-marker. This is a small, deliberately boring
 repository: plain ESM JavaScript, no build step, and no runtime dependencies in
 the host plugin.
 

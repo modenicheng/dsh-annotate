@@ -1,5 +1,5 @@
 /**
- * dsh-annotate — host half.
+ * dsh-marker — host half.
  *
  * Mounts one websocket endpoint (`/ext/anno`) and one health route on the DSH
  * host webserver, keeps annotations in an append-only log under `$DSH_HOME`,
@@ -9,7 +9,7 @@
  * file and, when the port is not `3080`, a loopback locator — so a browser can
  * find it without a second data path (see `docs/DISCOVERY.md`).
  *
- * @module dsh-annotate
+ * @module dsh-marker
  */
 
 import { randomBytes } from 'node:crypto'
@@ -27,12 +27,12 @@ import { createSessionCatalog, registerSessionsRoute } from './src/sessions.js'
 import { createTools } from './src/tools.js'
 import { LOCATE_HOST, describeAnchor, formatAnnoMention } from './src/protocol.js'
 
-export const name = 'dsh-annotate'
+export const name = 'dsh-marker'
 export const inject = ['tools']
 
 /** Annotation tools are additive: a profile without `webServer` still lists them. */
 export async function apply(ctx, config = {}) {
-  const log = typeof ctx.logger === 'function' ? ctx.logger('dsh-annotate') : console
+  const log = typeof ctx.logger === 'function' ? ctx.logger('dsh-marker') : console
   const logger = {
     debug: (...args) => log.debug?.(...args),
     info: (...args) => log.info?.(...args),
@@ -99,7 +99,7 @@ export async function apply(ctx, config = {}) {
   })
 
   for (const tool of createTools({ store, bridge, logger })) {
-    ctx.effect(() => ctx.tools.register(tool), `dsh-annotate: ${tool.name}`)
+    ctx.effect(() => ctx.tools.register(tool), `dsh-marker: ${tool.name}`)
   }
 
   // A `dsh-anno:` mention in a prompt draft is the user's own citation: resolve
@@ -117,11 +117,11 @@ export async function apply(ctx, config = {}) {
         },
         { prepend: true },
       ),
-    'dsh-annotate: annotation mentions',
+    'dsh-marker: annotation mentions',
   )
 
   ctx.inject(['webServer'], (webCtx) => {
-    webCtx.effect(() => bridge.attach(webCtx.webServer), 'dsh-annotate: /ext/anno bridge')
+    webCtx.effect(() => bridge.attach(webCtx.webServer), 'dsh-marker: /ext/anno bridge')
     webCtx.effect(
       () =>
         registerSessionsRoute(webCtx.webServer, {
@@ -130,10 +130,10 @@ export async function apply(ctx, config = {}) {
           matchesToken: tokenMatches,
           preferred: () => focusedSession(focus),
         }),
-      'dsh-annotate: /ext/anno/sessions catalog',
+      'dsh-marker: /ext/anno/sessions catalog',
     )
-    webCtx.effect(() => registerQueueRoutes(webCtx.webServer, { queue }), 'dsh-annotate: /ext/anno/queue hand-off')
-    webCtx.effect(() => registerFocusRoute(webCtx.webServer, { store: focus }), 'dsh-annotate: /ext/anno/focus report')
+    webCtx.effect(() => registerQueueRoutes(webCtx.webServer, { queue }), 'dsh-marker: /ext/anno/queue hand-off')
+    webCtx.effect(() => registerFocusRoute(webCtx.webServer, { store: focus }), 'dsh-marker: /ext/anno/focus report')
     webCtx.effect(
       () =>
         registerPresentationRoutes(webCtx.webServer, {
@@ -144,7 +144,7 @@ export async function apply(ctx, config = {}) {
             return attachments.readImage(ref)
           },
         }),
-      'dsh-annotate: /ext/anno/item and /ext/anno/image',
+      'dsh-marker: /ext/anno/item and /ext/anno/image',
     )
     logger.info?.(`annotations: listening on ${webCtx.webServer.getOrigin?.() ?? 'the host webserver'}`)
 
@@ -169,7 +169,7 @@ export async function apply(ctx, config = {}) {
         await written
         await discovery.dispose()
       }
-    }, 'dsh-annotate: endpoint record')
+    }, 'dsh-marker: endpoint record')
 
     if (shouldLocate({ port: webCtx.webServer.port, host: webCtx.webServer.host, mode: discoveryMode })) {
       webCtx.effect(() => {
@@ -180,7 +180,7 @@ export async function apply(ctx, config = {}) {
           if (port !== null) logger.info?.(`annotations: locator on ${LOCATE_HOST}:${port}`)
         })
         return () => locator.dispose()
-      }, 'dsh-annotate: locator')
+      }, 'dsh-marker: locator')
     } else if (
       discoveryMode === 'auto' &&
       webCtx.webServer.port !== undefined &&
@@ -199,6 +199,6 @@ export async function apply(ctx, config = {}) {
       bridge.cancelAllPicks()
       void store.flush()
     },
-    'dsh-annotate: shutdown',
+    'dsh-marker: shutdown',
   )
 }

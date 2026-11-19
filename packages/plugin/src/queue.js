@@ -7,7 +7,7 @@
  * appends it the next time that Session is open. Nothing is sent, no turn is
  * started: the user decides when the message leaves.
  *
- * @module dsh-annotate/queue
+ * @module dsh-marker/queue
  */
 
 import { readFile, rename, writeFile } from 'node:fs/promises'

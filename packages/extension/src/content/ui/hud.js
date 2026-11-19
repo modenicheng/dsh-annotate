@@ -1,5 +1,5 @@
 /**
- * dsh-annotate content script 3/4 (ui) — the HUD, the pick banner and toasts.
+ * dsh-marker content script 3/4 (ui) — the HUD, the pick banner and toasts.
  *
  * The HUD is the only chrome that tells the user which mode is armed and what
  * the gesture is, so it is also where the bulk-clear actions live. Those are

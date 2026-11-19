@@ -345,7 +345,7 @@ export function createBridge({ store, token, saveImage, onCreated, logger = {}, 
   function requestPick({ mode, prompt, timeoutMs, sessionId, signal }) {
     const authed = [...clients].filter((client) => client.authed)
     if (authed.length === 0) {
-      return Promise.reject(new Error('no browser connected: open Firefox/Zen with the dsh-annotate extension'))
+      return Promise.reject(new Error('no browser connected: open Firefox/Zen with the dsh-marker extension'))
     }
     if (signal?.aborted === true) return Promise.reject(new Error('cancelled'))
     const pickId = newPickId()
