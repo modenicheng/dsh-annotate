@@ -42,7 +42,15 @@
         "src/shared/protocol.global.js",
         "src/content/anchor.js",
         "src/content/hydrator.js",
-        "src/content/ui.js",
+        "src/content/ui/strings.js",
+        "src/content/ui/styles.js",
+        "src/content/ui/dom.js",
+        "src/content/ui/overlay.js",
+        "src/content/ui/hud.js",
+        "src/content/ui/target.js",
+        "src/content/ui/composer.js",
+        "src/content/ui/badges.js",
+        "src/content/ui/index.js",
         "src/content/main.js"
       ],
       "run_at": "document_idle"
