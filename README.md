@@ -16,8 +16,9 @@ to point at something (`annotate_pick`) when a request is ambiguous.
 > against a live `dsh web` instance, and the extension's bridge connection is
 > verified in a real Firefox 159.0 session (token handshake over `ws://127.0.0.1`);
 > the capture gestures still need a pass in a real browser. An annotation cited
-> from the DSH composer as a `dsh-anno:` mention renders as a chip and reaches
-> the model as structured context — verified end to end in a live Web Client.
+> from the DSH composer as a `dsh-anno:` mention renders as a chip, is routed to
+> the conversation the window is showing, and shows its content and crop on
+> hover — verified end to end in a live Web Client.
 > See [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
 
 ## Architecture
@@ -269,7 +270,8 @@ and the generated-file rule.
 | M2 | Extension capture: gestures, overlay, crop, outbox | implemented; the bridge connects from a real Firefox 159.0 session, the gestures themselves are **not yet exercised in a real browser** |
 | M3 | Re-anchoring and agent-initiated picks | implemented on both sides (hydrator fallback chains, pick banner, timeout and cancel); browser behaviour unverified |
 | M3.5 | `dsh-anno:` mentions: client chip and pre-step context | implemented and verified in a live Web Client (Firefox 159.0): the mention renders as one chip, survives a reload, and the model answers from the anchor, comment, and crop |
-| M3.6 | Target picker and queued delivery into another Session | host side implemented and tested (durable queue, same-origin routes, `routing.sessionId` + label); delivery into a composer verified in a live Web Client — the mention arrives as one atomic chip the user can read and remove before sending (D17); the overlay's picker rows are still unexercised in a real browser |
+| M3.6 | Target picker and queued delivery into another Session | delivered and verified in a live Web Client — the mention arrives as one atomic chip the user can read and remove before sending (D17), and an annotation submitted without picking a target is routed to the conversation the window is showing (D18). The overlay's picker rows are still unexercised in a real browser |
+| M3.7 | Chip hover card: the annotation's content and its click-time crop | implemented and verified in a live Web Client — hovering the chip opens the product's `HoverCard` with the page, quote or element, comment, and the stored screenshot, read back over same-origin routes; the record carries the frame frozen at click time (D19) |
 | M4 | Developer context, session routing, multi-window | planned |
 | M5 | Signing and distribution | planned |
 

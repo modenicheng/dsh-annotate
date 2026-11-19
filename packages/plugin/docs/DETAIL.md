@@ -12,6 +12,12 @@
 
 - `ws://127.0.0.1:3080/ext/anno` —— 唯一通道，挂在 DSH 宿主 webserver 上，随 `dsh web` 同生共死。
 - `http://127.0.0.1:3080/ext/anno/health` —— 健康检查与协议版本。
+- `GET /ext/anno/sessions?token=…` —— 目标选择器的会话目录，`defaultSessionId` 跟随网页里正在看的会话。
+- 下面四条只服务宿主自己的页面（要求 `sec-fetch-site: same-origin`），扩展永远看不到它们：
+  - `POST /ext/anno/focus` —— 网页汇报它当前显示的会话。
+  - `GET /ext/anno/queue?session=…` / `POST /ext/anno/queue/ack` —— 待插入编辑框的引用。
+  - `GET /ext/anno/item?id=…` —— 一条批注的展示投影（chip hover 卡片用）。
+  - `GET /ext/anno/image?id=…` —— 那条批注的裁剪截图 PNG。
 
 ## 工具
 
@@ -28,6 +34,8 @@
 
 - 元数据：`$DSH_HOME/annotations/queue.jsonl`（append-only，事件溯源，自动压缩）
 - 图片：交给 DSH 原生 attachment 服务，日志里只存引用
+- 待插入引用：`$DSH_HOME/annotations/pending-mentions.json`
+- 当前显示的会话：`$DSH_HOME/annotations/focus.json`（六小时后失效）
 - 桥接令牌：`$DSH_HOME/ext-bridge-token`（首次生成，0600）
 
 ## 边界

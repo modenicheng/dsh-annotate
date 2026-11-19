@@ -67,6 +67,10 @@
     records: new Map(),
     placements: new Map(),
     anchorState: null,
+    // What the page looked like at the instant the user marked it. Everything
+    // the record carries is read from here, never from the live document: the
+    // element may be gone by the time the comment is written.
+    snapshot: null,
     pointer: { down: false, dragging: false, shift: false, startX: 0, startY: 0, x: 0, y: 0 },
     selectionGesture: false,
     consoleErrors: [],
@@ -540,7 +544,7 @@
     state.activeSource = ''
     const pick = state.pick
     state.pick = null
-    state.anchorState = null
+    clearAnchor()
     state.pointer.down = false
     state.pointer.dragging = false
     state.selectionGesture = false
@@ -567,6 +571,12 @@
   }
 
   // ── composer ───────────────────────────────────────────────────────────────
+
+  /** The annotation being written, and the frame it was written in. */
+  function clearAnchor() {
+    state.anchorState = null
+    state.snapshot = null
+  }
 
   function summaryOf(anchor) {
     if (!anchor) return ''
@@ -598,6 +608,15 @@
     const rect =
       anchorState.viewportRect ||
       ns.geom.pageToViewport(anchorState.anchor.rect || anchorState.anchor.pageRect || { x: 0, y: 0, w: 0, h: 0 })
+    // Freeze the viewport the click happened in, together with the crop it
+    // implies. Scrolling or resizing before the comment is sent must not move
+    // what the screenshot covers, or the card and the quote would describe two
+    // different moments.
+    state.snapshot = {
+      at: new Date().toISOString(),
+      viewport: snapshotViewport(),
+      rect: cropRectForViewport(rect, viewportSize()),
+    }
     ui.setHover(null)
     ui.setMarquee(null)
     ui.setCursor(null)
@@ -617,7 +636,7 @@
     if (!ui) return
     const pick = state.pick
     ui.closeComposer()
-    state.anchorState = null
+    clearAnchor()
     if (!pick) return
     state.pick = null
     ui.setPickBanner(null)
@@ -634,6 +653,9 @@
       comment: String(comment == null ? '' : comment).slice(0, P.LIMITS.commentChars),
       pageContext: ns.anchor.pageContext(state.consoleErrors),
     }
+    // The frozen click-time frame, so the reader can date the annotation and
+    // reproduce the crop instead of guessing what the page looked like.
+    if (state.snapshot) draft.snapshot = state.snapshot
     if (intent) draft.intent = intent
     // A picked target turns the annotation into a queued mention: the Host
     // stores it, the Web Client appends it to that Session's composer.
@@ -678,12 +700,39 @@
     }
   }
 
-  /** The crop rectangle in viewport CSS px, clipped and allowed to be degenerate. */
-  function cropRectFor(anchorState) {
-    const live = ns.anchor.liveViewportRect(anchorState) || { x: 0, y: 0, w: 0, h: 0 }
+  /** The viewport as it is right now, in the shape a snapshot records it. */
+  function snapshotViewport() {
     const size = viewportSize()
-    const clipped = ns.geom.intersection(ns.geom.roundRect(live), { x: 0, y: 0, w: size.width, h: size.height })
+    return {
+      width: size.width,
+      height: size.height,
+      dpr: size.devicePixelRatio,
+      scrollX: Math.round(Number(global.scrollX) || 0),
+      scrollY: Math.round(Number(global.scrollY) || 0),
+    }
+  }
+
+  /** One rect clipped to the viewport that was current when it was measured. */
+  function cropRectForViewport(viewportRect, size) {
+    const box = size || viewportSize()
+    const live = viewportRect || { x: 0, y: 0, w: 0, h: 0 }
+    const clipped = ns.geom.intersection(ns.geom.roundRect(live), { x: 0, y: 0, w: box.width, h: box.height })
     return ns.geom.roundRect(clipped)
+  }
+
+  /**
+   * The crop for the annotation being written: the rect frozen at click time.
+   *
+   * Re-measuring a live element here was the old behaviour, and it was wrong in
+   * a way a reader cannot see — scroll the page while writing the comment and
+   * the screenshot covered a different box than the anchor, the label, and the
+   * hover card all described. Measurement only falls back to the live element
+   * when the click-time rect is missing, which happens for an anchor restored
+   * from an older draft.
+   */
+  function cropRectFor(anchorState) {
+    if (state.snapshot) return state.snapshot.rect
+    return cropRectForViewport(ns.anchor.liveViewportRect(anchorState))
   }
 
   function finishPickSuccess(pick) {
@@ -750,7 +799,7 @@
       }
       ui.setComposerBusy(false)
       ui.closeComposer()
-      state.anchorState = null
+      clearAnchor()
       // The optimistic badge needs an id; an older background may omit the
       // record, in which case a query fills the gap.
       if (normalized.record && typeof normalized.record.id === 'string') upsertRecord(normalized.record)
@@ -788,7 +837,7 @@
     if (!state.pick) return
     if (message.pickId && String(message.pickId) !== state.pick.pickId) return
     state.pick = null
-    state.anchorState = null
+    clearAnchor()
     if (ui) {
       ui.setPickBanner(null)
       if (ui.isComposerOpen()) ui.closeComposer()

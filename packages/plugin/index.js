@@ -12,7 +12,9 @@
 import { ensureToken, annotationsDir } from './src/paths.js'
 import { AnnotationStore } from './src/store.js'
 import { createBridge, tokenMatches } from './src/bridge.js'
+import { createFocusStore, focusedSession, registerFocusRoute } from './src/focus.js'
 import { createAnnotationMentions } from './src/mentions.js'
+import { registerPresentationRoutes } from './src/presentation.js'
 import { createMentionQueue, registerQueueRoutes } from './src/queue.js'
 import { createSessionCatalog, registerSessionsRoute } from './src/sessions.js'
 import { createTools } from './src/tools.js'
@@ -40,21 +42,40 @@ export async function apply(ctx) {
   await queue.load()
   await queue.prune((id) => store.get(id) !== undefined)
 
+  // Which Session the Web Client is showing. Its absence is normal: a profile
+  // without the Client half never reports one.
+  const focus = createFocusStore({ dir: annotationsDir(), logger })
+  await focus.load()
+
   const bridge = createBridge({
     store,
     token,
     logger,
     onCreated: async (record) => {
-      const sessionId = record.routing?.sessionId
+      const routed = record.routing?.sessionId
+      // An annotation with no target still has one the user would have picked:
+      // the conversation they were looking at when they marked the page. The
+      // overlay defaults to it, and this covers the case where it could not ask
+      // (an older overlay, or a catalog that failed to load). An agent-authored
+      // annotation is not the user pointing at their own page, so it never
+      // adopts that default.
+      const adoptable = record.routing?.source !== 'agent'
+      const sessionId =
+        typeof routed === 'string' && routed !== '' ? routed : adoptable ? focusedSession(focus) : undefined
       if (typeof sessionId !== 'string' || sessionId === '') return
+      if (sessionId !== routed) {
+        await store.patch(record.id, { routing: { ...record.routing, sessionId } })
+        logger.info?.(`annotations: ${record.id} routed to the focused ${sessionId}`)
+      }
+      const patched = store.get(record.id) ?? record
       const label =
-        typeof record.routing?.label === 'string' && record.routing.label !== ''
-          ? record.routing.label
-          : describeAnchor(record)
-      const mention = formatAnnoMention({ id: record.id, label })
+        typeof patched.routing?.label === 'string' && patched.routing.label !== ''
+          ? patched.routing.label
+          : describeAnchor(patched)
+      const mention = formatAnnoMention({ id: patched.id, label })
       if (mention === '') return
-      await queue.enqueue({ id: record.id, sessionId, mention, label })
-      logger.info?.(`annotations: ${record.id} queued for ${sessionId}`)
+      await queue.enqueue({ id: patched.id, sessionId, mention, label })
+      logger.info?.(`annotations: ${patched.id} queued for ${sessionId}`)
     },
     saveImage: async ({ data, mediaType, name }) => {
       const attachments = ctx.get('attachments')
@@ -93,10 +114,24 @@ export async function apply(ctx) {
           catalog: createSessionCatalog({ get: (service) => ctx.get(service), logger }),
           token,
           matchesToken: tokenMatches,
+          preferred: () => focusedSession(focus),
         }),
       'dsh-annotate: /ext/anno/sessions catalog',
     )
     webCtx.effect(() => registerQueueRoutes(webCtx.webServer, { queue }), 'dsh-annotate: /ext/anno/queue hand-off')
+    webCtx.effect(() => registerFocusRoute(webCtx.webServer, { store: focus }), 'dsh-annotate: /ext/anno/focus report')
+    webCtx.effect(
+      () =>
+        registerPresentationRoutes(webCtx.webServer, {
+          store,
+          readImage: async (ref) => {
+            const attachments = ctx.get('attachments')
+            if (attachments === undefined) throw new Error('no attachment service is mounted')
+            return attachments.readImage(ref)
+          },
+        }),
+      'dsh-annotate: /ext/anno/item and /ext/anno/image',
+    )
     logger.info?.(`annotations: listening on ${webCtx.webServer.getOrigin?.() ?? 'the host webserver'}${''}`)
   })
 

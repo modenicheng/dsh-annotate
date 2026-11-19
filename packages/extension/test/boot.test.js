@@ -335,6 +335,44 @@ test('a failing health probe falls back to the configured address', async () => 
   assert.deepEqual(errors, [], `a failed probe must not log as a warning: ${errors.join(' | ')}`)
 })
 
+test('a submitted draft keeps the click-time snapshot in the queued record', async () => {
+  // The content script freezes the frame the user clicked in; the background is
+  // the one that rebuilds the record, so this is the seam where a field can be
+  // lost without anyone noticing until a card shows the wrong moment.
+  const { ns, events } = await bootBackground({
+    fetch: async () => ({ ok: true, status: 200, json: async () => healthBody() }),
+  })
+  const snapshot = {
+    at: '2026-11-19T11:51:07.943Z',
+    rect: { x: 556, y: 553, w: 920, h: 337 },
+    viewport: { width: 2032, height: 1216, dpr: 1.25, scrollX: 0, scrollY: 0 },
+  }
+  const answer = await events.onMessage.listeners[0](
+    {
+      type: 'anno.submit',
+      record: {
+        url: 'http://127.0.0.1:3099/',
+        title: 'Greeting',
+        anchor: {
+          kind: 'selection',
+          quote: { exact: 'chip delivery', prefix: '', suffix: '' },
+          rect: { x: 1, y: 2, w: 3, h: 4 },
+        },
+        comment: '看看这条',
+        snapshot,
+      },
+      cropRect: snapshot.rect,
+      viewport: { width: 2032, height: 1216, devicePixelRatio: 1.25 },
+    },
+    { tab: { id: 1, windowId: 1, url: 'http://127.0.0.1:3099/' } },
+  )
+
+  assert.equal(answer.ok, true)
+  assert.equal(ns.PROTOCOL.validateRecord(answer.record).length, 0)
+  // Cross-realm objects: compare the projection, not the prototypes.
+  assert.deepEqual(JSON.parse(JSON.stringify(answer.record.snapshot)), snapshot)
+})
+
 test('every script listed by the manifest exists', async () => {
   const manifest = JSON.parse(await readScript('manifest.json'))
   const referenced = new Set()

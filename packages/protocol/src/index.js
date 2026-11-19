@@ -36,6 +36,23 @@ export const QUEUE_PATH = '/ext/anno/queue'
 /** Acknowledged queue entries are removed here; POST `{ids}`. */
 export const QUEUE_ACK_PATH = '/ext/anno/queue/ack'
 
+/**
+ * The Session the Web Client is showing, reported by that Client so the Host
+ * can answer "where does an annotation go by default?". Same-origin only, for
+ * the same reason the queue is: the GUI is this Host's own page.
+ */
+export const FOCUS_PATH = '/ext/anno/focus'
+
+/**
+ * One annotation read back for display, by id — the Web Client's chip hover
+ * card. Same-origin only; a cross-site page has no business reading what the
+ * user marked.
+ */
+export const ITEM_PATH = '/ext/anno/item'
+
+/** The screenshot that belongs to one annotation; `?id=` names it. Same-origin only. */
+export const IMAGE_PATH = '/ext/anno/image'
+
 /** Bridge token file name, relative to `$DSH_HOME`. */
 export const TOKEN_FILE = 'ext-bridge-token'
 
@@ -183,6 +200,32 @@ export function validateAnchor(anchor, path = 'anchor') {
 }
 
 /**
+ * Validate the click-time snapshot: what the page looked like at the instant
+ * the user marked it, which is the only thing a later reader may rely on.
+ * @param {unknown} snapshot
+ * @param {string} [path]
+ * @returns {string[]}
+ */
+export function validateSnapshot(snapshot, path = 'snapshot') {
+  if (!isPlainObject(snapshot)) return [`${path} must be an object`]
+  const errors = []
+  if (!isString(snapshot.at) || Number.isNaN(Date.parse(snapshot.at))) {
+    errors.push(`${path}.at must be an ISO timestamp`)
+  }
+  if (!isRect(snapshot.rect)) errors.push(`${path}.rect must be {x,y,w,h} numbers`)
+  const viewport = snapshot.viewport
+  if (!isPlainObject(viewport)) errors.push(`${path}.viewport must be an object`)
+  else {
+    for (const key of ['width', 'height']) {
+      if (typeof viewport[key] !== 'number' || !Number.isFinite(viewport[key])) {
+        errors.push(`${path}.viewport.${key} must be a number`)
+      }
+    }
+  }
+  return errors
+}
+
+/**
  * Validate a whole record as it crosses the wire.
  * @param {unknown} record
  * @returns {string[]}
@@ -203,6 +246,7 @@ export function validateRecord(record) {
   }
   if (!STATES.includes(record.state)) errors.push(`record.state must be one of ${STATES.join('|')}`)
   errors.push(...validateAnchor(record.anchor))
+  if (record.snapshot !== undefined) errors.push(...validateSnapshot(record.snapshot))
   const routing = record.routing
   if (!isPlainObject(routing)) errors.push('record.routing must be an object')
   else if (!SOURCES.includes(routing.source)) errors.push(`record.routing.source must be one of ${SOURCES.join('|')}`)
@@ -240,6 +284,7 @@ export function normalizeRecord(input, clock = { now: () => new Date() }) {
   }
   const crops = isPlainObject(input.crops) ? input.crops : {}
   const routing = isPlainObject(input.routing) ? input.routing : {}
+  const snapshot = normalizeSnapshot(input.snapshot)
   return {
     id: input.id,
     url,
@@ -249,6 +294,7 @@ export function normalizeRecord(input, clock = { now: () => new Date() }) {
     anchor: input.anchor,
     comment: String(input.comment ?? '').slice(0, LIMITS.commentChars),
     ...(input.intent === undefined ? {} : { intent: input.intent }),
+    ...(snapshot === undefined ? {} : { snapshot }),
     crops: {
       ...(isString(crops.target) ? { target: crops.target } : {}),
       ...(isString(crops.viewport) ? { viewport: crops.viewport } : {}),
@@ -263,6 +309,32 @@ export function normalizeRecord(input, clock = { now: () => new Date() }) {
     state: STATES.includes(input.state) ? input.state : 'open',
     createdAt: isString(input.createdAt) ? input.createdAt : now,
     updatedAt: now,
+  }
+}
+
+/**
+ * Keep the click-time snapshot that arrived on the wire, minus anything the
+ * reader could not render: it is a frozen fact, never recomputed, so a field it
+ * does not carry cannot be filled in later.
+ * @param {unknown} value
+ */
+function normalizeSnapshot(value) {
+  if (!isPlainObject(value) || !isRect(value.rect)) return undefined
+  if (!isString(value.at) || Number.isNaN(Date.parse(value.at))) return undefined
+  const viewport = isPlainObject(value.viewport) ? value.viewport : {}
+  const number = (key) => (typeof viewport[key] === 'number' && Number.isFinite(viewport[key]) ? viewport[key] : 0)
+  const scrollX = number('scrollX')
+  const scrollY = number('scrollY')
+  return {
+    at: value.at,
+    rect: value.rect,
+    viewport: {
+      width: number('width'),
+      height: number('height'),
+      dpr: number('dpr'),
+      scrollX,
+      scrollY,
+    },
   }
 }
 

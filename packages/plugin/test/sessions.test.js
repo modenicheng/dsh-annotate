@@ -247,6 +247,25 @@ test('the route answers the catalog with a default target', async () => {
   assert.equal(body.truncated, true)
 })
 
+test('the Session the Client is showing becomes the default target, while it is listed', async () => {
+  const registration = {
+    catalog: createSessionCatalog({ get: lookup(services()) }),
+    token: 'secret',
+    matchesToken: (a, b) => a === b,
+    preferred: () => 's-blank',
+  }
+  const { handler } = mount(registration)
+  assert.equal((await call(handler, `${SESSIONS_PATH}?token=secret`)).body.defaultSessionId, 's-blank')
+
+  // A hint for a Session this catalog no longer lists is not a choice.
+  const gone = mount({ ...registration, preferred: () => 's-deleted' })
+  assert.equal((await call(gone.handler, `${SESSIONS_PATH}?token=secret`)).body.defaultSessionId, 's-new')
+
+  // And with no hint at all, activity decides, as before.
+  const quiet = mount({ ...registration, preferred: () => undefined })
+  assert.equal((await call(quiet.handler, `${SESSIONS_PATH}?token=secret`)).body.defaultSessionId, 's-new')
+})
+
 test('the route reports catalog failures without leaking a stack', async () => {
   const catalog = {
     list: async () => {

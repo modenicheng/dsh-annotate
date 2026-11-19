@@ -430,3 +430,104 @@ during typing.
 canonical mention in the message, the transcript drew it with the region glyph,
 and the model answered with the annotation's page, quote, intent, and comment —
 so the chip, the wire form, and the Host context all agree.
+
+## D18 — The Host routes an untargeted annotation to the Session the Client says it is showing
+
+**Decision.** The Client half reports the Session it is showing with
+`POST /ext/anno/focus` (body `{sessionId}`), which is what mounting
+`conversation.input.dock` means: that Session's own dock. The Host keeps the
+report durably in `$DSH_HOME/annotations/focus.json` with the moment it was made,
+and uses it twice:
+
+1. `GET /ext/anno/sessions` answers `defaultSessionId` with the focused Session
+   while that Session is still listed, and only falls back to the most recently
+   active one when it is not.
+2. An annotation that arrives with no `routing.sessionId` adopts the focused
+   Session at `onCreated`, the record is patched so the stored annotation says
+   where it went, and the mention is queued for it.
+
+A report older than six hours is discarded, and an annotation with
+`routing.source: 'agent'` never adopts it: neither is the user pointing at their
+own page.
+
+**Why.** D12 and D17 fixed *how* a mention reaches a composer but not *which*
+Session it belongs to, and that gap is what a user hits: the overlay's default
+came from the catalog ordered by activity, and the most recently active Session
+is frequently not the one on screen (it may belong to another profile entirely).
+An annotation submitted without touching the picker was stored with
+`routing: {source: 'user'}` and never queued at all — the user marked a page,
+sent, and nothing appeared anywhere. Routing the untargeted case is also what
+makes an annotation from an older overlay, or one whose catalog request failed,
+still arrive: the decision no longer depends on the overlay having succeeded.
+
+**Why the Client owns the fact.** Browser focus is not visible to the Host and
+not visible to the extension either. The Client is the only participant that
+knows which conversation is on screen, and its dock mounting *is* that knowledge —
+so the report costs one `POST` per mount and needs no extra Slot.
+
+**Consequences.** Two tabs of the same Session each hold their own draft, so a
+delivery must not be consumed by a background tab: the dock skips its pull (and
+its focus report) while `document.visibilityState === 'hidden'`. The report is a
+hint rather than authority — a stale one loses to nothing, and a name the catalog
+does not list loses to activity — so a deleted or filtered-out Session can never
+become the default. `?all=1` on the queue route is gone: a Session-addressed pull
+is the only reader, and a fan-out has no composer to write into.
+
+**Verified** on a live `dsh web` (3099): with the window showing `Greeting`, a
+create with `routing: {source: 'user'}` and no session id was patched to
+`session-0c40e529…`, queued, and delivered into that composer as a chip;
+`/ext/anno/sessions` answered `defaultSessionId` with the same id while the most
+recently active Session was a different one.
+
+## D19 — The chip's hover card reads one annotation back from the Host, and every field is the click-time snapshot
+
+**Decision.** Hovering a cited annotation opens the product's own `HoverCard`
+primitive (`require('@deepseek-ai/dsh-client-ui-primitives')`) around the chip,
+in its `inline` layout, and the card's body is read on demand from
+`GET /ext/anno/item?id=<id>`; the crop comes from `GET /ext/anno/image?id=<id>`,
+which streams the stored attachment bytes. Both routes are same-origin only, like
+the queue. The projection they serve is `describeAnnotation` in
+`packages/plugin/src/presentation.js`: page title and URL, the quote or the
+element (tag, text, role, name, a few styles), the comment, intent, state, time,
+and the crop's size. Reads are cached per page, so a card is fetched once.
+
+The annotation also gained `snapshot: {at, rect, viewport}`: the overlay freezes
+the viewport, the scroll offset, and the crop rect at the moment of the click, and
+the *record* carries them. `cropRectFor` now returns that frozen rect instead of
+re-measuring the live element at submit time.
+
+**Why the primitive.** `HoverCard` is the exact interaction an official reference
+gets — 500 ms open delay with a shared "warm" group, a bridge so the pointer can
+travel into the card, Escape, a `document.body` portal, and viewport-aware
+placement with flip — and it is already wrapped around user text by
+`UserText`'s `HoverCardGroup`, so our chip joins the same group instead of
+inventing a second hover model. The `require` is guarded: a release that renames
+the module leaves the chip working with the mention as its `title` tooltip, and
+`data-dsh-anno-hovercard` on the document element says which case is live.
+
+**Why a read route rather than the mention text.** A chip only knows its id and
+label; the transcript may be months old and the record lives in the Host's log.
+Putting the payload in the mention would rewrite what the model reads (D11) and
+would still be stale the moment the comment is edited. The queue entry therefore
+stays `{id, mention, label}` and the card asks for the record it needs.
+
+**Why the snapshot.** The card, the label, and the crop all describe one instant.
+Re-reading the page at submit time — the previous behaviour for the crop — let a
+scroll between the click and the send move the screenshot off the anchor, so the
+screenshot and the quote silently described two different moments. A frozen frame
+also survives the element being replaced, which is the common case on any page
+that re-renders.
+
+**Consequences.** The composer's own chip is the product's `ReferenceChipNode`
+with `title={label}` and only three accepted `appearance` values; there is no
+seam for a custom glyph or a hover hook, so the card exists on the transcript
+chip and the composer chip keeps the shipped marker (D17). An annotation from a
+build before this one has no `snapshot`; the card then shows the record's
+`createdAt` and the crop the Host stored, and nothing is invented to fill the
+gap.
+
+**Verified** on a live `dsh web` (3099): hovering the transcript chip opened the
+portalled card with the stored crop (`/ext/anno/image?id=…` served the PNG), the
+page title, `127.0.0.1:3099/`, the quote, the comment, and
+`bug · open · 11/19 19:32 · 截图 57 KB`; the routes answered 403 without
+`sec-fetch-site: same-origin`.

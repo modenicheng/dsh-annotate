@@ -27,9 +27,12 @@ conversation. Nothing is injected behind the user's back.
   last activity, plus `running` / `blank` state.
 - The first entry is **＋ 新建会话**, which creates a Session in the workspace of
   the currently targeted one (or the default workspace).
-- Default selection: the Session the DSH window is showing. The Host has no such
-  notion, so the Client half reports it; until a Client is connected the picker
-  falls back to the most recently active Session.
+- Default selection: the Session the DSH window is showing. The Client half
+  reports it (`POST /ext/anno/focus`, refreshed on mount and when the window
+  regains focus), and the Host answers `defaultSessionId` with it while the
+  catalog still lists it; without a report — or with one older than six hours —
+  the picker falls back to the most recently active Session. The same report
+  routes an annotation that was submitted without touching the picker (D18).
 
 Host data source: `GET /ext/anno/sessions?token=…` (`packages/plugin/src/sessions.js`).
 It returns `{ok, items[], total, truncated, defaultSessionId}` where each item is
@@ -56,6 +59,15 @@ own reference chip — inline business-coloured text at weight 500, one `1em` gl
 with a 4px gap — and differs only in the glyph, a selection frame in place of the
 file or session icon. Like a folder reference it has no activation action, so it
 is a `span`, not a button.
+
+Hovering the chip opens the product's `HoverCard` with what the user marked: the
+crop the browser took, the page title and URL, the quote or the element, the
+comment, and intent/state/time (D19). The card reads the annotation back from
+`GET /ext/anno/item?id=…` and the PNG from `GET /ext/anno/image?id=…`, both
+same-origin. Everything it shows was frozen at click time — the record carries
+`snapshot: {at, rect, viewport}` — so a page that re-renders or scrolls afterwards
+cannot change what the card claims was marked. The composer's chip is the
+product's own component with its label as `title`; it has no hover seam.
 
 Context: the Host matches the same mention at `agent/pre-step`
 (`packages/plugin/src/mentions.js`) and places one `source.kind = 'annotations'`

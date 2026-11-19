@@ -386,6 +386,9 @@
       anchor: draft.anchor,
       comment: typeof draft.comment === 'string' ? draft.comment : '',
       ...(draft.intent === undefined ? {} : { intent: draft.intent }),
+      // The frame the content script froze at click time, not a re-reading of
+      // the page now: the crop rect below is part of it.
+      ...(ns.isPlainObject(draft.snapshot) ? { snapshot: draft.snapshot } : {}),
       pageContext,
       routing: {
         source: routing.source,

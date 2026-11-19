@@ -149,14 +149,6 @@ test('the queue route serves one session and refuses anything but the page', asy
   )
   assert.equal((await call(read, QUEUE_PATH, { headers: page })).status, 400)
   assert.equal((await call(read, `${QUEUE_PATH}?session=s-1`, { headers: page, method: 'POST' })).status, 405)
-
-  const every = await call(read, `${QUEUE_PATH}?all=1`, { headers: page })
-  assert.deepEqual(
-    every.body.items.map((item) => item.id),
-    ['an-1'],
-  )
-  assert.equal(every.body.items[0].mention, '@[a](dsh-anno:an-1)')
-  assert.equal(every.body.items[0].label, 'a')
 })
 
 test('acknowledging removes exactly the delivered entries', async (t) => {

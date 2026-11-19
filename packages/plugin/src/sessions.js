@@ -129,10 +129,11 @@ export function createSessionCatalog({ get, logger }) {
  * @param {ReturnType<typeof createSessionCatalog>} options.catalog
  * @param {string} options.token
  * @param {(presented: unknown, expected: string) => boolean} options.matchesToken
+ * @param {() => string | undefined} [options.preferred] Session the Client is showing, when it said so
  * @param {string} [options.path]
  * @returns {() => void} disposer
  */
-export function registerSessionsRoute(webServer, { catalog, token, matchesToken, path = SESSIONS_PATH }) {
+export function registerSessionsRoute(webServer, { catalog, token, matchesToken, preferred, path = SESSIONS_PATH }) {
   return webServer.register({
     kind: 'exact',
     path,
@@ -171,13 +172,26 @@ export function registerSessionsRoute(webServer, { catalog, token, matchesToken,
           includeSubagents: url.searchParams.get('subagents') === '1',
         })
         .then((value) => {
-          send(200, { ok: true, ...value, defaultSessionId: value.items[0]?.id ?? null })
+          send(200, { ok: true, ...value, defaultSessionId: defaultId(value.items, preferred?.()) })
         })
         .catch((error) => {
           send(500, { ok: false, error: 'catalog', message: messageOf(error) })
         })
     },
   })
+}
+
+/**
+ * The row the picker starts on: the Session the Client is showing while the
+ * catalog still lists it, otherwise the most recently active one. A hint that
+ * points at a deleted or filtered-out Session is not a choice, so it loses.
+ * @param {readonly { id: string }[]} items
+ * @param {string | undefined} preferredId
+ * @returns {string | null}
+ */
+export function defaultId(items, preferredId) {
+  if (preferredId !== undefined && items.some((item) => item.id === preferredId)) return preferredId
+  return items[0]?.id ?? null
 }
 
 /** Accept the token from the query string, a bearer header, or the dedicated header. */

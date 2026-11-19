@@ -166,12 +166,6 @@ export function registerQueueRoutes(webServer, { queue, path = QUEUE_PATH, ackPa
       }
       const url = new URL(request.url ?? path, 'http://127.0.0.1')
       const sessionId = url.searchParams.get('session') ?? ''
-      if (url.searchParams.get('all') === '1') {
-        // The Client knows which Sessions are open; asking it to name one first
-        // would hide entries for a Session that opened a moment ago.
-        send(200, { ok: true, items: queue.all().map(toWire) })
-        return
-      }
       if (sessionId === '') {
         send(400, { ok: false, error: 'session' })
         return

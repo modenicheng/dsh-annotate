@@ -97,6 +97,46 @@ test('restricted pages normalize without an origin', () => {
   assert.equal(normalized.url, 'about:blank')
 })
 
+test('the click-time snapshot survives normalization field for field', () => {
+  // The snapshot is what the reader is allowed to trust, so nothing may be
+  // recomputed from the current page: it is carried through or dropped whole.
+  const snapshot = {
+    at: '2026-11-18T12:00:00.000Z',
+    rect: { x: 556, y: 448, w: 920, h: 337 },
+    viewport: { width: 2032, height: 1216, dpr: 1.25, scrollX: 0, scrollY: 120 },
+  }
+  const normalized = normalizeRecord(record({ snapshot }))
+  assert.deepEqual(normalized.snapshot, snapshot)
+  assert.deepEqual(validateRecord(record({ snapshot })), [])
+
+  // A viewport that only names its size still normalizes; the rest reads as 0
+  // rather than as an invented value.
+  const partial = normalizeRecord(
+    record({ snapshot: { at: snapshot.at, rect: snapshot.rect, viewport: { width: 800, height: 600 } } }),
+  )
+  assert.equal(partial.snapshot.viewport.dpr, 0)
+  assert.equal(partial.snapshot.viewport.scrollY, 0)
+
+  // A snapshot without a rect or a date is not a frame anything can be read
+  // against, and is dropped instead of half-kept.
+  assert.equal(normalizeRecord(record({ snapshot: { at: snapshot.at } })).snapshot, undefined)
+  assert.equal(normalizeRecord(record({ snapshot: { rect: snapshot.rect } })).snapshot, undefined)
+  assert.ok(
+    validateRecord(record({ snapshot: { at: 'not a date', rect: snapshot.rect, viewport: { width: 1, height: 1 } } }))
+      .length > 0,
+  )
+  assert.ok(
+    validateRecord(
+      record({ snapshot: { at: snapshot.at, rect: { x: 0, y: 0, w: 1 }, viewport: { width: 1, height: 1 } } }),
+    ).length > 0,
+  )
+})
+
+test('a record without a snapshot stays valid, because older overlays exist', () => {
+  assert.equal(normalizeRecord(record()).snapshot, undefined)
+  assert.deepEqual(validateRecord(record()), [])
+})
+
 test('client frames reject unknown types and bad payloads', () => {
   assert.equal(parseClientFrame('not json').ok, false)
   assert.equal(parseClientFrame({ t: 'nope' }).ok, false)
