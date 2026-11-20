@@ -40,6 +40,7 @@ const CONSUMERS = [
   'src/content/anchor.js',
   'src/content/hydrator.js',
   'src/popup/popup.js',
+  'src/popup/popup.discovery.js',
 ]
 
 /** @param {Record<string, string>} table */

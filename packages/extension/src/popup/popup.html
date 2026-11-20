@@ -11,6 +11,8 @@
     <script src="../background/endpoints.js"></script>
     <!-- Discovery: the endpoint-record parser and the host descriptions. -->
     <script src="../background/discovery.js"></script>
+    <!-- The panel publishes on the popup namespace, so it loads before the shell. -->
+    <script src="popup.discovery.js" defer></script>
     <script src="popup.js" defer></script>
   </head>
   <body>
