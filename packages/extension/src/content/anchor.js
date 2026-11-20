@@ -800,6 +800,33 @@
     return null
   }
 
+  /**
+   * Caret position under a viewport point. Gecko has `caretPositionFromPoint`;
+   * `caretRangeFromPoint` is the older spelling Chromium still uses. Returns
+   * null when neither answers, so the caller can fall back to dropping the
+   * selection outright.
+   */
+  function caretPosition(x, y) {
+    if (!document) return null
+    try {
+      if (typeof document.caretPositionFromPoint === 'function') {
+        const position = document.caretPositionFromPoint(x, y)
+        if (position && position.offsetNode) {
+          return { node: position.offsetNode, offset: Math.max(0, Math.trunc(Number(position.offset) || 0)) }
+        }
+      }
+      if (typeof document.caretRangeFromPoint === 'function') {
+        const range = document.caretRangeFromPoint(x, y)
+        if (range && range.startContainer) {
+          return { node: range.startContainer, offset: Math.max(0, Math.trunc(Number(range.startOffset) || 0)) }
+        }
+      }
+    } catch {
+      // A detached document or a native-shadow retarget: no caret to report.
+    }
+    return null
+  }
+
   /** `<tag.class · W×H>` chip text for the hover highlight. */
   function chipLabel(element, rect) {
     const tag = String(element.tagName || '').toLowerCase()
@@ -1103,6 +1130,7 @@
     element: elementState,
     region: regionState,
     meaningfulAt,
+    caretPosition,
     chipLabel,
     liveViewportRect,
     pageContext,

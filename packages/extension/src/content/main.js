@@ -8,6 +8,13 @@
  * click to lock it, drag to draw a region, Shift to let native text selection
  * win" one coherent mode instead of three overlapping overlays.
  *
+ * Two rules keep that from turning into a pile of rectangles. Exactly one box is
+ * on screen at a time: the transient guides belong to the pointer and go away
+ * while the composer's locked outline is the subject, and a press that no live
+ * button backs is not a gesture at all. And a text selection is never assisted:
+ * a Shift-drag gets no `preventDefault` and no marquee, because the browser's
+ * own selection is the thing being made.
+ *
  * Message contract: `{ type, ...fields }` to the background, flat fields back.
  * Names come from `src/shared/messages.js`; they are repeated here (classic
  * scripts cannot import that ES module) and must be kept identical.
@@ -81,7 +88,7 @@
     // the record carries is read from here, never from the live document: the
     // element may be gone by the time the comment is written.
     snapshot: null,
-    pointer: { down: false, dragging: false, shift: false, startX: 0, startY: 0, x: 0, y: 0 },
+    pointer: { down: false, dragging: false, startX: 0, startY: 0 },
     selectionGesture: false,
     consoleErrors: [],
     observer: null,
@@ -556,10 +563,10 @@
     state.activeSource = ''
     const pick = state.pick
     state.pick = null
+    // The gesture is over before the anchor goes: leaving the mode with the
+    // button down must still leave the page without a leftover highlight.
+    resetPointer()
     clearAnchor()
-    state.pointer.down = false
-    state.pointer.dragging = false
-    state.selectionGesture = false
     if (ui) {
       if (ui.isComposerOpen()) ui.closeComposer()
       ui.clearLocked()
@@ -588,6 +595,18 @@
   function clearAnchor() {
     state.anchorState = null
     state.snapshot = null
+    // The mark and its highlight end together: a selection left on the page is
+    // the anchor the browser would extend from on the next Shift-drag, which is
+    // how a new selection ended up starting at the previous one. A press in
+    // flight owns the selection until it is read on release.
+    if (state.selectionGesture || state.pointer.down) return
+    const selection = global.getSelection ? global.getSelection() : null
+    if (!selection || selection.isCollapsed) return
+    try {
+      selection.removeAllRanges()
+    } catch {
+      // A detached or chrome-owned selection: nothing we can drop.
+    }
   }
 
   function summaryOf(anchor) {
@@ -916,6 +935,36 @@
     })
   }
 
+  /**
+   * Drop a press no live button is backing. A pointerup that never arrives — the
+   * button was released outside the window, or the page swallowed the event —
+   * otherwise leaves `down` set, and the next plain move paints a marquee
+   * anchored at that stale press instead of at the pointer.
+   */
+  function resetPointer() {
+    state.pointer.down = false
+    state.pointer.dragging = false
+    state.selectionGesture = false
+  }
+
+  /**
+   * Move the document's selection to the press point before the browser acts on
+   * the gesture. Shift-drag *extends* the selection the page already has, so
+   * without this a new drag starts wherever the previous mark ended — the bottom
+   * of the page as often as not — instead of under the pointer.
+   */
+  function collapseSelectionTo(x, y) {
+    const selection = global.getSelection ? global.getSelection() : null
+    if (!selection) return
+    try {
+      const point = ns.anchor.caretPosition(x, y)
+      if (point) selection.collapse(point.node, point.offset)
+      else selection.removeAllRanges()
+    } catch {
+      // A detached or chrome-owned selection: the browser's own anchor will do.
+    }
+  }
+
   function scheduleHover(x, y) {
     state.hoverPoint = { x, y }
     if (state.hoverFrame) return
@@ -929,6 +978,14 @@
 
   function updateHover(x, y) {
     if (!ui) return
+    // While the composer is open its amber outline already answers "what am I
+    // writing about?". A second box under the pointer competes with it, and the
+    // user has to work out which of the two the annotation refers to.
+    if (ui.isComposerOpen()) {
+      ui.setHover(null)
+      ui.setCursor(null)
+      return
+    }
     if (activeMode() === 'selection') {
       ui.setHover(null)
       ui.setCursor({ x, y })
@@ -948,16 +1005,20 @@
     if (!state.active || event.button !== 0) return
     if (ns.text.isOurs(event.target)) return
     const mode = activeMode()
-    state.pointer.x = event.clientX
-    state.pointer.y = event.clientY
     state.pointer.startX = event.clientX
     state.pointer.startY = event.clientY
-    state.pointer.shift = event.shiftKey === true
     state.pointer.down = true
     state.pointer.dragging = false
     if (event.shiftKey === true || mode === 'selection') {
-      // Native text selection owns this drag; we only read it on pointerup.
+      // Native text selection owns this drag end to end: no preventDefault, no
+      // marquee, no hover. Painting our own rectangle over the browser's
+      // selection put two boxes on one gesture, and the guides of the previous
+      // hover have no business staying up either.
       state.selectionGesture = true
+      ui.setHover(null)
+      ui.setMarquee(null)
+      ui.setCursor(null)
+      collapseSelectionTo(event.clientX, event.clientY)
       return
     }
     state.selectionGesture = false
@@ -969,8 +1030,13 @@
 
   function onPointerMove(event) {
     if (!state.active) return
-    state.pointer.x = event.clientX
-    state.pointer.y = event.clientY
+    // No button held means any press we are still tracking is over; without
+    // this check a lost pointerup turns every later move into a drag.
+    if (state.pointer.down && event.buttons === 0) {
+      resetPointer()
+      if (ui) ui.setMarquee(null)
+    }
+    if (state.selectionGesture) return
     if (state.pointer.down) {
       const distance = Math.hypot(event.clientX - state.pointer.startX, event.clientY - state.pointer.startY)
       const threshold = Number(P.MAX_CLICK_MOVEMENT_PX) || 6
@@ -1000,6 +1066,7 @@
 
     if (state.selectionGesture) {
       state.selectionGesture = false
+      if (ui) ui.setMarquee(null)
       // The browser commits the native selection after mouseup, so read it on
       // the next turn of the event loop.
       global.setTimeout(() => {
@@ -1035,6 +1102,15 @@
       const captured = ns.anchor.element(element)
       if (captured) openComposerFor(captured)
     }
+  }
+
+  function onPointerCancel() {
+    if (!state.active) return
+    resetPointer()
+    if (!ui) return
+    ui.setMarquee(null)
+    ui.setHover(null)
+    ui.setCursor(null)
   }
 
   function onClickCapture(event) {
@@ -1335,6 +1411,7 @@
     global.addEventListener('pointerdown', onPointerDown, true)
     global.addEventListener('pointermove', onPointerMove, true)
     global.addEventListener('pointerup', onPointerUp, true)
+    global.addEventListener('pointercancel', onPointerCancel, true)
     global.addEventListener('mousedown', onMouseDownCapture, true)
     global.addEventListener('click', onClickCapture, true)
     global.addEventListener('dragstart', onDragStart, true)

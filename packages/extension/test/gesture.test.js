@@ -1,0 +1,382 @@
+/**
+ * The gesture layer's contract, pinned without a browser.
+ *
+ * The overlay's whole job is to stay out of the way: exactly one rectangle may
+ * be on screen at a time, and the browser's own text selection owns Shift-drag
+ * end to end. Three shipped bugs came from that rule being broken — a marquee
+ * anchored at a press whose release never arrived (drawn from the bottom of the
+ * page), a rubber band painted over a native text selection and left behind
+ * after the release, and a hover outline competing with the composer's amber
+ * one. Each one is cheap to reintroduce, so this harness boots the content
+ * script in a `node:vm` context with a fake document and drives the window-level
+ * listeners the way the browser would.
+ */
+
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { test } from 'node:test'
+import vm from 'node:vm'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const extensionRoot = dirname(here)
+const CONTENT_SCRIPT = 'src/content/main.js'
+
+/** A `Selection` carrying only the members `main.js` touches. */
+function createSelection() {
+  return {
+    isCollapsed: true,
+    rangeCount: 0,
+    removed: 0,
+    collapsed: /** @type {{ node: any, offset: number }[]} */ ([]),
+    getRangeAt() {
+      return null
+    },
+    removeAllRanges() {
+      this.removed += 1
+      this.isCollapsed = true
+      this.rangeCount = 0
+    },
+    collapse(node, offset) {
+      this.collapsed.push({ node, offset })
+      this.isCollapsed = true
+      this.rangeCount = 1
+    },
+    toString() {
+      return ''
+    },
+  }
+}
+
+/** The `ns.ui` surface `main.js` calls, recording what reached the overlay. */
+function createUi() {
+  const calls = { hover: [], marquee: [], cursor: [], locked: [], composer: [] }
+  const ui = {
+    calls,
+    composerOpen: false,
+    STRINGS: { en: {} },
+    pickLanguage: () => 'en',
+    // `main.js` installs the UI through this factory and talks to what it returns.
+    create: (handlers) => {
+      ui.handlers = handlers
+      return ui
+    },
+    mount() {},
+    setHud() {},
+    setHidden() {},
+    setHover(value) {
+      calls.hover.push(value === null ? null : { rect: value.rect, label: value.label })
+    },
+    setMarquee(value) {
+      calls.marquee.push(value === null ? null : { ...value })
+    },
+    setCursor(value) {
+      calls.cursor.push(value === null ? null : { ...value })
+    },
+    setLocked(rect, label, holder) {
+      calls.locked.push({ rect, label, holder })
+    },
+    clearLocked() {},
+    isComposerOpen() {
+      return ui.composerOpen
+    },
+    openComposer(options) {
+      ui.composerOpen = true
+      calls.composer.push(options)
+    },
+    closeComposer() {
+      ui.composerOpen = false
+    },
+    setComposerBusy() {},
+    setComposerError() {},
+    setTargets() {},
+    setNewSessionAvailable() {},
+    setBadges() {},
+    setBadgePending() {},
+    setClearBusy() {},
+    setClearProgress() {},
+    setPickBanner() {},
+    closeBadgeCard() {
+      return false
+    },
+    toast() {},
+    focusComposer() {},
+    composerText() {
+      return ''
+    },
+  }
+  return ui
+}
+
+/**
+ * Boot `main.js` with the seam it expects from the other content scripts, and
+ * hand back the pieces the tests drive: the window listeners, the fake
+ * selection, and the overlay recorder.
+ */
+async function bootContentScript() {
+  /** @type {Map<string, Function[]>} */
+  const listeners = new Map()
+  /** @type {Function[]} */
+  const timers = []
+  const selection = createSelection()
+  const ui = createUi()
+  const caret = { node: { nodeType: 3, nodeValue: 'caret text' }, offset: 4 }
+  const seeked = []
+  const viewportRect = { x: 100, y: 40, w: 120, h: 20 }
+  const target = { nodeType: 1, nodeName: 'P' }
+
+  const document = {
+    title: 'harness',
+    contentType: 'text/html',
+    documentElement: { nodeType: 1, nodeName: 'HTML' },
+    body: { nodeType: 1, nodeName: 'BODY' },
+    addEventListener() {},
+    removeEventListener() {},
+  }
+
+  const element = {
+    nodeType: 1,
+    nodeName: 'P',
+    getBoundingClientRect: () => ({ left: 100, top: 40, width: 120, height: 20 }),
+  }
+  const capture = (viewport) => ({
+    anchor: {
+      kind: 'selection',
+      quote: { exact: 'selected words' },
+      rect: { x: 100, y: 40, w: 120, h: 20 },
+    },
+    viewportRect: viewport,
+    live: null,
+  })
+
+  const sandbox = {
+    console: { log() {}, info() {}, warn() {}, error() {} },
+    location: { protocol: 'http:', href: 'http://127.0.0.1/harness' },
+    navigator: { language: 'en-US' },
+    document,
+    getSelection: () => selection,
+    addEventListener(type, listener) {
+      const list = listeners.get(type) || []
+      list.push(listener)
+      listeners.set(type, list)
+    },
+    removeEventListener() {},
+    requestAnimationFrame: (fn) => {
+      fn()
+      return 1
+    },
+    setTimeout: (fn) => {
+      timers.push(fn)
+      return timers.length
+    },
+    clearTimeout() {},
+    innerWidth: 1000,
+    innerHeight: 700,
+    devicePixelRatio: 1,
+    scrollX: 0,
+    scrollY: 0,
+    // Stops `installConsoleHook` from reaching for a real page compartment.
+    wrappedJSObject: { eval() {} },
+    browser: {
+      runtime: {
+        sendMessage: () => Promise.resolve(undefined),
+        onMessage: { addListener() {} },
+      },
+      storage: {
+        local: { get: () => Promise.resolve({}), set: () => Promise.resolve(undefined) },
+        onChanged: { addListener() {} },
+      },
+    },
+    __DSH_PROTOCOL__: {
+      MAX_CLICK_MOVEMENT_PX: 6,
+      LIMITS: { commentChars: 4000 },
+      INTENTS: [],
+      truncate: (value, max) => String(value).slice(0, max),
+      validateAnchor: () => [],
+      validateRecord: () => [],
+    },
+    __DSH_ANNO__: {
+      anchor: {
+        caretPosition(x, y) {
+          seeked.push({ x, y })
+          return caret
+        },
+        meaningfulAt: () => element,
+        element: () => ({ anchor: { kind: 'element' }, viewportRect }),
+        region: (rect) => ({ anchor: { kind: 'region', pageRect: rect }, viewportRect: rect }),
+        selection: (value) => (value && value.isCollapsed ? null : capture(viewportRect)),
+        validate: () => [],
+        pageContext: () => ({}),
+        chipLabel: () => 'p · 120×20',
+        liveViewportRect: () => viewportRect,
+      },
+      text: { isOurs: () => false },
+      geom: {
+        normalizeRect: (rect) => ({
+          x: Math.min(rect.x, rect.x + rect.w),
+          y: Math.min(rect.y, rect.y + rect.h),
+          w: Math.abs(rect.w),
+          h: Math.abs(rect.h),
+        }),
+        rectOf: (box) => ({ x: box.left, y: box.top, w: box.width, h: box.height }),
+        roundRect: (rect) => ({ ...rect }),
+        intersection: (left, right) => {
+          const x = Math.max(left.x, right.x)
+          const y = Math.max(left.y, right.y)
+          return {
+            x,
+            y,
+            w: Math.max(0, Math.min(left.x + left.w, right.x + right.w) - x),
+            h: Math.max(0, Math.min(left.y + left.h, right.y + right.h) - y),
+          }
+        },
+        pageToViewport: (rect) => ({ ...rect }),
+        viewportToPage: (rect) => ({ ...rect }),
+      },
+      hydrate: {
+        createScheduler: () => ({ request() {} }),
+        clearMarks() {},
+        applyMarks() {},
+        isFresh: () => true,
+        resolveAll: () => [],
+      },
+      ui,
+    },
+  }
+  sandbox.globalThis = sandbox
+  const context = vm.createContext(sandbox)
+  const code = await readFile(join(extensionRoot, CONTENT_SCRIPT), 'utf8')
+  try {
+    vm.runInContext(code, context, { filename: CONTENT_SCRIPT })
+  } catch (error) {
+    throw new Error(`${CONTENT_SCRIPT} threw while loading: ${error.message}`)
+  }
+
+  /** Deliver one event to the window listeners, the way a capture listener sees it. */
+  function fire(type, fields) {
+    const event = {
+      type,
+      target,
+      button: 0,
+      buttons: 1,
+      shiftKey: false,
+      defaultPrevented: false,
+      propagationStopped: false,
+      preventDefault() {
+        this.defaultPrevented = true
+      },
+      stopPropagation() {
+        this.propagationStopped = true
+      },
+      ...fields,
+    }
+    for (const listener of listeners.get(type) || []) listener(event)
+    return event
+  }
+
+  /** Run the timers the content script queued (the deferred selection read). */
+  function flushTimers() {
+    while (timers.length > 0) {
+      const fn = timers.shift()
+      fn()
+    }
+  }
+
+  fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
+
+  return { fire, flushTimers, selection, ui, caret, seeked, listeners }
+}
+
+test('a Shift-drag is left to the browser: no band, no default prevention', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.marquee.length = 0
+  harness.ui.calls.hover.length = 0
+
+  const down = harness.fire('pointerdown', { clientX: 120, clientY: 50, shiftKey: true })
+  assert.equal(down.defaultPrevented, false, 'the browser needs the press to start a selection')
+  assert.equal(down.propagationStopped, false, 'the page gets its own pointerdown')
+  // The press is also where the selection starts: the caret moves to the
+  // pointer, so a Shift-drag extends from there and not from the last mark.
+  assert.deepEqual(harness.seeked.at(-1), { x: 120, y: 50 })
+  assert.deepEqual(harness.selection.collapsed.at(-1), harness.caret)
+
+  for (let step = 1; step <= 5; step += 1) {
+    const move = harness.fire('pointermove', { clientX: 120 + step * 20, clientY: 50, buttons: 1, shiftKey: true })
+    assert.equal(move.defaultPrevented, false, 'preventDefault on pointermove cuts the compat mousemove')
+    assert.equal(move.propagationStopped, false)
+  }
+  assert.deepEqual(
+    harness.ui.calls.marquee.filter((value) => value !== null),
+    [],
+    'a text selection paints no rubber band',
+  )
+  assert.equal(
+    harness.ui.calls.hover.filter((value) => value !== null).length,
+    0,
+    'and no hover box either: the selection is the feedback',
+  )
+
+  // The browser extends the selection during the drag; stand in for it, then
+  // release. The release reads the range and opens the composer for it.
+  harness.selection.isCollapsed = false
+  harness.selection.rangeCount = 1
+  harness.fire('pointerup', { clientX: 220, clientY: 50, buttons: 0, shiftKey: true })
+  harness.flushTimers()
+  assert.equal(harness.ui.calls.marquee.at(-1), null, 'the release clears the band it never drew')
+  assert.equal(harness.ui.composerOpen, true, 'the captured selection went to the composer')
+})
+
+test('a press whose release never arrives cannot keep drawing', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.marquee.length = 0
+
+  // A plain press in auto mode arms a region drag...
+  harness.fire('pointerdown', { clientX: 100, clientY: 1200 })
+  // ...and the button is released outside the window: no pointerup reaches us.
+  const stray = harness.fire('pointermove', { clientX: 140, clientY: 60, buttons: 0 })
+  assert.equal(harness.ui.calls.marquee.at(-1), null, 'the first buttonless move drops the stale press')
+  assert.equal(stray.defaultPrevented, false)
+
+  const moves = harness.ui.calls.marquee.filter((value) => value !== null)
+  assert.deepEqual(moves, [], 'no marquee may be anchored at the stale press')
+  assert.equal(harness.ui.calls.hover.filter((value) => value !== null).length, 1, 'the pointer only hovers')
+})
+
+test('an open composer keeps the pointer from painting a second box', async () => {
+  const harness = await bootContentScript()
+  // A click marks an element and opens the composer, which locks its outline.
+  harness.fire('pointerdown', { clientX: 120, clientY: 50 })
+  harness.fire('pointerup', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushTimers()
+  assert.equal(harness.ui.composerOpen, true)
+  assert.equal(harness.ui.calls.locked.length, 1, 'the amber outline is the one box')
+
+  harness.ui.calls.hover.length = 0
+  harness.ui.calls.cursor.length = 0
+  harness.fire('pointermove', { clientX: 300, clientY: 120, buttons: 0 })
+
+  assert.deepEqual(harness.ui.calls.hover, [null], 'the element under the pointer is not outlined')
+  assert.deepEqual(harness.ui.calls.cursor, [null], 'and the cursor guide stays away too')
+})
+
+test('ending a mark drops the selection it left on the page', async () => {
+  const harness = await bootContentScript()
+  harness.fire('pointerdown', { clientX: 120, clientY: 50 })
+  harness.fire('pointerup', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushTimers()
+  assert.equal(harness.ui.composerOpen, true)
+
+  // What a real capture leaves behind: a live selection on the page.
+  harness.selection.isCollapsed = false
+  harness.selection.rangeCount = 1
+  harness.ui.handlers.onCancel('escape')
+  assert.equal(harness.selection.removed, 1, 'the cancelled mark takes its selection with it')
+  assert.equal(harness.ui.composerOpen, false)
+
+  // Esc from the page leaves annotation mode, and the page as the user found it.
+  harness.selection.isCollapsed = false
+  harness.selection.rangeCount = 1
+  harness.fire('keydown', { key: 'Escape' })
+  assert.equal(harness.selection.removed, 2, 'leaving the mode drops any leftover selection')
+})
