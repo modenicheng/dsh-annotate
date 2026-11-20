@@ -98,7 +98,7 @@ export async function apply(ctx, config = {}) {
     },
   })
 
-  for (const tool of createTools({ store, bridge, logger })) {
+  for (const tool of createTools({ store, bridge })) {
     ctx.effect(() => ctx.tools.register(tool), `dsh-marker: ${tool.name}`)
   }
 

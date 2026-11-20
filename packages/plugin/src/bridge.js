@@ -30,20 +30,6 @@ const CLOSE_UNAUTHORIZED = 4401
 const CLOSE_FORBIDDEN = 4403
 const CLOSE_PROTOCOL = 4400
 
-/** RFC 6455 handshake constant, pinned here so `acceptKey` stays pure. */
-const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-
-/**
- * Compute the `Sec-WebSocket-Accept` value for a client key.
- *
- * Exported for the handshake test vector; the `ws` package performs the real
- * handshake, so nothing in the bridge calls this.
- * @param {string} key
- */
-export function acceptKey(key) {
-  return createHash('sha1').update(`${key}${WS_GUID}`).digest('base64')
-}
-
 /**
  * Constant-time token comparison. Hashing first gives both sides the same
  * length, which `timingSafeEqual` requires.

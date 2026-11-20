@@ -8,6 +8,7 @@
 
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer, request as httpRequest } from 'node:http'
 import { createServer as createSecureServer, request as httpsRequest } from 'node:https'
@@ -17,7 +18,7 @@ import { after, before, test } from 'node:test'
 import { promisify } from 'node:util'
 import WsClient from 'ws'
 
-import { acceptKey, createBridge } from '../src/bridge.js'
+import { createBridge } from '../src/bridge.js'
 import { AnnotationStore } from '../src/store.js'
 import { HEALTH_PATH, PROTOCOL_VERSION, WS_PATH } from '../src/protocol.js'
 
@@ -668,6 +669,20 @@ test('the upgrade handshake ignores proxy headers and an https Origin', async (t
   const hello = await authenticate(client)
   assert.equal(hello.version, PROTOCOL_VERSION)
 })
+
+/** RFC 6455 handshake constant, kept here because only the test vector uses it. */
+const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+
+/**
+ * Compute the `Sec-WebSocket-Accept` value for a client key.
+ *
+ * The `ws` package performs the real handshake, so this local copy exists only
+ * so the RFC 6455 example below can be checked without a socket.
+ * @param {string} key
+ */
+function acceptKey(key) {
+  return createHash('sha1').update(`${key}${WS_GUID}`).digest('base64')
+}
 
 test('acceptKey reproduces the RFC 6455 example', () => {
   assert.equal(acceptKey('dGhlIHNhbXBsZSBub25jZQ=='), 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=')
