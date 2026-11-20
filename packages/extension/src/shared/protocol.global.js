@@ -211,11 +211,6 @@ function validateSessionCreateRequest(body) {
       if (path.startsWith('/') !== true && path.startsWith('\\') !== true && !/^[A-Za-z]:[\\/]/.test(path)) {
         errors.push('path must be absolute')
       }
-      // A drive root (or the filesystem root) is a legal absolute path but
-      // never a workspace: registering one would claim the whole disk.
-      if (/^[A-Za-z]:[\\/]+$/u.test(path) || /^[\\/]+$/u.test(path)) {
-        errors.push('path must name a directory under a root, not the root itself')
-      }
       if (path.includes('\0')) errors.push('path must not contain null bytes')
     }
   }

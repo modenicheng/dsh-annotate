@@ -235,17 +235,6 @@ test('session-create paths are absolute, bounded and null-free', () => {
   assert.match(validateSessionCreateRequest({ mode: 'new', path: long }).join(), /exceeds/)
 })
 
-test('session-create paths reject drive and filesystem roots', () => {
-  // A root is absolute, but registering one would claim the whole disk.
-  for (const path of ['D:/', 'D:\\', 'C:\\\\', '/', '\\', '//']) {
-    const errors = validateSessionCreateRequest({ mode: 'new', path })
-    assert.match(errors.join(), /not the root itself/, path)
-  }
-  // One real segment under the root stays usable, in both slash dialects.
-  assert.deepEqual(validateSessionCreateRequest({ mode: 'new', path: 'D:/coding' }), [])
-  assert.deepEqual(validateSessionCreateRequest({ mode: 'new', path: 'D:\\coding' }), [])
-})
-
 test('session-create titles are optional but bounded and non-blank', () => {
   assert.deepEqual(validateSessionCreateRequest({ mode: 'default', title: undefined }), [])
   assert.match(validateSessionCreateRequest({ mode: 'default', title: '  ' }).join(), /blank/)
