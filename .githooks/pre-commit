@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fast local gate: generated files, syntax, and the unit tests.
+# Fast local gate: generated files, syntax, format/lint, and the unit tests.
 #
 # Runs before every commit from the repository root. Skips cleanly when Node is
 # not installed so a commit from a machine without the toolchain still works.
@@ -32,6 +32,14 @@ node scripts/check-syntax.mjs || {
   echo "pre-commit: fix the syntax errors above before committing." >&2
   exit 1
 }
+
+echo "pre-commit: Biome format and lint (same pinned version as CI)"
+# Same command and version as the CI job, so a green hook means a green check.
+# npx resolves from the npm cache after the first run (~0.6 s for this repo).
+if ! npx --yes @biomejs/biome@2.4.14 check .; then
+  echo "pre-commit: Biome failed. Run 'npx --yes @biomejs/biome@2.4.14 check --write .' and re-stage." >&2
+  exit 1
+fi
 
 echo "pre-commit: running unit tests"
 if ! node --test "packages/*/test/*.test.js"; then
