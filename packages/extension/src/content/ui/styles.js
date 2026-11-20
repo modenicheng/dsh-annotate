@@ -195,6 +195,23 @@
   background: rgba(255, 255, 255, 0.4);
   pointer-events: none;
 }
+/* While Shift arms a text selection there is no element to outline, so the
+   pointer carries a teardrop instead: the sharp corner points back at the
+   cursor and the body hangs off its bottom-right. */
+.shift-drop {
+  position: fixed;
+  z-index: 2;
+  width: 14px;
+  height: 14px;
+  /* Clear of the OS cursor's own body, which the browser paints over us. */
+  margin: 11px 0 0 11px;
+  border-radius: 0 50% 50% 50%;
+  background: #2563eb;
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, 0.92),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
 .composer {
   position: fixed;
   z-index: 9;

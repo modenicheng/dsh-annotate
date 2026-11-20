@@ -24,6 +24,7 @@
     const hoverChip = createElement('div', 'hover-chip')
     const marquee = createElement('div', 'marquee')
     const cursorRing = createElement('div', 'cursor-ring')
+    const shiftDrop = createElement('div', 'shift-drop')
 
     const lockedBox = createElement('div', 'locked-box')
     const lockedChip = createElement('div', 'hover-chip')
@@ -199,6 +200,22 @@
     }
 
     /**
+     * The teardrop that hangs off the pointer while a text selection is armed:
+     * nothing on the page is the subject yet, only the gesture is, so the drop
+     * replaces the element outline and the cursor ring.
+     * @param {{x:number,y:number}|null} point viewport point
+     */
+    function setShiftDrop(point) {
+      if (!point || state.hidden) {
+        setVisible(shiftDrop, false)
+        return
+      }
+      shiftDrop.style.left = `${Math.round(point.x)}px`
+      shiftDrop.style.top = `${Math.round(point.y)}px`
+      setVisible(shiftDrop, true)
+    }
+
+    /**
      * Initial paint: the hover guide, the marquee and the cursor ring appear
      * only while a gesture is running.
      */
@@ -207,6 +224,7 @@
       setVisible(hoverChip, false)
       setVisible(marquee, false)
       setVisible(cursorRing, false)
+      setVisible(shiftDrop, false)
     }
 
     return {
@@ -214,6 +232,7 @@
       hoverChip,
       marquee,
       cursorRing,
+      shiftDrop,
       lockedBox,
       lockedChip,
       markBands,
@@ -223,6 +242,7 @@
       positionLocked,
       setMarquee,
       setCursor,
+      setShiftDrop,
       hideTransient,
     }
   }

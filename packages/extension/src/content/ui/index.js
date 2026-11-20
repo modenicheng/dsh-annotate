@@ -151,6 +151,7 @@
       ctx.overlay.lockedBox,
       ctx.overlay.lockedChip,
       ctx.overlay.cursorRing,
+      ctx.overlay.shiftDrop,
       ctx.composer.node,
       ctx.hud.toast,
     )
@@ -187,6 +188,7 @@
       clearLocked: ctx.overlay.clearLocked,
       setMarquee: ctx.overlay.setMarquee,
       setCursor: ctx.overlay.setCursor,
+      setShiftDrop: ctx.overlay.setShiftDrop,
       setBadges: ctx.badges.setBadges,
       setBadgePending: ctx.badges.setBadgePending,
       setClearBusy: ctx.hud.setClearBusy,
@@ -210,6 +212,7 @@
           ctx.overlay.setMarquee(null)
           ctx.overlay.clearLocked()
           ctx.overlay.setCursor(null)
+          ctx.overlay.setShiftDrop(null)
           ctx.badges.closeAllBadgeCards()
           ctx.hud.disarmClear()
         }

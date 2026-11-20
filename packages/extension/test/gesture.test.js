@@ -52,7 +52,7 @@ function createSelection() {
 
 /** The `ns.ui` surface `main.js` calls, recording what reached the overlay. */
 function createUi() {
-  const calls = { hover: [], marquee: [], cursor: [], locked: [], composer: [] }
+  const calls = { hover: [], marquee: [], cursor: [], shiftDrop: [], locked: [], composer: [] }
   const ui = {
     calls,
     composerOpen: false,
@@ -74,6 +74,9 @@ function createUi() {
     },
     setCursor(value) {
       calls.cursor.push(value === null ? null : { ...value })
+    },
+    setShiftDrop(value) {
+      calls.shiftDrop.push(value === null ? null : { ...value })
     },
     setLocked(rect, label, holder, pageRect, lines) {
       calls.locked.push({ rect, label, holder, pageRect, lines })
@@ -120,6 +123,8 @@ async function bootContentScript() {
   const listeners = new Map()
   /** @type {Function[]} */
   const timers = []
+  /** @type {Function[]} */
+  const frames = []
   const selection = createSelection()
   const ui = createUi()
   const caret = { node: { nodeType: 3, nodeValue: 'caret text' }, offset: 4 }
@@ -169,9 +174,11 @@ async function bootContentScript() {
       listeners.set(type, list)
     },
     removeEventListener() {},
+    // Frames are queued, not run inline: `scheduleHover` keeps its id in state
+    // and clears it from the callback, exactly as the browser version does.
     requestAnimationFrame: (fn) => {
-      fn()
-      return 1
+      frames.push(fn)
+      return frames.length
     },
     setTimeout: (fn) => {
       timers.push(fn)
@@ -290,9 +297,17 @@ async function bootContentScript() {
     }
   }
 
+  /** Run the animation frames the content script queued (the hover pass). */
+  function flushFrames() {
+    while (frames.length > 0) {
+      const fn = frames.shift()
+      fn()
+    }
+  }
+
   fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
 
-  return { fire, flushTimers, selection, ui, caret, seeked, listeners, lineRects }
+  return { fire, flushTimers, flushFrames, selection, ui, caret, seeked, listeners, lineRects }
 }
 
 test('a Shift-drag is left to the browser: no rubber band, no default prevention', async () => {
@@ -362,6 +377,7 @@ test('a press whose release never arrives cannot keep drawing', async () => {
 
   const moves = harness.ui.calls.marquee.filter((value) => value !== null)
   assert.deepEqual(moves, [], 'no marquee may be anchored at the stale press')
+  harness.flushFrames()
   assert.equal(harness.ui.calls.hover.filter((value) => value !== null).length, 1, 'the pointer only hovers')
 })
 
@@ -376,10 +392,67 @@ test('an open composer keeps the pointer from painting a second box', async () =
 
   harness.ui.calls.hover.length = 0
   harness.ui.calls.cursor.length = 0
-  harness.fire('pointermove', { clientX: 300, clientY: 120, buttons: 0 })
+  harness.ui.calls.shiftDrop.length = 0
+  harness.fire('pointermove', { clientX: 300, clientY: 120, buttons: 0, shiftKey: true })
+  harness.flushFrames()
 
   assert.deepEqual(harness.ui.calls.hover, [null], 'the element under the pointer is not outlined')
   assert.deepEqual(harness.ui.calls.cursor, [null], 'and the cursor guide stays away too')
+  assert.deepEqual(harness.ui.calls.shiftDrop.at(-1), null, 'Shift in the composer is a capital letter')
+})
+
+test('holding Shift swaps the element outline for the text-selection drop', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.hover.length = 0
+  harness.ui.calls.shiftDrop.length = 0
+
+  // Hovering in auto mode outlines the element under the pointer...
+  harness.fire('pointermove', { clientX: 300, clientY: 120, buttons: 0 })
+  harness.flushFrames()
+  assert.ok(harness.ui.calls.hover.at(-1), 'the element under the pointer is outlined')
+
+  // ...until Shift says the next drag selects text instead.
+  harness.fire('keydown', { key: 'Shift', shiftKey: true })
+  assert.equal(harness.ui.calls.hover.at(-1), null, 'the box goes away when Shift is pressed')
+  assert.deepEqual(harness.ui.calls.shiftDrop.at(-1), { x: 300, y: 120 }, 'the drop hangs off the pointer')
+
+  // It follows the pointer, and no element is outlined on the way.
+  harness.fire('pointermove', { clientX: 340, clientY: 160, buttons: 0, shiftKey: true })
+  assert.deepEqual(harness.ui.calls.shiftDrop.at(-1), { x: 340, y: 160 }, 'the drop follows the pointer')
+  assert.equal(harness.ui.calls.hover.at(-1), null, 'still no outline while Shift is held')
+
+  // Releasing Shift brings the outline back at the same point.
+  harness.fire('keyup', { key: 'Shift' })
+  assert.equal(harness.ui.calls.shiftDrop.at(-1), null, 'the drop leaves with the key')
+  harness.flushFrames()
+  assert.ok(harness.ui.calls.hover.at(-1), 'and the element outline returns')
+})
+
+test('the drop carries a text-selection drag from press to release', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.shiftDrop.length = 0
+
+  harness.fire('keydown', { key: 'Shift', shiftKey: true })
+  harness.fire('pointerdown', { clientX: 120, clientY: 50, shiftKey: true })
+  harness.fire('pointermove', { clientX: 200, clientY: 50, buttons: 1, shiftKey: true })
+  assert.deepEqual(harness.ui.calls.shiftDrop.at(-1), { x: 200, y: 50 }, 'the drop tracks the drag')
+  // The press itself stays native: no box, and the drop is the only guide.
+  assert.deepEqual(
+    harness.ui.calls.marquee.filter((value) => value !== null),
+    [],
+    'a text drag paints no marquee',
+  )
+
+  harness.selection.isCollapsed = false
+  harness.selection.rangeCount = 1
+  harness.fire('pointerup', { clientX: 220, clientY: 50, buttons: 0, shiftKey: true })
+  harness.flushTimers()
+  assert.equal(harness.ui.composerOpen, true)
+  assert.equal(
+    harness.ui.calls.shiftDrop.at(-1),
+    null,
+    'the captured mark takes the drop with it: the bands say what is selected now',
+  )
 })
 
 test('ending a mark drops the selection it left on the page', async () => {

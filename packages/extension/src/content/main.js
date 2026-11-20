@@ -89,6 +89,8 @@
     // element may be gone by the time the comment is written.
     snapshot: null,
     pointer: { down: false, dragging: false, startX: 0, startY: 0 },
+    /** Shift is held, so the next drag selects text instead of an element. */
+    shiftArmed: false,
     selectionGesture: false,
     consoleErrors: [],
     observer: null,
@@ -566,6 +568,7 @@
     // The gesture is over before the anchor goes: leaving the mode with the
     // button down must still leave the page without a leftover highlight.
     resetPointer()
+    state.shiftArmed = false
     clearAnchor()
     if (ui) {
       if (ui.isComposerOpen()) ui.closeComposer()
@@ -573,6 +576,7 @@
       ui.setHover(null)
       ui.setMarquee(null)
       ui.setCursor(null)
+      ui.setShiftDrop(null)
       ui.setPickBanner(null)
       ui.setHud({ visible: false })
     }
@@ -651,6 +655,7 @@
     ui.setHover(null)
     ui.setMarquee(null)
     ui.setCursor(null)
+    ui.setShiftDrop(null)
     // Keep the target outlined while the comment is written: the outline is the
     // subject of the sentence, and losing it forces the user to remember which
     // of five similar buttons they clicked. A marked text is drawn as its line
@@ -983,6 +988,44 @@
     })
   }
 
+  /**
+   * The pointer is offering a text selection right now: Shift armed it before
+   * the press, or the drag that is running started as one. An open composer
+   * owns the scene already, so hovering beside it offers nothing.
+   */
+  function textSelectionArmed() {
+    if (state.selectionGesture) return true
+    return state.shiftArmed && !ui.isComposerOpen()
+  }
+
+  /**
+   * Paint what the pointer means — the drop for a text selection, the element
+   * outline otherwise — and never both. A region drag owns the marquee, so it
+   * is left alone.
+   */
+  function syncPointerGuide() {
+    if (!ui || state.pointer.dragging) return
+    if (!state.active || state.hidden) {
+      ui.setShiftDrop(null)
+      return
+    }
+    if (textSelectionArmed()) {
+      ui.setHover(null)
+      ui.setCursor(null)
+      ui.setShiftDrop(state.hoverPoint ? { x: state.hoverPoint.x, y: state.hoverPoint.y } : null)
+      return
+    }
+    ui.setShiftDrop(null)
+    if (state.hoverPoint) scheduleHover(state.hoverPoint.x, state.hoverPoint.y)
+  }
+
+  function setShiftArmed(armed) {
+    const value = armed === true
+    if (state.shiftArmed === value) return
+    state.shiftArmed = value
+    syncPointerGuide()
+  }
+
   function updateHover(x, y) {
     if (!ui) return
     // While the composer is open its amber outline already answers "what am I
@@ -1012,6 +1055,7 @@
     if (!state.active || event.button !== 0) return
     if (ns.text.isOurs(event.target)) return
     const mode = activeMode()
+    state.hoverPoint = { x: event.clientX, y: event.clientY }
     state.pointer.startX = event.clientX
     state.pointer.startY = event.clientY
     state.pointer.down = true
@@ -1020,15 +1064,24 @@
       // Native text selection owns this drag end to end: no preventDefault, no
       // marquee, no hover. Painting our own rectangle over the browser's
       // selection put two boxes on one gesture, and the guides of the previous
-      // hover have no business staying up either.
+      // hover have no business staying up either. The drop is what says the
+      // drag is selecting words.
       state.selectionGesture = true
+      state.shiftArmed = state.shiftArmed || event.shiftKey === true
       ui.setHover(null)
       ui.setMarquee(null)
       ui.setCursor(null)
+      ui.setShiftDrop({ x: event.clientX, y: event.clientY })
       collapseSelectionTo(event.clientX, event.clientY)
       return
     }
+    // Not a text press: whatever armed the drop is stale (a keyup we never
+    // saw), and this gesture is an element click or a region drag.
     state.selectionGesture = false
+    if (state.shiftArmed) {
+      state.shiftArmed = false
+      ui.setShiftDrop(null)
+    }
     // Suppress text selection, link/image dragging and control activation while
     // the gesture layer is armed.
     event.preventDefault()
@@ -1037,13 +1090,22 @@
 
   function onPointerMove(event) {
     if (!state.active) return
+    state.hoverPoint = { x: event.clientX, y: event.clientY }
     // No button held means any press we are still tracking is over; without
     // this check a lost pointerup turns every later move into a drag.
     if (state.pointer.down && event.buttons === 0) {
       resetPointer()
       if (ui) ui.setMarquee(null)
     }
-    if (state.selectionGesture) return
+    // Pointer events carry the modifier on every move and arrive even when the
+    // keydown went elsewhere (an iframe, a focus change), so they keep the
+    // guide honest; only the press itself pins the gesture, and an open
+    // composer is typing, not selecting.
+    if (!state.pointer.down) setShiftArmed(!ui.isComposerOpen() && event.shiftKey === true)
+    if (state.selectionGesture) {
+      ui.setShiftDrop({ x: event.clientX, y: event.clientY })
+      return
+    }
     if (state.pointer.down) {
       const distance = Math.hypot(event.clientX - state.pointer.startX, event.clientY - state.pointer.startY)
       const threshold = Number(P.MAX_CLICK_MOVEMENT_PX) || 6
@@ -1061,6 +1123,13 @@
         return
       }
     }
+    if (textSelectionArmed()) {
+      // Shift is down: no element is the subject, so the drop follows the
+      // pointer instead of an outline chasing whatever it passes over.
+      ui.setShiftDrop({ x: event.clientX, y: event.clientY })
+      return
+    }
+    ui.setShiftDrop(null)
     scheduleHover(event.clientX, event.clientY)
   }
 
@@ -1074,6 +1143,9 @@
     if (state.selectionGesture) {
       state.selectionGesture = false
       if (ui) ui.setMarquee(null)
+      // The press is over; if Shift is still held the drop stays at the
+      // release point, otherwise the pointer goes back to outlining elements.
+      syncPointerGuide()
       // The browser commits the native selection after mouseup, so read it on
       // the next turn of the event loop.
       global.setTimeout(() => {
@@ -1118,6 +1190,8 @@
     ui.setMarquee(null)
     ui.setHover(null)
     ui.setCursor(null)
+    if (state.shiftArmed) syncPointerGuide()
+    else ui.setShiftDrop(null)
   }
 
   function onClickCapture(event) {
@@ -1140,6 +1214,20 @@
     event.preventDefault()
   }
 
+  /** Shift means "select text", so it gets a pointer guide of its own. */
+  function isShiftKey(event) {
+    return event.key === 'Shift' || event.code === 'ShiftLeft' || event.code === 'ShiftRight'
+  }
+
+  function onKeyUp(event) {
+    if (!state.active || !event) return
+    // Disarming never needs to know where the key was released: the composer's
+    // own textarea is inside our shadow root, and a Shift typed there must not
+    // leave the drop on screen once it is up.
+    if (!isShiftKey(event)) return
+    setShiftArmed(false)
+  }
+
   function onKeyDown(event) {
     if (!event || event.repeat) return
     const key = String(event.key || '').toLowerCase()
@@ -1147,6 +1235,14 @@
       event.preventDefault()
       event.stopPropagation()
       toggleMode()
+      return
+    }
+    if (isShiftKey(event)) {
+      // A capital letter in the composer is not a text-selection gesture, and
+      // neither is Shift in our own chrome.
+      if (!state.active || ns.text.isOurs(event.target)) return
+      if (ui && ui.isComposerOpen()) return
+      setShiftArmed(true)
       return
     }
     if (event.key !== 'Escape') return
@@ -1415,6 +1511,7 @@
     installConsoleHook()
     global.addEventListener('message', onPageMessage, false)
     global.addEventListener('keydown', onKeyDown, true)
+    global.addEventListener('keyup', onKeyUp, true)
     global.addEventListener('pointerdown', onPointerDown, true)
     global.addEventListener('pointermove', onPointerMove, true)
     global.addEventListener('pointerup', onPointerUp, true)
