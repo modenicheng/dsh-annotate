@@ -25,8 +25,19 @@ window.__ModuleLoader__.load({
     /** Sticky matcher for one canonical mention; shared shape with the Host parser. */
     const WIRE = /@\[((?:\\.|[^\\\]\n])*)\]\(dsh-anno:([A-Za-z0-9_-]+)\)/uy
 
-    /** How often the page checks for mentions waiting on an open Session. */
-    const QUEUE_POLL_MS = 4_000
+    /** The Host's push channel: one stream per page, however many Sessions it shows. */
+    const EVENTS_PATH = '/ext/anno/events'
+
+    /**
+     * The repair interval, not the delivery path.
+     *
+     * A nudge from {@link EVENTS_PATH} is what makes a queued mention arrive
+     * immediately; this poll only exists for the case a nudge cannot cover — a
+     * stream that was down (or absent) while something was queued. It is slow on
+     * purpose: it is a safety net, so a missed event costs a wait instead of a
+     * lost delivery.
+     */
+    const REPAIR_POLL_MS = 30_000
 
     /** Queue, focus, and annotation reads the Host serves to the page it serves. */
     const QUEUE_PATH = '/ext/anno/queue'
@@ -175,6 +186,89 @@ window.__ModuleLoader__.load({
      */
     function trace(reason) {
       mark('data-dsh-anno-trace', reason)
+    }
+
+    /**
+     * One event stream per page, shared by every mounted Session dock.
+     *
+     * The stream carries an event *name*, never the queue's contents: a `mention`
+     * frame says "this Session has something waiting", and the reader still
+     * fetches `GET /ext/anno/queue?session=…` and acknowledges it. That keeps one
+     * delivery path — the pushed frame only decides *when* it runs — so a lost
+     * frame degrades to the repair poll instead of a lost mention.
+     *
+     * @type {Set<(event: any) => void>}
+     */
+    const STREAM_LISTENERS = new Set()
+    /** @type {any} */
+    let stream = null
+
+    /** @param {any} payload */
+    function emitStreamEvent(payload) {
+      for (const listener of [...STREAM_LISTENERS]) {
+        try {
+          listener(payload)
+        } catch {
+          // One listener's failure must not silence the others.
+        }
+      }
+    }
+
+    /** Open the stream if it is not open yet. */
+    function openStream() {
+      if (stream !== null) return
+      const Source = window.EventSource
+      if (typeof Source !== 'function') {
+        trace('no-eventsource')
+        return
+      }
+      const opened = new Source(EVENTS_PATH)
+      stream = opened
+      opened.onmessage = (message) => {
+        let payload
+        try {
+          payload = JSON.parse(message.data)
+        } catch {
+          return
+        }
+        if (payload === null || typeof payload !== 'object') return
+        emitStreamEvent(payload)
+      }
+      // A reconnection is a first-class moment, not a retry: it is exactly when
+      // events may have been missed, so listeners catch up on `open`.
+      opened.onopen = () => {
+        trace('events-open')
+        emitStreamEvent({ t: 'open' })
+      }
+      // `EventSource` retries on its own; recording it is all this needs to do.
+      opened.onerror = () => {
+        trace('events-error')
+      }
+    }
+
+    /**
+     * Listen for the Host's nudges, opening the stream on first use.
+     * @param {(event: any) => void} listener
+     * @returns {() => void} unsubscribe
+     */
+    function listenForEvents(listener) {
+      STREAM_LISTENERS.add(listener)
+      openStream()
+      return () => {
+        STREAM_LISTENERS.delete(listener)
+      }
+    }
+
+    /** Close the page's stream (plugin disposal). */
+    function closeStream() {
+      STREAM_LISTENERS.clear()
+      const opened = stream
+      stream = null
+      try {
+        opened?.close()
+      } catch {
+        // A stream that already failed has nothing left to close.
+      }
     }
 
     /**
@@ -508,6 +602,10 @@ window.__ModuleLoader__.load({
      * counts, and nothing is sent. A Session the user is not looking at is never
      * touched, and its entries simply wait in the queue.
      *
+     * Delivery is event-driven: the Host's stream says *when* to read, and the
+     * queue says *what*. A slow repair poll plus the mount and visibility pulls
+     * cover the case where no event arrives at all.
+     *
      * Being mounted is also what the Host needs to know, so the same effect
      * reports the focus.
      */
@@ -552,9 +650,20 @@ window.__ModuleLoader__.load({
           if (document.visibilityState === 'hidden') return
           void reportFocus(sessionId).catch((error) => trace(`focus-${String(error).slice(0, 40)}`))
         }
+        const onStreamEvent = (event) => {
+          if (event?.t === 'open') {
+            // A (re)connected stream is the one moment events may have been
+            // missed, so it re-announces the focus and catches up.
+            announce()
+            void pull()
+            return
+          }
+          if (event?.t === 'mention' && event.sessionId === sessionId) void pull()
+        }
+        const stopListening = listenForEvents(onStreamEvent)
         announce()
         void pull()
-        const timer = setInterval(() => void pull(), QUEUE_POLL_MS)
+        const timer = setInterval(() => void pull(), REPAIR_POLL_MS)
         // A hidden tab has its timers frozen, so the moment the user comes back
         // is also the moment to look.
         const onVisible = () => {
@@ -566,6 +675,7 @@ window.__ModuleLoader__.load({
         window.addEventListener('focus', onVisible)
         return () => {
           cancelled = true
+          stopListening()
           clearInterval(timer)
           document.removeEventListener('visibilitychange', onVisible)
           window.removeEventListener('focus', onVisible)
@@ -593,6 +703,14 @@ window.__ModuleLoader__.load({
         }, 'dsh-marker: chip styles')
 
         ctx.effect(() => ctx.uiConversation.userText.register(annoRule), 'dsh-marker: user-text rule')
+        // The page's stream outlives any one Session: it is opened on the first
+        // mounted dock and closed here, with the plugin.
+        ctx.effect(
+          () => () => {
+            closeStream()
+          },
+          'dsh-marker: event stream',
+        )
         ctx.slots.inject('conversation.user.text.node', function* () {
           yield ctx.slots.register({ name: 'conversation.user.text.node', key: 'anno', priority: 100 }, AnnoReference)
         })

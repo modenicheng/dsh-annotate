@@ -18,6 +18,7 @@ import { ensureToken, annotationsDir } from './src/paths.js'
 import { AnnotationStore } from './src/store.js'
 import { createBridge, tokenMatches } from './src/bridge.js'
 import { createDiscovery, isIpv4Loopback, shouldLocate } from './src/discovery.js'
+import { createEventStream, registerEventsRoute } from './src/events.js'
 import { createFocusStore, focusedSession, registerFocusRoute } from './src/focus.js'
 import { startLocator } from './src/locator.js'
 import { createAnnotationMentions } from './src/mentions.js'
@@ -60,6 +61,14 @@ export async function apply(ctx, config = {}) {
   const focus = createFocusStore({ dir: annotationsDir(), logger })
   await focus.load()
 
+  // The page's push channel. Created before the bridge because the delivery
+  // that follows an accepted create is what it publishes.
+  const events = createEventStream({ logger })
+
+  // The overlay's target catalog. Created here rather than at its route so the
+  // warm-up below can wait for the Session services it reads.
+  const catalog = createSessionCatalog({ get: (service) => ctx.get(service), logger })
+
   const bridge = createBridge({
     store,
     token,
@@ -89,6 +98,10 @@ export async function apply(ctx, config = {}) {
       const mention = formatAnnoMention({ id: patched.id, label })
       if (mention === '') return
       await queue.enqueue({ id: patched.id, sessionId, mention, label })
+      // The queue is the truth and this is only the knock: a page whose Session
+      // this is reads the queue immediately instead of waiting for its next
+      // poll, and a missed nudge costs latency rather than a delivery.
+      events.publish({ t: 'mention', sessionId })
       logger.info?.(`annotations: ${patched.id} queued for ${sessionId}`)
     },
     saveImage: async ({ data, mediaType, name }) => {
@@ -125,7 +138,7 @@ export async function apply(ctx, config = {}) {
     webCtx.effect(
       () =>
         registerSessionsRoute(webCtx.webServer, {
-          catalog: createSessionCatalog({ get: (service) => ctx.get(service), logger }),
+          catalog,
           token,
           matchesToken: tokenMatches,
           preferred: () => focusedSession(focus),
@@ -133,6 +146,7 @@ export async function apply(ctx, config = {}) {
       'dsh-marker: /ext/anno/sessions catalog',
     )
     webCtx.effect(() => registerQueueRoutes(webCtx.webServer, { queue }), 'dsh-marker: /ext/anno/queue hand-off')
+    webCtx.effect(() => registerEventsRoute(webCtx.webServer, { events }), 'dsh-marker: /ext/anno/events push')
     webCtx.effect(() => registerFocusRoute(webCtx.webServer, { store: focus }), 'dsh-marker: /ext/anno/focus report')
     webCtx.effect(
       () =>
@@ -194,9 +208,21 @@ export async function apply(ctx, config = {}) {
     }
   })
 
+  // Pay the picker's first title fold before anyone is looking. The child
+  // scope waits for the controller rather than failing once at boot, and a
+  // warm-up failure only means a slow first open.
+  ctx.inject(['sessionController'], (warmCtx) => {
+    warmCtx.effect(() => {
+      void catalog.warm()
+    }, 'dsh-marker: catalog warm-up')
+  })
+
   ctx.effect(
     () => () => {
       bridge.cancelAllPicks()
+      // A page still holding an event stream would wait on a Host that is gone;
+      // closing it makes `EventSource` reconnect to the next one instead.
+      events.close()
       void store.flush()
     },
     'dsh-marker: shutdown',

@@ -7,13 +7,32 @@
  * Session the Host knows is a candidate, including ones the browser has never
  * shown; there is no per-Session state here, only reads.
  *
+ * The expensive part of that read is the *title*, which is a fold over a
+ * Session's whole log. Folding every log on every picker open is what made a
+ * local list take seconds, so a title is answered in three tiers: the Session
+ * summary's own projection hints (zero I/O, already folded by the Host), then
+ * this module's memo, and only then a bounded fold for the rows that will
+ * actually be shown.
+ *
  * @module dsh-marker/sessions
  */
 
 import { LIMITS, SESSIONS_PATH } from './protocol.js'
 
-/** Session titles are optional: an empty catalog row still lists. */
-const TITLE_TIMEOUT_MS = 4_000
+/** A bounded fold is a fallback, not a wait: a title never owns the response. */
+const TITLE_READ_BUDGET_MS = 1_500
+
+/** Within this window a memoized title is reused without asking again. */
+const TITLE_TTL_MS = 5 * 60 * 1_000
+
+/** A failed title read is retried on a later picker open, not on every request. */
+const TITLE_RETRY_MS = 30_000
+
+/** Session summaries change on activity; a picker cannot see a sub-second difference. */
+const SUMMARY_TTL_MS = 1_000
+
+/** How many rows a warm-up asks for; the extension asks for 50. */
+const WARM_LIMIT = 50
 
 /**
  * @typedef {object} SessionCatalogItem
@@ -31,8 +50,16 @@ const TITLE_TIMEOUT_MS = 4_000
  * @param {object} options
  * @param {(name: string) => any} options.get Cordis service lookup for the mounting context.
  * @param {{ warn?: (...args: any[]) => void }} [options.logger]
+ * @param {() => number} [options.now] Clock, injected by tests.
  */
-export function createSessionCatalog({ get, logger }) {
+export function createSessionCatalog({ get, logger, now = Date.now }) {
+  /** @type {Map<string, { at: number, title: string }>} */
+  const titles = new Map()
+  /** @type {{ at: number, rows: readonly any[] } | null} */
+  let listing = null
+  /** When the last fold failed, or null while folds are worth trying. */
+  let titleFailingAt = null
+
   /**
    * @param {object} [options]
    * @param {string} [options.query] Case-insensitive substring over title, id, cwd and workspace.
@@ -41,27 +68,22 @@ export function createSessionCatalog({ get, logger }) {
    * @param {AbortSignal} [options.signal]
    */
   async function list(options = {}) {
-    const controller = get('sessionController')
-    if (controller === undefined) throw new Error('the session controller is not mounted in this profile')
-
     const limit = clamp(options.limit ?? 20, 1, LIMITS.sessionsLimit)
     const signal = options.signal ?? AbortSignal.timeout(8_000)
-    const value = await controller.list({}, signal)
-    const summaries = (Array.isArray(value?.items) ? value.items : []).filter(
+    const rows = (await readSummaries(signal)).filter(
       (row) => options.includeSubagents === true || row?.origin !== 'subagent',
     )
-
-    const titles = await readTitles(
-      summaries.map((row) => row.sessionId),
-      signal,
-    )
-    const workspaces = workspaceIndex()
     const needle = (options.query ?? '').trim().toLowerCase()
+    const ordered = [...rows].sort((left, right) => timestampOf(right) - timestampOf(left))
 
-    const items = summaries
-      .map((row) => describe(row, titles.get(row.sessionId), workspaces.get(row.sessionId)))
+    // A search matches on the title, so it has to know all of them; a plain
+    // open only needs the rows it is about to draw.
+    await ensureTitles(needle === '' ? ordered.slice(0, limit) : ordered, signal)
+
+    const workspaces = workspaceIndex()
+    const items = ordered
+      .map((row) => describe(row, titleOf(row), workspaces.get(row.sessionId)))
       .filter((item) => needle === '' || matches(item, needle))
-      .sort((left, right) => right.updatedAt - left.updatedAt)
 
     return {
       items: items.slice(0, limit),
@@ -72,31 +94,83 @@ export function createSessionCatalog({ get, logger }) {
   }
 
   /**
-   * Titles live in a separate fold; a failure here must not hide the catalog.
-   * @param {string[]} ids
-   * @param {AbortSignal} outer
-   * @returns {Promise<Map<string, string>>}
+   * Read the Session summaries, reusing the last read for a moment.
+   *
+   * The rows carry `running`/`updatedAt`, which move during a turn; a second of
+   * staleness is invisible in a picker and keeps two quick opens from scanning
+   * the corpus twice.
+   *
+   * @param {AbortSignal} signal
+   * @returns {Promise<readonly any[]>}
    */
-  async function readTitles(ids, outer) {
-    const titles = new Map()
-    const query = get('sessionQuery')
-    if (query === undefined || ids.length === 0) return titles
+  async function readSummaries(signal) {
+    const controller = get('sessionController')
+    if (controller === undefined) throw new Error('the session controller is not mounted in this profile')
+    if (listing !== null && now() - listing.at < SUMMARY_TTL_MS) return listing.rows
+    const value = await controller.list({}, signal)
+    const rows = Array.isArray(value?.items) ? value.items : []
+    listing = { at: now(), rows }
+    return rows
+  }
 
-    const budget = AbortSignal.timeout(TITLE_TIMEOUT_MS)
+  /**
+   * Fill this module's title memo for the rows a response will need.
+   *
+   * A hint is free and authoritative; a fold is bounded and best-effort. A fold
+   * failure costs titles, never the catalog.
+   *
+   * @param {readonly any[]} rows
+   * @param {AbortSignal} signal
+   */
+  async function ensureTitles(rows, signal) {
+    if (rows.length === 0) return
+
+    /** @type {any[]} */
+    const missing = []
+    for (const row of rows) {
+      const cached = titles.get(row.sessionId)
+      if (cached !== undefined && now() - cached.at < TITLE_TTL_MS) continue
+      const hinted = projectionTitle(row)
+      if (hinted !== undefined) {
+        titles.set(row.sessionId, { at: now(), title: hinted })
+        continue
+      }
+      missing.push(row)
+    }
+    if (missing.length === 0) return
+
+    const query = get('sessionQuery')
+    if (query === undefined) return
+    // A failed fold backs off; a hint is not a fold, so the loop above ran first.
+    if (titleFailingAt !== null && now() - titleFailingAt < TITLE_RETRY_MS) return
+
+    const ids = missing.map((row) => row.sessionId)
+    const budget = AbortSignal.timeout(TITLE_READ_BUDGET_MS)
     try {
-      const results = await query.readTitleSnapshots(ids, AbortSignal.any([outer, budget]))
+      const results = await query.readTitleSnapshots(ids, AbortSignal.any([signal, budget]))
       for (const [index, result] of (Array.isArray(results) ? results : []).entries()) {
         // `{sessionId, status, value: {session, title?: SessionTitleSnapshot}}`;
         // a rejected row carries only a reason and must not drop the others.
         const title = result?.value?.title?.title ?? result?.title
-        if (typeof title !== 'string' || title === '') continue
         const id = typeof result?.sessionId === 'string' ? result.sessionId : ids[index]
-        if (typeof id === 'string') titles.set(id, title)
+        if (typeof id !== 'string') continue
+        // An untitled Session is an answer too: memoizing the miss is what
+        // keeps a corpus full of new conversations from being re-folded.
+        titles.set(id, { at: now(), title: typeof title === 'string' ? title : '' })
       }
+      titleFailingAt = null
     } catch (error) {
+      if (signal.aborted) return
+      titleFailingAt = now()
       logger?.warn?.(`annotations: session titles unavailable (${messageOf(error)})`)
     }
-    return titles
+  }
+
+  /** @param {any} row */
+  function titleOf(row) {
+    const cached = titles.get(row.sessionId)
+    if (cached === undefined) return ''
+    return now() - cached.at < TITLE_TTL_MS ? cached.title : ''
   }
 
   /** @returns {Map<string, { id: string, title: string, path: string }>} */
@@ -115,7 +189,36 @@ export function createSessionCatalog({ get, logger }) {
     return index
   }
 
-  return { list }
+  /**
+   * Pay the first fold before anyone is looking, so the picker's first open is
+   * as fast as every later one. Failures are logged and forgotten: a cold
+   * catalog is a slow open, not a broken Host.
+   * @returns {Promise<void>}
+   */
+  function warm() {
+    return list({ limit: WARM_LIMIT }).then(
+      () => undefined,
+      (error) => logger?.warn?.(`annotations: catalog warm-up failed (${messageOf(error)})`),
+    )
+  }
+
+  return { list, warm }
+}
+
+/**
+ * A title the Host already folded, when the Session summary carries one.
+ *
+ * `SessionSummary.projections.values.title` is the title projection's value —
+ * a string in the shipped build, a snapshot object in the type. Both are read,
+ * because guessing wrong here would silently restore the fold we are removing.
+ * @param {any} row
+ * @returns {string | undefined}
+ */
+function projectionTitle(row) {
+  const value = row?.projections?.values?.title
+  if (typeof value === 'string') return value
+  if (value !== null && typeof value === 'object' && typeof value.title === 'string') return value.title
+  return undefined
 }
 
 /**
@@ -207,18 +310,23 @@ function presentedToken(request) {
   }
 }
 
-/** @param {any} row @param {string | undefined} title @param {{ id: string, title: string, path: string } | undefined} workspace */
+/** @param {any} row @param {string} title @param {{ id: string, title: string, path: string } | undefined} workspace */
 function describe(row, title, workspace) {
   return {
     id: row.sessionId,
-    title: typeof title === 'string' ? title : '',
-    updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : 0,
+    title,
+    updatedAt: timestampOf(row),
     running: row.running === true,
     blank: row.blank === true,
     agentAvailable: row.agentAvailable === true,
     cwd: typeof row.cwd === 'string' ? row.cwd : null,
     workspace: workspace ?? null,
   }
+}
+
+/** @param {any} row */
+function timestampOf(row) {
+  return typeof row?.updatedAt === 'number' ? row.updatedAt : 0
 }
 
 /** @param {SessionCatalogItem} item @param {string} needle */

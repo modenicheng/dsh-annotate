@@ -141,9 +141,125 @@ test('catalog degrades to untitled rows when titles are unavailable', async () =
   assert.match(warnings.join('\n'), /session titles unavailable/u)
 })
 
+test('a fold that failed backs off instead of running on every request', async () => {
+  let attempts = 0
+  let clock = 1_000
+  const offline = services({
+    sessionQuery: {
+      readTitleSnapshots: async () => {
+        attempts += 1
+        throw new Error('title backend offline')
+      },
+    },
+  })
+  const catalog = createSessionCatalog({ get: lookup(offline), now: () => clock })
+
+  await catalog.list()
+  clock += 1_000
+  await catalog.list()
+
+  assert.equal(attempts, 1, 'the second open backs off instead of folding again')
+})
+
 test('catalog fails loudly when the session controller is missing', async () => {
   const catalog = createSessionCatalog({ get: lookup({}) })
   await assert.rejects(() => catalog.list(), /session controller is not mounted/u)
+})
+
+/**
+ * Wrap the fixtures so every title fold is recorded.
+ * @param {object} [overrides]
+ */
+function counting(overrides = {}) {
+  const fixture = services(overrides)
+  /** @type {string[][]} */
+  const calls = []
+  const read = fixture.sessionQuery.readTitleSnapshots
+  fixture.sessionQuery = {
+    readTitleSnapshots: async (ids, signal) => {
+      calls.push([...ids])
+      return read(ids, signal)
+    },
+  }
+  return { services: fixture, calls }
+}
+
+test('a title the summary already carries costs no fold at all', async () => {
+  const hinted = counting({
+    sessionController: {
+      list: async () => ({
+        items: [
+          {
+            sessionId: 's-hinted',
+            updatedAt: 5_000,
+            projections: { kind: 'cached', asOfSeq: 12, values: { title: '投影里的标题' } },
+          },
+        ],
+      }),
+    },
+  })
+  const catalog = createSessionCatalog({ get: lookup(hinted.services) })
+  const [item] = (await catalog.list()).items
+
+  assert.equal(item.title, '投影里的标题')
+  assert.deepEqual(hinted.calls, [], 'the projection hint is authoritative')
+})
+
+test('a plain open folds only the rows it is about to draw', async () => {
+  const rows = Array.from({ length: 30 }, (_, index) => ({ sessionId: `s-${index}`, updatedAt: 1_000 + index }))
+  const folded = counting({ sessionController: { list: async () => ({ items: rows }) } })
+  const catalog = createSessionCatalog({ get: lookup(folded.services) })
+  const result = await catalog.list({ limit: 2 })
+
+  assert.deepEqual(folded.calls, [['s-29', 's-28']])
+  assert.equal(result.total, 30)
+  assert.equal(result.truncated, true)
+  assert.equal(result.items[0].title, 'title:s-29')
+})
+
+test('a search folds every row, because a title is searchable', async () => {
+  const folded = counting()
+  const catalog = createSessionCatalog({ get: lookup(folded.services) })
+
+  assert.deepEqual(
+    (await catalog.list({ query: 'title:s-old' })).items.map((item) => item.id),
+    ['s-old'],
+  )
+  assert.deepEqual(folded.calls, [['s-new', 's-blank', 's-old']], 'subagent rows stay out of it')
+})
+
+test('a folded title is memoized across opens, so a picker is slow once', async () => {
+  let clock = 1_000
+  const folded = counting()
+  const catalog = createSessionCatalog({ get: lookup(folded.services), now: () => clock })
+
+  await catalog.list()
+  clock += 5_000
+  await catalog.list()
+
+  assert.equal(folded.calls.length, 1)
+})
+
+test('the warm-up pays the fold before the picker asks', async () => {
+  const folded = counting()
+  const catalog = createSessionCatalog({ get: lookup(folded.services), now: () => 1_000 })
+
+  await catalog.warm()
+  await catalog.list()
+
+  assert.equal(folded.calls.length, 1)
+  assert.equal(folded.calls[0].length, 3)
+})
+
+test('a warm-up that cannot read the catalog is a warning, not a crash', async () => {
+  const warnings = []
+  const catalog = createSessionCatalog({
+    get: lookup({}),
+    logger: { warn: (line) => warnings.push(line) },
+  })
+
+  await catalog.warm()
+  assert.match(warnings.join('\n'), /catalog warm-up failed/u)
 })
 
 /**

@@ -39,6 +39,15 @@ export const QUEUE_PATH = '/ext/anno/queue'
 export const QUEUE_ACK_PATH = '/ext/anno/queue/ack'
 
 /**
+ * The page's push channel: one server-sent event stream per Web Client, telling
+ * a mounted Session that something it may own just changed. Same-origin only.
+ *
+ * It carries a *nudge*, never the data — the queue above stays the authority,
+ * so a missed event costs a slower delivery rather than a lost one.
+ */
+export const EVENTS_PATH = '/ext/anno/events'
+
+/**
  * The Session the Web Client is showing, reported by that Client so the Host
  * can answer "where does an annotation go by default?". Same-origin only, for
  * the same reason the queue is: the GUI is this Host's own page.

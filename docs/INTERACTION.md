@@ -95,7 +95,11 @@ rewritten — see D11.
   read and remove, not raw mention text (D17). Nothing is sent and no turn
   starts. The queue is read and acknowledged over two same-origin routes
   (`/ext/anno/queue`, `/ext/anno/queue/ack`), not over the bridge: the page never
-  sees the extension's token (D12).
+  sees the extension's token (D12). "The next time the user opens it" is *now*,
+  not on a timer: the Host nudges the page over `GET /ext/anno/events` (a
+  server-sent stream naming the Session, never the payload), so a mention queued
+  while that Session is on screen lands in its composer immediately, and a slow
+  repair poll covers a stream that was down (D24).
 - **Scheme negotiation.** The bridge must know whether it is reached over `ws`
   or `wss`; the Host advertises it in `/ext/anno/health` rather than letting the
   extension guess.
