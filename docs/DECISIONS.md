@@ -662,7 +662,10 @@ marker, the wire says anno. New wire names stay in the `anno` family rather
 than mixing `mark_*` with `annotate_*`. The locator's `app` value and the
 endpoint record's `app` field moved to `dsh-marker` while the feature is still
 unreleased, so no compatibility window is owed; after the first store upload the
-gecko id `dsh-marker@modenic.top` is fixed. The GitHub repository is still named
+gecko id `dsh-marker@modenc.top` is fixed. Corrected 2026-11-20, before any
+store upload: the id had carried a fabricated `modenic.top` since the original
+extension commit (85acbef); the owner's domain is `modenc.top`, and the id was
+fixed while it was still free to change. The GitHub repository is still named
 `dsh-annotate` and its URLs still resolve, so npm metadata points there until it
 is renamed separately.
 

@@ -96,7 +96,7 @@ function createBrowserStub({ extensionUrl = 'moz-extension://test/' } = {}) {
     runtime: {
       getManifest: () => ({ version: '0.1.0', manifest_version: 3 }),
       getURL: (path) => `${extensionUrl}${path}`,
-      id: 'dsh-marker@modenic.top',
+      id: 'dsh-marker@modenc.top',
       onMessage,
       onInstalled,
       onStartup,
