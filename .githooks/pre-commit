@@ -1,5 +1,8 @@
 #!/bin/sh
-# Fast local gate: generated files, syntax, format/lint, and the unit tests.
+# Fast local gate: generated files, syntax, and format/lint — all sub-second.
+# The unit tests are NOT here: they cost seconds per commit and already run in
+# CI (.github/workflows/ci.yml) and in the release workflow. Keep this hook to
+# checks whose feedback is faster than a human can context-switch.
 #
 # Runs before every commit from the repository root. Skips cleanly when Node is
 # not installed so a commit from a machine without the toolchain still works.
@@ -41,10 +44,4 @@ if ! npx --yes @biomejs/biome@2.4.14 check .; then
   exit 1
 fi
 
-echo "pre-commit: running unit tests"
-if ! node --test "packages/*/test/*.test.js"; then
-  echo "pre-commit: unit tests failed. Fix them, or bypass once with 'git commit --no-verify'." >&2
-  exit 1
-fi
-
-echo "pre-commit: all checks passed"
+echo "pre-commit: all checks passed (unit tests run in CI, not here)"
