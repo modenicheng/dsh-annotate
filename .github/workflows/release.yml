@@ -211,6 +211,10 @@ jobs:
           integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
           echo "value=$integrity" >> "$GITHUB_OUTPUT"
 
+      # curl, not `npm view`: npm caches the packument it fetched while the
+      # version did not exist yet, so every later `npm view` in the same job
+      # keeps reporting the fresh version as missing. That is how 0.1.2 was
+      # published successfully and then failed its own verification.
       # A rerun after a partial failure must not fail on "version exists"; it
       # must agree that the registry already holds this tarball, or stop loudly.
       - name: Skip when this version is already on the registry
@@ -220,7 +224,7 @@ jobs:
           EXPECTED: ${{ steps.integrity.outputs.value }}
         run: |
           set -euo pipefail
-          published="$(npm view "dsh-marker@$VERSION" dist.integrity 2>/dev/null || true)"
+          published="$(curl -fsS --max-time 20 "https://registry.npmjs.org/dsh-marker/$VERSION" 2>/dev/null | jq -r '.dist.integrity // empty' || true)"
           if [ -z "$published" ]; then
             echo "value=no" >> "$GITHUB_OUTPUT"
             exit 0
@@ -243,9 +247,9 @@ jobs:
           set -euo pipefail
           npm publish ./dist/*.tgz --provenance --access public
 
-      # `npm view` here is anonymous: the job holds no token, so this is what a
-      # stranger sees. A fresh publish is eventually consistent across replicas,
-      # so the check retries instead of failing on replication lag.
+      # Anonymous by construction: no token is configured in this job, so this
+      # is the view a stranger gets. A fresh publish is eventually consistent
+      # across replicas, so the check retries instead of failing on lag.
       - name: Verify the registry holds these bytes
         env:
           VERSION: ${{ steps.version.outputs.value }}
@@ -253,7 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            published="$(npm view "dsh-marker@$VERSION" dist.integrity 2>/dev/null || true)"
+            published="$(curl -fsS --max-time 20 "https://registry.npmjs.org/dsh-marker/$VERSION" 2>/dev/null | jq -r '.dist.integrity // empty' || true)"
             if [ "$published" = "$EXPECTED" ]; then
               echo "registry holds dsh-marker@$VERSION ($EXPECTED)"
               exit 0
