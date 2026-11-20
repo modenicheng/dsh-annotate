@@ -216,9 +216,11 @@ hand: removing the policy and injecting `upgrade-insecure-requests` each fail
 ## D10 — The mark is the annotation; the comment is optional
 
 **Decision.** An annotation may be sent with an empty comment. The composer's
-send button is always enabled; while the textarea is empty it reads **只发标记**
-(`Send mark`) so the action describes itself, and it reverts to **发送** as soon
-as the user types. An empty submit produces a normal record with `comment: ''` —
+send button always reads **发送** (`Send`) with a send icon, whether or not the
+textarea has words; it never changes into a second send-mark-only label. What
+does disable it is the bridge: while the connection is not healthy the button is
+disabled and an alert under the textarea states that the host is not connected.
+An empty submit produces a normal record with `comment: ''` —
 the same shape the protocol already validates, with the anchor, page context, and
 crop carrying the payload.
 

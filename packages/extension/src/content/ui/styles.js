@@ -249,6 +249,9 @@
 }
 .composer-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -261,6 +264,18 @@
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn-primary { background: #2563eb; border-color: #3b82f6; color: #ffffff; }
 .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.btn .icon { width: 14px; height: 14px; fill: currentColor; flex: none; }
+/* Offline alert under the textarea: paired with the disabled send button. */
+.composer-alert {
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
 .composer-error { margin-top: 6px; color: #fca5a5; font-size: var(--text-caption); line-height: var(--text-caption-lh); white-space: pre-wrap; }
 /* Target row: one line when collapsed, a flat searchable list when open. The
    row detail (workspace + last activity) only exists on the active row, so the

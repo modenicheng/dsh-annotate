@@ -4,8 +4,9 @@
  * The card is positioned in viewport pixels next to the outlined target and
  * flipped above it when there is no room below, because the whole point is to
  * keep the anchor visible while the sentence about it is written. The mark is
- * the annotation and the comment is optional, so an empty card is sendable and
- * the primary button says so instead of looking broken.
+ * the annotation and the comment is optional, so an empty card is sendable;
+ * whether a send can land is the bridge's call — an offline bridge disables
+ * the send button and the alert under the textarea says so.
  */
 ;(function installUiComposer(global) {
   const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
@@ -17,7 +18,10 @@
    */
   function install(ctx) {
     const { t, state, handlers, dom } = ctx
-    const { createElement, setVisible, clamp, viewportSize } = dom
+    const { createElement, createIcon, setVisible, clamp, viewportSize } = dom
+
+    // mdi:send from Iconify (Apache-2.0), shown on the primary button.
+    const ICON_SEND = 'M2,21L23,12L2,3V10L17,12L2,14V21Z'
 
     let composerRect = null
 
@@ -29,20 +33,34 @@
     const textarea = createElement('textarea')
     textarea.rows = 3
     textarea.spellcheck = false
+    const composerAlert = createElement('div', 'composer-alert', t('notConnected'))
     const chips = createElement('div', 'chips')
     const composerFoot = createElement('div', 'composer-foot')
     const composerHint = createElement('span', 'composer-hint')
     const composerActions = createElement('div', 'composer-actions')
     const cancelButton = createElement('button', 'btn', t('cancel'))
     cancelButton.type = 'button'
-    const sendButton = createElement('button', 'btn btn-primary', t('send'))
+    const sendButton = createElement('button', 'btn btn-primary')
     sendButton.type = 'button'
+    const sendIcon = createIcon(ICON_SEND)
+    const sendLabel = createElement('span')
+    sendButton.append(sendIcon, sendLabel)
     sendButton.disabled = true
     composerActions.append(cancelButton, sendButton)
     composerFoot.append(composerHint, composerActions)
     const composerError = createElement('div', 'composer-error')
     // The target row is the picker's node; the card only decides where it sits.
-    composer.append(composerHead, textarea, chips, ctx.target.row, composerFoot, composerError)
+    // The alert sits under the textarea so an offline bridge explains itself
+    // right where the words would go.
+    composer.append(
+      composerHead,
+      textarea,
+      composerAlert,
+      chips,
+      ctx.target.row,
+      composerFoot,
+      composerError,
+    )
 
     function composerTitle(kind) {
       if (kind === 'selection') return t('composerSelection')
@@ -71,14 +89,22 @@
     }
 
     function syncSendState() {
-      const text = textarea.value.trim()
-      // The mark is the annotation; the comment is optional metadata. An empty
-      // composer is therefore sendable, and the label says so instead of
-      // leaving an enabled button that looks like it is waiting for words.
-      sendButton.disabled = state.busy
+      // The mark is the annotation; the comment is optional metadata, so the
+      // label never changes with the text. What does gate the button is the
+      // bridge: while it is not ok a send cannot land, so the button is
+      // disabled outright and the alert under the textarea says why, instead
+      // of leaving an enabled button that only fails after the fact.
+      const offline = state.connected !== 'ok'
+      sendButton.disabled = state.busy || offline
       cancelButton.disabled = state.busy
       textarea.disabled = state.busy
-      sendButton.textContent = state.busy ? t('sending') : text === '' ? t('sendMark') : t('send')
+      sendLabel.textContent = state.busy ? t('sending') : t('send')
+      const alertVisible = state.composerOpen && offline
+      const wasVisible = !composerAlert.hasAttribute('f-hidden')
+      setVisible(composerAlert, alertVisible)
+      // The alert changes the card's height; re-measure so it never hangs off
+      // the bottom edge right after the connection drops.
+      if (alertVisible !== wasVisible && state.composerOpen) positionComposer(viewportSize())
     }
 
     function selectIntent(intent) {
@@ -226,6 +252,7 @@
       composerText,
       focusComposer,
       position,
+      syncSendState,
     }
   }
 

@@ -19,6 +19,24 @@
     return element
   }
 
+  const SVG_NS = 'http://www.w3.org/2000/svg'
+
+  /**
+   * Build an inline SVG icon (Iconify path data, e.g. mdi:send) without ever
+   * parsing a string as HTML — the same rule createElement enforces for text.
+   */
+  function createIcon(pathData, viewBox = '0 0 24 24') {
+    const svg = global.document.createElementNS(SVG_NS, 'svg')
+    svg.setAttribute('viewBox', viewBox)
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('focusable', 'false')
+    const path = global.document.createElementNS(SVG_NS, 'path')
+    path.setAttribute('d', pathData)
+    svg.appendChild(path)
+    svg.classList.add('icon')
+    return svg
+  }
+
   function setVisible(element, visible) {
     if (!element) return
     if (visible) element.removeAttribute('f-hidden')
@@ -52,5 +70,5 @@
     return { x: Number(global.scrollX) || 0, y: Number(global.scrollY) || 0 }
   }
 
-  ui.dom = { createElement, setVisible, clamp, fill, badgeLabel, viewportSize, scrollOffset }
+  ui.dom = { createElement, createIcon, setVisible, clamp, fill, badgeLabel, viewportSize, scrollOffset }
 })(globalThis)
