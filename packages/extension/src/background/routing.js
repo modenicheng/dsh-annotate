@@ -488,7 +488,15 @@
     rememberTab(tab)
     const draft = field(message, 'record')
     if (!ns.isPlainObject(draft)) return failure('anno.submit needs a record draft')
-    const queued = await queueAnnotation(draft, tab, message, { source: 'user' })
+    // The draft's routing.sessionId is the target the composer chose (a picked
+    // Session, or the one a "new session" target just created); dropping it
+    // here sent every targeted annotation to the focused Session instead.
+    const queued = await queueAnnotation(draft, tab, message, {
+      source: 'user',
+      ...(typeof draft.routing?.sessionId === 'string' && draft.routing.sessionId !== ''
+        ? { sessionId: draft.routing.sessionId }
+        : {}),
+    })
     if (queued.ok !== true) return queued
     void ns.outbox.flush({ reason: 'submit' })
     ns.log.info(`queued annotation ${queued.record.id} for ${tab.url ?? 'unknown page'}`)
