@@ -9,7 +9,6 @@
     "includes": [
       "packages/**",
       "scripts/**",
-      "!packages/protocol/src/index.js.bak",
       "!**/.agents",
       "!packages/plugin/src/protocol.js",
       "!packages/extension/src/shared/protocol.js",
