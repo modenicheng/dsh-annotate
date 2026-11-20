@@ -1,15 +1,16 @@
 /**
  * The gesture layer's contract, pinned without a browser.
  *
- * The overlay's whole job is to stay out of the way: exactly one rectangle may
- * be on screen at a time, and the browser's own text selection owns Shift-drag
- * end to end. Three shipped bugs came from that rule being broken — a marquee
- * anchored at a press whose release never arrived (drawn from the bottom of the
- * page), a rubber band painted over a native text selection and left behind
- * after the release, and a hover outline competing with the composer's amber
- * one. Each one is cheap to reintroduce, so this harness boots the content
- * script in a `node:vm` context with a fake document and drives the window-level
- * listeners the way the browser would.
+ * The overlay's whole job is to stay out of the way: one subject may be drawn at
+ * a time, and the browser's own text selection owns Shift-drag end to end. Three
+ * shipped bugs came from that rule being broken — a marquee anchored at a press
+ * whose release never arrived (drawn from the bottom of the page), a rubber band
+ * painted over a native text selection and left behind after the release, and a
+ * hover outline competing with the composer's amber one — and a fourth came from
+ * the opposite gap: the composer took the selection highlight away and left the
+ * user unable to see which words were marked. Each is cheap to reintroduce, so
+ * this harness boots the content script in a `node:vm` context with a fake
+ * document and drives the window-level listeners the way the browser would.
  */
 
 import assert from 'node:assert/strict'
@@ -74,8 +75,8 @@ function createUi() {
     setCursor(value) {
       calls.cursor.push(value === null ? null : { ...value })
     },
-    setLocked(rect, label, holder) {
-      calls.locked.push({ rect, label, holder })
+    setLocked(rect, label, holder, pageRect, lines) {
+      calls.locked.push({ rect, label, holder, pageRect, lines })
     },
     clearLocked() {},
     isComposerOpen() {
@@ -140,6 +141,11 @@ async function bootContentScript() {
     nodeName: 'P',
     getBoundingClientRect: () => ({ left: 100, top: 40, width: 120, height: 20 }),
   }
+  // Two line boxes, the shape a two-line selection reports.
+  const lineRects = [
+    { x: 100, y: 40, w: 120, h: 20 },
+    { x: 100, y: 64, w: 80, h: 20 },
+  ]
   const capture = (viewport) => ({
     anchor: {
       kind: 'selection',
@@ -147,6 +153,7 @@ async function bootContentScript() {
       rect: { x: 100, y: 40, w: 120, h: 20 },
     },
     viewportRect: viewport,
+    lineRects: lineRects.map((line) => ({ ...line })),
     live: null,
   })
 
@@ -285,10 +292,10 @@ async function bootContentScript() {
 
   fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
 
-  return { fire, flushTimers, selection, ui, caret, seeked, listeners }
+  return { fire, flushTimers, selection, ui, caret, seeked, listeners, lineRects }
 }
 
-test('a Shift-drag is left to the browser: no band, no default prevention', async () => {
+test('a Shift-drag is left to the browser: no rubber band, no default prevention', async () => {
   const harness = await bootContentScript()
   harness.ui.calls.marquee.length = 0
   harness.ui.calls.hover.length = 0
@@ -325,6 +332,21 @@ test('a Shift-drag is left to the browser: no band, no default prevention', asyn
   harness.flushTimers()
   assert.equal(harness.ui.calls.marquee.at(-1), null, 'the release clears the band it never drew')
   assert.equal(harness.ui.composerOpen, true, 'the captured selection went to the composer')
+  // The words stay identifiable while the composer holds the selection: one
+  // band per line box, in document coordinates so scrolling keeps them on text.
+  const locked = harness.ui.calls.locked.at(-1)
+  assert.equal(locked.holder, 'composer')
+  assert.deepEqual(locked.lines, harness.lineRects, 'every line of the marked text is banded')
+})
+
+test('a marked element is outlined as one box, with no bands', async () => {
+  const harness = await bootContentScript()
+  harness.fire('pointerdown', { clientX: 120, clientY: 50 })
+  harness.fire('pointerup', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushTimers()
+  const locked = harness.ui.calls.locked.at(-1)
+  assert.equal(locked.holder, 'composer')
+  assert.equal(locked.lines, null, 'an element has no text lines to band')
 })
 
 test('a press whose release never arrives cannot keep drawing', async () => {

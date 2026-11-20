@@ -91,6 +91,8 @@
       lockHolder: null,
       lockedRect: null,
       lockedPageRect: null,
+      /** Line boxes of the marked text, in document coordinates; null for a box. */
+      lockedLines: null,
       lockedLabel: '',
       badgeItems: [],
       badgeSignature: '',
@@ -145,6 +147,7 @@
       ctx.overlay.hoverBox,
       ctx.overlay.hoverChip,
       ctx.overlay.marquee,
+      ctx.overlay.markBands,
       ctx.overlay.lockedBox,
       ctx.overlay.lockedChip,
       ctx.overlay.cursorRing,

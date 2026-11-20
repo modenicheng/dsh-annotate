@@ -151,6 +151,25 @@
   pointer-events: none;
 }
 .hover-chip[data-locked="1"] { background: #b45309; }
+/* A marked text is drawn as one band per line box, in the same blue the
+   persisted mark highlight uses, so the words stay identifiable while the
+   composer owns the selection highlight. The alpha is low enough that the text
+   under it is still readable. */
+.mark-band-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.mark-band {
+  position: absolute;
+  background: rgba(56, 139, 253, 0.22);
+  box-shadow: inset 0 -2px 0 rgba(56, 139, 253, 0.6);
+  pointer-events: none;
+}
 .hover-chip {
   position: fixed;
   z-index: 4;

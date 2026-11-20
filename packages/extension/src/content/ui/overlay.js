@@ -28,6 +28,9 @@
     const lockedBox = createElement('div', 'locked-box')
     const lockedChip = createElement('div', 'hover-chip')
     lockedChip.dataset.locked = '1'
+    /** One band per line box of a marked text; children are pooled. */
+    const markBands = createElement('div', 'mark-band-layer')
+    const bandPool = []
 
     function setHover(info) {
       if (!info || state.hidden) {
@@ -65,9 +68,13 @@
      * @param {{x:number,y:number,w:number,h:number}|null} rect viewport rect
      * @param {string} [label]
      * @param {'composer'|'badge'} [holder]
-     * @param {{x:number,y:number,w:number,h:number}} [pageRect] document rect, re-projected on scroll
+     * @param {{x:number,y:number,w:number,h:number}|null} [pageRect] document rect, re-projected on scroll
+     * @param {{x:number,y:number,w:number,h:number}[]|null} [lines] per-line document
+     *   rects of a marked text; when present the bands replace the box, because
+     *   a single rectangle around a paragraph says nothing about which words
+     *   were marked
      */
-    function setLocked(rect, label, holder, pageRect) {
+    function setLocked(rect, label, holder, pageRect, lines) {
       if (!rect) {
         clearLocked(holder)
         return
@@ -75,6 +82,7 @@
       state.lockHolder = holder || 'composer'
       state.lockedRect = { ...rect }
       state.lockedPageRect = pageRect ? { ...pageRect } : null
+      state.lockedLines = Array.isArray(lines) && lines.length > 0 ? lines.map((line) => ({ ...line })) : null
       state.lockedLabel = String(label || '')
       positionLocked()
     }
@@ -86,21 +94,52 @@
       state.lockHolder = null
       state.lockedRect = null
       state.lockedPageRect = null
+      state.lockedLines = null
       state.lockedLabel = ''
       setVisible(lockedBox, false)
       setVisible(lockedChip, false)
+      hideBands()
+    }
+
+    function hideBands() {
+      for (const band of bandPool) setVisible(band, false)
+    }
+
+    /**
+     * One band per line box. The rects are stored in document coordinates and
+     * projected here, so scrolling keeps them on the words they mark.
+     */
+    function paintBands(lines) {
+      const scroll = scrollOffset()
+      let used = 0
+      for (const line of lines) {
+        let band = bandPool[used]
+        if (!band) {
+          band = createElement('div', 'mark-band')
+          bandPool.push(band)
+          markBands.appendChild(band)
+        }
+        band.style.left = `${Math.round(line.x - scroll.x)}px`
+        band.style.top = `${Math.round(line.y - scroll.y)}px`
+        band.style.width = `${Math.max(0, Math.round(line.w))}px`
+        band.style.height = `${Math.max(0, Math.round(line.h))}px`
+        setVisible(band, true)
+        used += 1
+      }
+      for (let index = used; index < bandPool.length; index += 1) setVisible(bandPool[index], false)
     }
 
     function positionLocked() {
       if (state.lockHolder === null || state.hidden) {
         setVisible(lockedBox, false)
         setVisible(lockedChip, false)
+        hideBands()
         return
       }
       const size = viewportSize()
+      const scroll = scrollOffset()
       let rect = state.lockedRect || { x: 0, y: 0, w: 0, h: 0 }
       if (state.lockedPageRect !== null) {
-        const scroll = scrollOffset()
         rect = {
           x: state.lockedPageRect.x - scroll.x,
           y: state.lockedPageRect.y - scroll.y,
@@ -108,11 +147,21 @@
           h: state.lockedPageRect.h,
         }
       }
-      lockedBox.style.left = `${Math.round(rect.x)}px`
-      lockedBox.style.top = `${Math.round(rect.y)}px`
-      lockedBox.style.width = `${Math.max(0, Math.round(rect.w))}px`
-      lockedBox.style.height = `${Math.max(0, Math.round(rect.h))}px`
-      setVisible(lockedBox, true)
+      // A marked text is drawn as its line boxes; anything else as one outline.
+      const lines = state.lockedLines
+      if (lines !== null) {
+        setVisible(lockedBox, false)
+        paintBands(lines)
+        const first = lines[0]
+        rect = { x: first.x - scroll.x, y: first.y - scroll.y, w: first.w, h: first.h }
+      } else {
+        hideBands()
+        lockedBox.style.left = `${Math.round(rect.x)}px`
+        lockedBox.style.top = `${Math.round(rect.y)}px`
+        lockedBox.style.width = `${Math.max(0, Math.round(rect.w))}px`
+        lockedBox.style.height = `${Math.max(0, Math.round(rect.h))}px`
+        setVisible(lockedBox, true)
+      }
 
       lockedChip.textContent = state.lockedLabel
       setVisible(lockedChip, state.lockedLabel !== '')
@@ -167,6 +216,7 @@
       cursorRing,
       lockedBox,
       lockedChip,
+      markBands,
       setHover,
       setLocked,
       clearLocked,

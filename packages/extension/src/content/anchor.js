@@ -29,6 +29,8 @@
   const MAX_INDEX_CHARS = 400_000
   const MAX_INDEX_NODES = 10_000
   const MAX_ATTRIBUTES = 8
+  /** Line boxes one text mark may be painted with; a longer mark keeps the box. */
+  const MAX_MARK_LINES = 120
 
   /** Elements whose text never belongs to an anchor or a highlight. */
   const SKIP_TEXT_PARENTS = new Set([
@@ -157,26 +159,39 @@
     }
   }
 
-  function unionRangeRects(range) {
-    if (!range) return { x: 0, y: 0, w: 0, h: 0 }
+  /**
+   * Client rects of a range, one per line box. Zero-area rects are collapsed
+   * lines and would drag a union to the wrong corner. `limit` bounds the result
+   * for callers that paint one node per line.
+   */
+  function rangeClientRects(range, limit) {
+    if (!range) return []
     const rects = []
+    const max = Number(limit) > 0 ? Math.trunc(Number(limit)) : Number.POSITIVE_INFINITY
     try {
       const list = typeof range.getClientRects === 'function' ? range.getClientRects() : null
       if (list) {
-        for (let index = 0; index < list.length; index += 1) {
+        for (let index = 0; index < list.length && rects.length < max; index += 1) {
           const box = list[index]
-          // Zero-area client rects are collapsed lines; they would drag the
-          // union to the wrong corner.
           if (box && (box.width > 0 || box.height > 0)) rects.push(rectOf(box))
         }
       }
-      if (rects.length === 0 && typeof range.getBoundingClientRect === 'function') {
+    } catch {
+      // A range whose endpoints were removed by the page: no lines to report.
+    }
+    return rects
+  }
+
+  function unionRangeRects(range) {
+    if (!range) return { x: 0, y: 0, w: 0, h: 0 }
+    const rects = rangeClientRects(range)
+    if (rects.length === 0 && typeof range.getBoundingClientRect === 'function') {
+      try {
         const box = range.getBoundingClientRect()
         if (box) rects.push(rectOf(box))
+      } catch {
+        // Callers fall back to the stored rect.
       }
-    } catch {
-      // A range whose endpoints were removed by the page: callers fall back to
-      // the stored rect.
     }
     return unionRects(rects)
   }
@@ -906,6 +921,10 @@
 
     let viewportRect = unionRangeRects(range)
     if (viewportRect.w === 0 && viewportRect.h === 0) viewportRect = rectOf(block.getBoundingClientRect())
+    // The line boxes are what the overlay paints over the marked words: the
+    // composer takes focus, and with it the browser's own selection highlight,
+    // so without them the user could not see what the annotation is about.
+    const lineRects = rangeClientRects(range, MAX_MARK_LINES)
 
     const anchor = {
       kind: 'selection',
@@ -924,7 +943,7 @@
       textPosition: { start: startPosition, end: endPosition },
       rect: roundRect(viewportToPage(viewportRect)),
     }
-    return { anchor, viewportRect, live: { kind: 'range', range } }
+    return { anchor, viewportRect, lineRects, live: { kind: 'range', range } }
   }
 
   /** Element anchor: selectors, a fingerprint for re-finding it, diagnostics. */

@@ -653,8 +653,15 @@
     ui.setCursor(null)
     // Keep the target outlined while the comment is written: the outline is the
     // subject of the sentence, and losing it forces the user to remember which
-    // of five similar buttons they clicked.
-    ui.setLocked(ns.geom.roundRect(rect), summaryOf(anchorState.anchor), 'composer')
+    // of five similar buttons they clicked. A marked text is drawn as its line
+    // boxes instead, because one rectangle around a paragraph says nothing
+    // about which words were picked — and the composer's own focus takes the
+    // browser's selection highlight away the moment it opens.
+    const lines =
+      anchorState.anchor.kind === 'selection' && Array.isArray(anchorState.lineRects)
+        ? anchorState.lineRects.map((line) => ns.geom.roundRect(ns.geom.viewportToPage(line)))
+        : null
+    ui.setLocked(ns.geom.roundRect(rect), summaryOf(anchorState.anchor), 'composer', null, lines)
     ui.openComposer({
       kind: anchorState.anchor.kind,
       summary: summaryOf(anchorState.anchor),
