@@ -474,8 +474,11 @@
    * Drop the current socket and connect immediately with a fresh backoff.
    * Used when the user edits the token or the bridge address.
    * @param {string} reason
+   * @param {{ forceProbe?: boolean }} [options] `forceProbe: false` keeps a
+   *   fresh remembered host (an endpoint-record import seeds one) instead of
+   *   running a forced locator round that would ignore it.
    */
-  async function reconnectNow(reason = 'manual') {
+  async function reconnectNow(reason = 'manual', { forceProbe = true } = {}) {
     clearRetryTimer()
     clearHelloTimer()
     // Invalidate an attempt that is still probing: it read the old settings and
@@ -493,7 +496,7 @@
     ns.setNetState({ attempts: 0, nextRetryAt: 0, connection: 'idle' })
     // A user-initiated reconnect re-asks the host: the settings (or the host
     // behind them) may have changed since the last probe.
-    return connect({ reason, resetAttempts: true, forceProbe: true })
+    return connect({ reason, resetAttempts: true, forceProbe })
   }
 
   /**

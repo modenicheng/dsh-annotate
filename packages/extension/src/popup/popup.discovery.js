@@ -300,6 +300,10 @@
       }
       if (state.failures.length > 0 || connection === 'offline' || connection === 'error') {
         parts.push('no host found')
+        // In auto mode with an explicit address, this is the one place the
+        // address can be shown: no host was discovered to name instead.
+        const explicit = configuredAuthority(status)
+        if (explicit !== '') parts.push(explicit)
         const tried = state.failures.length
         if (tried > 0) parts.push(`${tried} port${tried === 1 ? '' : 's'} tried`)
         parts.push(tokenState)

@@ -584,6 +584,52 @@ test('manual mode keeps the pre-discovery path exactly', async () => {
   )
 })
 
+test('auto mode with a typed address keeps reporting auto and honors the address', async () => {
+  const stub = discoveryStub({
+    locators: [{ port: 30810, body: locateBody({ origin: 'http://127.0.0.1:51234', instanceId: 'aaaaaaaaaaaaaaaa' }) }],
+    health: { 3099: healthFor('http://127.0.0.1:3099', 'eeeeeeeeeeeeeeee') },
+  })
+  const { ns, sockets } = await bootBackground({
+    prefs: { connection: 'auto', host: '127.0.0.1', port: 3099, secure: null },
+    fetch: stub.fetch,
+  })
+
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:3099/ext/anno')
+  // The mode mirrors the preference even though the address is explicit: a
+  // reconnect after a drop must not repaint the status as a mode switch.
+  assert.equal(ns.netState.discoveryMode, 'auto')
+  assert.equal(ns.netState.discoverySource, 'manual')
+  // Only the typed address is probed: the locator round must not run.
+  assert.deepEqual(
+    stub.calls.filter((url) => url.includes('/locate')),
+    [],
+  )
+})
+
+test('importing an endpoint record reconnects without demoting auto mode', async () => {
+  const origin = 'http://127.0.0.1:51234'
+  const id = 'eeeeeeeeeeeeeeee'
+  const stub = discoveryStub({ health: { 51234: healthFor(origin, id) } })
+  const { ns, events, stored, sockets } = await bootBackground({ prefs: { connection: 'auto' }, fetch: stub.fetch })
+  assert.equal(ns.netState.connection, 'offline', 'the pre-import round found nothing')
+
+  const answer = await events.onMessage.listeners[0](
+    { type: 'anno.popup.import', origin, instanceId: id, profile: 'web', startedAt: '2026-11-19T13:00:00.000Z' },
+    {},
+  )
+  assert.equal(answer.ok, true)
+
+  // The typed address is untouched, so auto discovery keeps owning it.
+  assert.equal(stored.get('anno.prefs')?.host, undefined)
+  assert.equal(stored.get('anno.prefs')?.connection, 'auto')
+  assert.equal(stored.get('anno.address')?.origin, origin)
+
+  // The import reconnects through the seeded fast path, not a forced round.
+  await waitUntil(() => sockets.some((socket) => socket.url === 'ws://127.0.0.1:51234/ext/anno'))
+  assert.equal(ns.netState.discoveryMode, 'auto')
+  assert.equal(ns.netState.discoverySource, 'cached')
+})
+
 test('a fresh install turns automatic discovery on, an update leaves it alone', async () => {
   const offline = async () => {
     throw new Error('offline')

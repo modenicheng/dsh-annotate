@@ -682,11 +682,14 @@
   }
 
   /**
-   * Seed the address from a picked endpoint record.
+   * Seed the fast path from a picked endpoint record.
    *
-   * The record is address-only by design, so this fills the address fields and
-   * the fast path and never touches the token. Every field is re-validated here
-   * because a page handed us the payload.
+   * The record is address-only by design, so this fills the remembered-host
+   * fast path and never touches the token. The `anno.prefs` address is not
+   * written either: a non-default typed address would demote `auto` discovery
+   * to the manual path forever, and importing is a discovery aid, not an
+   * address override. The reconnect below uses the seeded fast path. Every
+   * field is re-validated here because a page handed us the payload.
    * @param {any} message
    */
   async function popupImportRecord(message) {
@@ -716,7 +719,10 @@
       return failure(error)
     }
     await ns.storageSet(ns.msg.STORAGE_KEYS.address, record)
-    await ns.writePrefs({ host: address.host, port: address.port })
+    // Drop a cached scheme answer for the old address; the seeded fast path must
+    // win the next resolution, so no forced locator round either.
+    await ns.connection?.invalidate()
+    if (ns.net !== undefined) await ns.net.reconnectNow('import-record', { forceProbe: false })
     return { ok: true, status: ns.status() }
   }
 

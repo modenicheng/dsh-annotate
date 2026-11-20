@@ -301,10 +301,14 @@
     discoveryError: '',
     /**
      * Whether the extension finds the host itself (`auto`) or uses the typed
-     * address (`manual`). Mirrors `prefs.connection`; older installs are manual.
+     * address (`manual`). Mirrors `prefs.connection`, so it never flips on a
+     * reconnect; older installs are manual.
      */
     discoveryMode: 'manual',
-    /** How the current address was obtained: manual, cached, locator, or default. */
+    /**
+     * How the current address was obtained: manual (typed, or an address auto
+     * mode must honor as explicit), cached, locator, or default.
+     */
     discoverySource: 'manual',
     /** The chosen host's per-process id, so the popup can show which one it is. */
     instanceId: '',

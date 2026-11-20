@@ -374,9 +374,11 @@
    * Resolve the endpoint to connect to. Manual: the typed address exactly as
    * before. Auto: the remembered host (one health probe) or one ranked round.
    *
-   * Manual is exactly the pre-discovery behaviour; `auto` is only chosen by the
-   * preference and only for an untouched default address, so an address the user
-   * typed is never overridden by a discovered one.
+   * `discoveryMode` mirrors the preference, so an install that chose auto keeps
+   * reporting auto no matter what the address says: a reconnect after a drop
+   * must not look like the mode was switched. A non-default typed address is an
+   * explicit instruction even in auto mode, and that is expressed through
+   * `discoverySource: 'manual'` instead of by rewriting the mode.
    * @param {{ host: string, port: number, secure: boolean | null }} address
    * @param {{ force?: boolean, mode?: 'auto' | 'manual' }} [options]
    * @returns {Promise<{ wsUrl: string, secure: boolean, source: string, healthUrl: string, error: string, instanceId: string } | null>}
@@ -391,7 +393,15 @@
     }
     const plan = ns.discovery.planResolution({ mode, address })
     if (plan.auto !== true) {
-      ns.setNetState({ discoveryMode: 'manual', discoverySource: 'manual', discovered: [], discoveryFailures: [] })
+      // The mode is what the preference says; the source says the typed address
+      // won. An auto install with an explicit address must still report `auto`,
+      // or the status repaint after a reconnect reads as a mode switch.
+      ns.setNetState({
+        discoveryMode: mode === 'auto' ? 'auto' : 'manual',
+        discoverySource: 'manual',
+        discovered: [],
+        discoveryFailures: [],
+      })
       return { ...(await discoverAt(address, { force })), instanceId: '' }
     }
     ns.setNetState({ discoveryMode: 'auto' })
