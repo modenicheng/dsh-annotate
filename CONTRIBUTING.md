@@ -1,14 +1,14 @@
 # Contributing
 
 Thanks for helping with dsh-marker. This is a small, deliberately boring
-repository: plain ESM JavaScript, no build step, and no runtime dependencies in
-the host plugin.
+repository: plain ESM JavaScript, no build step, and one runtime dependency
+(`ws`) in the host plugin, which a profile install fetches from the registry.
 
 ## Prerequisites
 
 - Node.js 22 or newer (CI runs 22 and 24).
-- Git. pnpm is optional; the workspace has no third-party dependencies to
-  install.
+- Git, and pnpm so that `pnpm install` can fetch the workspace's one
+  dependency (`ws`, host side).
 - Firefox or Zen for extension work. Load the unpacked extension through
   `about:debugging`.
 
@@ -31,8 +31,9 @@ pnpm run sync-protocol                # only if generated protocol files drifted
 node --test "packages/*/test/*.test.js"
 ```
 
-`pnpm install` is not part of the setup: every package is dependency-free. The
-only tool fetched on demand is Biome, pinned in the npm scripts.
+`pnpm install` is part of the setup: it installs the workspace's one runtime
+dependency, `ws`, and nothing else. Biome is the only tool fetched on demand,
+pinned in the npm scripts.
 
 ## Commit format
 
