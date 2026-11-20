@@ -76,14 +76,19 @@ function asString(value) {
 }
 
 const references = new Set()
-const warnings = []
+/**
+ * Manifest strings that are localized. `__MSG_key__` names an entry in
+ * `_locales/<default_locale>/messages.json`; a typo there renders literally in
+ * the browser's own UI, where no store review will catch it for us.
+ */
+const localized = new Set()
 
 /** @param {unknown} value */
 function add(value) {
   const path = asString(value)
   if (path === undefined) return
   if (path.includes('__MSG_')) {
-    warnings.push(`skipped localized reference ${path}`)
+    localized.add(path)
     return
   }
   references.add(path)
@@ -172,6 +177,38 @@ const fileSet = new Set(files)
 const projectExtension = process.argv[2] === undefined
 /** @type {string[]} */
 const problems = projectExtension ? [...cspProblems(manifest)] : []
+await checkLocalizedMessages()
+
+/**
+ * Resolve every `__MSG_key__` the manifest refers to against the default
+ * locale. Also proves the messages file itself exists, which the reference walk
+ * above only does when `default_locale` is set.
+ */
+async function checkLocalizedMessages() {
+  if (localized.size === 0) return
+  if (locale === undefined) {
+    problems.push('the manifest uses __MSG_ strings but declares no default_locale')
+    return
+  }
+  const messagesPath = join(extensionDir, '_locales', locale, 'messages.json')
+  /** @type {Json} */
+  let messages
+  try {
+    messages = JSON.parse((await readFile(messagesPath, 'utf8')).replace(/^\uFEFF/, ''))
+  } catch (error) {
+    const hint = error.code === 'ENOENT' ? 'it does not exist' : error.message
+    problems.push(`_locales/${locale}/messages.json cannot be read: ${hint}`)
+    return
+  }
+  const keys = new Set(Object.keys(isObject(messages) ? messages : {}))
+  for (const raw of localized) {
+    for (const match of raw.matchAll(/__MSG_([A-Za-z0-9_@]+?)__/g)) {
+      if (!keys.has(match[1])) {
+        problems.push(`${raw} names a message key that _locales/${locale}/messages.json does not define`)
+      }
+    }
+  }
+}
 
 /**
  * The extension-page CSP must be explicit and must not upgrade insecure
@@ -211,8 +248,6 @@ for (const reference of references) {
   }
   if (!fileSet.has(cleaned)) problems.push(`${reference} does not exist`)
 }
-
-for (const warning of warnings) console.warn(`check-manifest: ${warning}`)
 
 if (problems.length > 0) {
   // Problems are mixed (file references, then the CSP contract), so the header

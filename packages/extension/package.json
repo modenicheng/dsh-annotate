@@ -11,8 +11,10 @@
     "lint": "npx web-ext lint --source-dir .",
     "//run": "Open a throwaway Firefox profile with this extension loaded and reload it on file changes.",
     "run": "npx web-ext run --source-dir . --browser firefox",
-    "//build": "Produce an unsigned zip under dist/ for signing at https://addons.mozilla.org.",
-    "build": "npx web-ext build --source-dir . --artifacts-dir dist --overwrite-dest"
+    "//build": "Build both store targets from this tree (dist/firefox, dist/chromium); the source tree itself is not the artifact. `web-ext build --source-dir ../../dist/firefox` then packages the signed-upload zip.",
+    "build": "node ../../scripts/build-extension.mjs",
+    "//sign": "AMO signing uploads dist/firefox; credentials come from addons.mozilla.org/developers/addon/api/key/ and only exist on a maintainer machine or in CI.",
+    "sign": "npx web-ext sign --source-dir ../../dist/firefox --artifacts-dir ../../dist --channel unlisted"
   },
   "type": "module"
 }

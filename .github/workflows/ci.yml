@@ -70,3 +70,9 @@ jobs:
 
       - name: Validate the extension manifest
         run: node scripts/check-manifest.mjs
+
+      # The PNGs are committed but generated (scripts/build-icons.mjs, D3-style
+      # contract): a store listing must never carry an icon the geometry does
+      # not describe.
+      - name: Check the icons match their geometry
+        run: node scripts/build-icons.mjs --check

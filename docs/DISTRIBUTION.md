@@ -1,10 +1,18 @@
 # Release and distribution
 
-Status: plan, revised 2026-11-19. Nothing described here is implemented yet.
-[M5 in PLAN.md](PLAN.md) is the short acceptance list; this document is the
+Status: plan, revised 2026-11-19; store metadata and the per-target build landed
+2026-11-20. [M5 in PLAN.md](PLAN.md) is the short acceptance list; this document is the
 design behind it and the ground truth it has to satisfy. Decisions D14–D16 in
 [DECISIONS.md](DECISIONS.md) fix the scope and the compatibility rule this plan
 follows.
+
+Implemented on 2026-11-20, ahead of the store submissions: the icon set and its
+generator (§3.1 item 6), `_locales/en` + `_locales/zh_CN`, `homepage_url`, the
+version alignment to 0.1.2 (§4.1), `scripts/build-extension.mjs` with the two
+targets (§4.4), the Chromium runtime seam (§3.1), and the store jobs in
+`.github/workflows/release.yml` (§4.6). What is still manual is everything that
+requires an account: the first AMO listing, the US$5 CWS registration, and the
+Edge product.
 
 Scope: the extension half across browser engines, the host half as a DSH bundle,
 and the CI that turns a tag into artifacts. It does not cover DSH releases.
@@ -58,11 +66,14 @@ All of the following is accurate for Firefox and wrong or unsupported elsewhere:
    listeners only work natively from Chrome 148 (same page). Older Chromium
    closes the channel and the caller sees `undefined`, so every routing reply
    would silently vanish.
-5. The event page is kept awake by a 20-second alarm (`main.js:64-75`). Chrome
-   clamps alarm periods to 30 s minimum, so this cannot be the keepalive there.
-6. The manifest has no `icons`, no `_locales`, no `homepage_url`, and a
-   description that names Firefox/Zen only. Stores require those; the listing
-   is part of the release, not an afterthought.
+5. The event page is kept awake by a 20-second alarm. Chrome clamps alarm
+   periods to 30 s minimum, so this cannot be the keepalive there.
+6. ~~The manifest has no `icons`, no `_locales`, no `homepage_url`, and a
+   description that names Firefox/Zen only.~~ Done 2026-11-20: five PNG sizes
+   plus an SVG from one geometry (`scripts/build-icons.mjs`, checked in CI), two
+   locales through `__MSG_`, `homepage_url`, and an engine-neutral description.
+   The prompt also surfaced a real defect worth recording: the description and
+   the store copy must not promise "all browsers" (§5).
 
 None of this is a redesign. It is a platform seam: one adapter, one generated
 manifest per target, and a service-worker entry point.
@@ -79,7 +90,7 @@ manifest per target, and a service-worker entry point.
 | SW lifetime | 30 s idle termination; WebSocket messages within the window keep it alive since Chrome 116 ([docs](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets)) | send `{t:'ping'}` from a 20 s interval while authenticated. The host already answers `pong` (`bridge.js:191`), so no protocol change | S |
 | Alarms | 30 s minimum | keep the alarm for reconnect/refresh only, never as the keepalive | XS |
 | Capture | `captureVisibleTab` (Chrome 5+) and `OffscreenCanvas`/`createImageBitmap` exist in workers; the `new Image()` fallback is already guarded by `typeof document` | verify the OffscreenCanvas path in a real SW | S |
-| Permissions | `tabs` is probably redundant: `<all_urls>` content scripts already grant URL access, and tab events do not need the permission | audit each `tabs.*` call, drop `tabs` if nothing breaks → removes the "read your browsing history" warning and shortens review | S |
+| Permissions | Correction (2026-11-20): the assumption that "`<all_urls>` content scripts already grant URL access" is false in MV3 — `content_scripts.matches` grants no host permission, and `host_permissions` is loopback-only, so reading `tab.url`/`tab.title` needs `tabs` | keep `tabs`, justify it as "route marks to their page" in the listing; the warning stays and the justification must be specific | S |
 | Store | CWS, US$5 one-time, review days; `<all_urls>` explicitly slows review | privacy policy, permission justifications, `minimum_chrome_version` | S |
 
 The service-worker lifetime is the only item that touches runtime design, and it
@@ -103,6 +114,12 @@ needed for release, not for porting:
   one manifest key and one update manifest file.
 - Keep `strict_min_version` at the version actually tested; raising it silently
   drops users on ESR.
+- The `data_collection_permissions` key (declared 2026-11-20, `"required":
+  ["none"]` — the extension collects nothing) is only honoured from Firefox 142,
+  so addons-linter warns that our 128 floor predates it. Accepted on purpose:
+  128–141 ignore the key, 142+ get the built-in consent prompt, and raising the
+  floor to 142 would cut off the current ESR. The warning stays until ESR
+  reaches 142.
 - Firefox for Android is a separate decision (§5).
 
 ### 3.3 WebKit (Safari) — out of scope
@@ -150,9 +167,14 @@ numbers guarantee that a release forgets one.
   changing them is at least a minor bump, because it changes who can install.
 
 Version sources that must be bumped atomically: `packages/plugin/package.json`,
-`packages/extension/manifest.json`, the tag, the changelog, and (only when the
-wire changes) `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` plus the two generated
-copies.
+`packages/extension/manifest.json`, `packages/extension/amo-metadata.json` (the
+version's release notes, which become the store "what's new"), the tag, the
+changelog, and (only when the wire changes) `PROTOCOL_VERSION` /
+`MIN_PROTOCOL_VERSION` plus the two generated copies.
+
+The two manifests carried 0.1.0 and 0.1.2 until 2026-11-20; the extension now
+reads 0.1.2 so that the first store version matches the npm half, and the
+one-product-version rule above has a single number to start from.
 
 Note the split of duties: the product version names a release and appears in
 store listings; the protocol version is the only thing a connection checks
@@ -263,7 +285,7 @@ the commit range from the previous tag. Two rules:
 | Store | API | Notes |
 |---|---|---|
 | npm | `npm publish --provenance` | OIDC trusted publishing; the plugin manager's `updateBundle` only offers updates for packages installed from the registry under their own name |
-| AMO | `web-ext sign --channel unlisted` (or `--channel listed`) or the v5 upload API | a listed upload needs an existing listing; the first submission is manual. Signing of a listed upload is not immediate — poll, do not treat the upload response as "published" |
+| AMO | `web-ext sign --channel unlisted` (or `--channel listed`) or the v5 upload API | a listed upload needs an existing listing; the first submission is manual, and summary, category, licence and the privacy URL are set once there — `--amo-metadata packages/extension/amo-metadata.json` carries only that version's release notes. Signing of a listed upload is not immediate — poll, do not treat the upload response as "published" |
 | CWS | Chrome Web Store API v2 (`:upload`, `:publish`) with an OAuth refresh token | the item must exist in the dashboard first; `:publish` submits for review, it does not publish |
 | Edge | Edge Add-ons submission API with a Partner Center API key | Edge also installs CWS items, so this listing is optional and can follow later |
 
@@ -469,7 +491,12 @@ run in parallel and cannot be compressed.
 
 1. Is the Chromium target allowed to keep a permanent 20 s heartbeat, or should
    it idle and reconnect on demand? The latter is friendlier to laptops and
-   needs a host-side pending-pick queue.
+   needs a host-side pending-pick queue. **Answered for v1 (2026-11-20): the
+   heartbeat ships, Chromium only and unconditionally.** `background/main.js`
+   starts a 20 s `setInterval` that sends the `{ t: 'ping' }` frame the protocol
+   already carries, and the alarm drops to reconnect plus snapshot refresh at
+   Chrome's 1-minute floor; Firefox keeps its 20 s alarm and starts no second
+   timer. Turning it into a preference stays open.
 2. Does the product want the Edge listing, or is CWS-only (Edge installs CWS
    items) enough for v1?
 3. ~~Is the extension's public name settled?~~ Settled by D23: `dsh-marker`

@@ -44,6 +44,15 @@
   }
 
   const api = global.browser || global.chrome || null
+  /**
+   * The engine seam (`src/shared/platform.js`, listed first in the
+   * content-script list). This script answers `runtime.onMessage` with a
+   * promise, which Chromium below 148 silently discards; the shim's wrapper
+   * turns that same handler into `sendResponse` + `return true`. Absent on a
+   * build that does not list it, where the raw registration is what Gecko
+   * documents.
+   */
+  const platform = global.__DSH_PLATFORM__
   const document = global.document
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
   const HOOK_KEY = '__DSH_ANNO_HOOK__'
@@ -1207,7 +1216,9 @@
 
   /**
    * Firefox delivers the message and an optional `{ ok: true }` reply; unknown
-   * types return undefined so nothing else claims them.
+   * types return undefined so nothing else claims them. The returned promise is
+   * the reply on Gecko; on Chromium the platform shim forwards it through
+   * `sendResponse`, because a promise-returning listener is ignored below 148.
    */
   function onRuntimeMessage(message) {
     if (!message || typeof message !== 'object') return undefined
@@ -1277,7 +1288,8 @@
     global.addEventListener('resize', onViewportChange, true)
     if (api && api.runtime && api.runtime.onMessage) {
       try {
-        api.runtime.onMessage.addListener(onRuntimeMessage)
+        if (platform !== undefined && typeof platform.onMessage === 'function') platform.onMessage(onRuntimeMessage)
+        else api.runtime.onMessage.addListener(onRuntimeMessage)
       } catch {
         // Another content script instance already registered.
       }

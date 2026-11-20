@@ -1,19 +1,39 @@
 name: Release
 
-# Two phases, because a registry version cannot be withdrawn
+# Three phases, because a registry or store version cannot be withdrawn
 # (docs/DISTRIBUTION.md §4.3):
 #
 #   push tag vX.Y.Z     verify the tag, pack the tarball, open a DRAFT release
 #   release published   publish that tarball to npm — this is the human gate
-#   workflow_dispatch   replay phase 2 for a tag whose publish failed, without
-#                       burning a new tag
+#                       and then build the extension targets and submit them to
+#                       the stores (the `stores` job below)
+#   workflow_dispatch   replay the publish/store phases for a tag whose upload
+#                       failed, without burning a new tag; `dry_run` builds and
+#                       validates the store phase and uploads nothing
 #
-# Phase 1 never touches the registry. A human reads the draft notes and clicks
-# Publish, which is the only thing that fires phase 2.
+# Phase 1 never touches the registry or a store. A human reads the draft notes
+# and clicks Publish, which is the only thing that fires phase 2 and phase 3.
 #
-# Authentication is OIDC trusted publishing: no NPM_TOKEN exists anywhere in
-# this repository. Three details are easy to get wrong and fail as E404 on PUT
-# instead of as an auth error:
+# Phase 3 (stores) is gated differently from phase 2:
+#
+#   * it submits only from a published release: a workflow_dispatch checks that
+#     the release is really published before anything is attached or submitted,
+#     so the human Publish click is the gate, not the tag. A dry run may
+#     validate a draft, and still uploads nothing;
+#   * every store channel is gated on its own credentials, which live in the
+#     protected `release` environment (§4.8). With no credentials — the state of
+#     this repository today — that channel skips with ::notice:: and the run
+#     stays green;
+#   * store versions are permanent, so every channel asks the store whether this
+#     version is already there and skips instead of failing (§4.7), and the
+#     build is validated from the generated target directories, not the source
+#     tree (§4.10);
+#   * a failing channel does not stop the next one: partial releases are the
+#     expected failure (§4.7), and the last step fails the run afterwards.
+#
+# Authentication for npm is OIDC trusted publishing: no NPM_TOKEN exists
+# anywhere in this repository. Three details are easy to get wrong and fail as
+# E404 on PUT instead of as an auth error:
 #
 #   * `registry-url` is deliberately absent from setup-node. With it, setup-node
 #     writes an `_authToken` line into .npmrc and npm keeps using a credential
@@ -37,6 +57,11 @@ on:
         description: Existing tag to publish, for example v0.2.0
         required: true
         type: string
+      dry_run:
+        description: Build and validate without uploading anything (release assets, npm, or stores)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -136,7 +161,10 @@ jobs:
 
   publish:
     name: publish to npm
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    # A dry run must upload nothing, so it also skips npm. A real replay
+    # (dry_run false, the default) behaves exactly as before. github.event.inputs
+    # keeps the raw string for a dispatch, so the comparison is unambiguous.
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -199,7 +227,18 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum --check checksums.txt
+          # The stores job appends SHA-256 lines for the extension zips (and the
+          # signed XPI when AMO returns one) to this same asset. This job only
+          # downloaded the tarball, so it verifies the tarball lines and leaves
+          # the store lines to the stores job. Still refuse a checksums file
+          # that names no tarball at all: an empty grep must not pass a check.
+          tarball_lines="$(grep -E '^[0-9a-f]{64}  .*\.tgz$' checksums.txt || true)"
+          if [ -z "$tarball_lines" ]; then
+            echo "::error::checksums.txt does not name the npm tarball"
+            exit 1
+          fi
+          printf '%s\n' "$tarball_lines" > "$RUNNER_TEMP/tarball-checksums.txt"
+          sha256sum --check "$RUNNER_TEMP/tarball-checksums.txt"
 
       # npm records sha512 in dist.integrity; computing it here is what lets the
       # run prove, after the fact, that the registry holds these exact bytes.
@@ -267,3 +306,672 @@ jobs:
           done
           echo "::error::dsh-marker@$VERSION did not appear with $EXPECTED"
           exit 1
+
+  # ---------------------------------------------------------------------------
+  # Phase 3 — stores.
+  #
+  # Triggered by release.published or an explicit workflow_dispatch tag, never
+  # by the tag push (that only builds the draft). The tag is the same one phase
+  # 1 verified and phase 2 published; this job re-runs the identical version
+  # gate because a dispatch can name any tag.
+  #
+  # All store credentials come from the protected `release` environment. The
+  # job runs for every publish even when no store has credentials, because the
+  # artifacts belong on the release; each store is a separate, gated step.
+  #
+  # Credentials, all optional — a channel with missing credentials is skipped
+  # with a notice:
+  #   AMO_JWT_ISSUER, AMO_JWT_SECRET      AMO API keys (addons.mozilla.org → developer hub)
+  #   CWS_CLIENT_ID, CWS_CLIENT_SECRET    Google OAuth 2.0 client (Desktop app), CWS API enabled
+  #   CWS_REFRESH_TOKEN                   refresh token with the chromewebstore scope
+  #   vars.CWS_PUBLISHER_ID, vars.CWS_ITEM_ID   CWS ids; the item must already exist
+  #   vars.CWS_PUBLISH_TYPE               DEFAULT_PUBLISH (default) or STAGED_PUBLISH
+  #   EDGE_CLIENT_ID, EDGE_API_KEY        Partner Center Publish API (TODO, not wired)
+  #   vars.EDGE_PUBLISH                   'true' enables the Edge TODO step
+  #
+  # No new third-party action is introduced here: checkout/setup-node/
+  # pnpm-action are reused at the same major tags as the jobs above. Pinning
+  # every action to a commit SHA is a repo-wide change (§4.8), not something to
+  # do for one job only.
+  # ---------------------------------------------------------------------------
+  stores:
+    name: build store artifacts and submit
+    needs: publish
+    # Wait for npm so release assets are written after npm has read them, but
+    # do not inherit npm's verdict: the channels are independent (§4.7).
+    if: always() && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Secrets and variables are scoped to this environment and to this job
+    # only. Configure required reviewers on it (§4.8) so a store submission
+    # always has a human in the loop; without protection a job only needs a
+    # dispatch.
+    environment:
+      name: release
+    permissions:
+      # contents: write is only for attaching release assets. Everything else
+      # in this workflow stays at contents: read.
+      contents: write
+    env:
+      # `if:` must not read secrets, and a dry run must upload nothing. Both
+      # are reduced to strings here. workflow_dispatch inputs are strings in
+      # github.event.inputs; on other events the property is absent, so the
+      # fallback is the real value for every pre-existing trigger.
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+      CWS_PUBLISH_TYPE: ${{ vars.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH' }}
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Require a published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --json isDraft,tagName > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+            echo "::error::no GitHub Release exists for $TAG. Publish the draft release first; a store submission must never happen before the human gate (§4.3)."
+            exit 1
+          fi
+          if [ "$(jq -r '.isDraft' "$RUNNER_TEMP/release.json")" != "false" ]; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "::notice::release $TAG is still a draft. A dry run uploads nothing, so validating it is safe; the real store submission requires the published release."
+            else
+              echo "::error::release $TAG is still a draft. Publishing the release is the human gate (§4.3); publish it, then rerun this workflow with the same tag."
+              exit 1
+            fi
+          fi
+          jq -r '.tagName + " exists (draft=" + (.isDraft | tostring) + ")"' "$RUNNER_TEMP/release.json"
+
+      # Deliberately the same shell as the publish job: the tag names the plugin
+      # version, vX.Y.Z only, and D16 keeps prereleases off every registry and
+      # store. Keep this copy in sync with `publish` rather than inventing a
+      # second version rule.
+      - name: Read the version and refuse a non-release tag
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::$TAG is not a vX.Y.Z tag; refusing to publish it"
+            exit 1
+          fi
+          version="$(node -p "require('./packages/plugin/package.json').version")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not name packages/plugin version $version"
+            exit 1
+          fi
+          # D16: prereleases never reach a registry or a store. They are GitHub
+          # pre-releases that testers install themselves.
+          case "$version" in
+            *-*)
+              echo "::error::dsh-marker@$version is a prerelease (D16); tag the final version instead"
+              exit 1
+              ;;
+          esac
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # §4.4: both store targets come from this one script. A tag without it
+      # (the v0.1.x tags predate it) cannot produce an artifact, and failing
+      # here with a sentence is better than uploading from a half-built tree.
+      - name: Require the store build script
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/build-extension.mjs ]; then
+            echo "::error::scripts/build-extension.mjs is missing from this tag, so no store artifact can be built or uploaded. Add the build script (§4.4) and tag a new version; nothing was uploaded."
+            exit 1
+          fi
+
+      # Secrets may not appear in `if:` expressions, so this step reduces them
+      # to booleans once. It prints only presence, never a value.
+      - name: Detect which store credentials exist
+        id: channels
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${AMO_JWT_ISSUER:-}" ] && [ -n "${AMO_JWT_SECRET:-}" ]; then amo=true; else amo=false; fi
+          if [ -n "${CWS_CLIENT_ID:-}" ] && [ -n "${CWS_CLIENT_SECRET:-}" ] && [ -n "${CWS_REFRESH_TOKEN:-}" ] && [ -n "${CWS_PUBLISHER_ID:-}" ] && [ -n "${CWS_ITEM_ID:-}" ]; then cws=true; else cws=false; fi
+          if [ -n "${EDGE_CLIENT_ID:-}" ] && [ -n "${EDGE_API_KEY:-}" ]; then edge=true; else edge=false; fi
+          {
+            echo "amo=$amo"
+            echo "cws=$cws"
+            echo "edge=$edge"
+          } >> "$GITHUB_OUTPUT"
+          echo "store credentials present: AMO=$amo CWS=$cws Edge=$edge"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Pre-flight (§4.7): the same cheap gate CI runs, before anything is
+      # built, hashed, uploaded, or submitted. A tag can point at any commit.
+      - name: Check generated protocol copies
+        run: node scripts/check-sync.mjs
+
+      - name: Check JavaScript syntax
+        run: node scripts/check-syntax.mjs
+
+      - name: Run unit tests
+        run: node --test "packages/*/test/*.test.js"
+
+      - name: Check the icons match their geometry
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/build-icons.mjs ]; then
+            echo "::error::scripts/build-icons.mjs is missing from this tag; the icons in the store artifact cannot be verified"
+            exit 1
+          fi
+          node scripts/build-icons.mjs --check
+
+      - name: Build the extension targets
+        run: |
+          set -euo pipefail
+          node scripts/build-extension.mjs
+          for target in firefox chromium; do
+            if [ ! -f "dist/$target/manifest.json" ]; then
+              echo "::error::node scripts/build-extension.mjs did not write dist/$target/manifest.json; refusing to upload an unverified artifact"
+              exit 1
+            fi
+          done
+
+      # §4.10: validate the artifact, not the source tree. With a directory
+      # argument, check-manifest resolves every file reference inside the built
+      # target; the CSP contract is asserted by check-manifest on the source
+      # tree and by build-extension.mjs for the generated Chromium manifest.
+      - name: Validate the built manifests
+        run: |
+          set -euo pipefail
+          node scripts/check-manifest.mjs dist/firefox
+          node scripts/check-manifest.mjs dist/chromium
+
+      - name: Read the artifact versions
+        id: artifacts
+        run: |
+          set -euo pipefail
+          ff_version="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
+          cr_version="$(node -p "String(require('./dist/chromium/manifest.json').version ?? '')")"
+          addon_id="$(node -p "String(require('./dist/firefox/manifest.json').browser_specific_settings?.gecko?.id ?? '')")"
+          product_version="${{ steps.version.outputs.value }}"
+          if [ -z "$ff_version" ] || [ -z "$cr_version" ]; then
+            echo "::error::a built manifest declares no version"
+            exit 1
+          fi
+          # D16/§4.2: a store receives finals only. Chrome accepts one to four
+          # dot-separated integers and nothing else; AMO keeps a monotonic
+          # sequence per add-on ID, so a prerelease number would outrank the
+          # final forever.
+          if ! printf '%s' "$ff_version" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
+            echo "::error::dist/firefox/manifest.json version '$ff_version' is not numeric; D16 keeps prereleases off the stores"
+            exit 1
+          fi
+          if ! printf '%s' "$cr_version" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
+            echo "::error::dist/chromium/manifest.json version '$cr_version' is not 1-4 dot-separated integers; CWS rejects it (D16/§4.2)"
+            exit 1
+          fi
+          # §4.1: one product version. The artifacts still go on the release (a
+          # build is useful even when the bump was forgotten), but the store
+          # steps refuse to submit a mismatched version: a store version cannot
+          # be withdrawn.
+          if [ "$ff_version" != "$product_version" ] || [ "$cr_version" != "$product_version" ]; then
+            echo "::warning::the artifacts carry version $ff_version/$cr_version but the release is v$product_version. §4.1 wants them bumped atomically; store submissions will be refused."
+          fi
+          {
+            echo "firefox_version=$ff_version"
+            echo "chromium_version=$cr_version"
+            echo "addon_id=$addon_id"
+          } >> "$GITHUB_OUTPUT"
+
+      # The zips sit at the root of each archive, which is what both stores
+      # expect. `-X` drops extra file attributes; there is no bundler (D1).
+      - name: Package the store zips
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          version="${{ steps.version.outputs.value }}"
+          # §4.4: package.json, amo-metadata.json and test/ must not ship.
+          # build-extension.mjs skips their contents and can leave an empty
+          # test/ directory behind; drop that, and stop loudly if any of them
+          # would actually end up in a target.
+          for target in firefox chromium; do
+            for stray in package.json amo-metadata.json; do
+              if [ -e "dist/$target/$stray" ]; then
+                echo "::error::dist/$target/$stray must not be packaged (§4.4)"
+                exit 1
+              fi
+            done
+            if [ -d "dist/$target/test" ]; then
+              if ! rmdir "dist/$target/test" 2>/dev/null; then
+                echo "::error::dist/$target/test still contains files; the store artifact must exclude test/ (§4.4)"
+                exit 1
+              fi
+            fi
+          done
+          rm -rf "$assets"
+          mkdir -p "$assets"
+          (cd dist/firefox && zip -q -r -X "$assets/dsh-marker-firefox-$version.zip" .)
+          (cd dist/chromium && zip -q -r -X "$assets/dsh-marker-chromium-$version.zip" .)
+          ls -l "$assets"
+
+      # Phase 1 attached checksums.txt with the npm tarball's hash. Read it back
+      # and append; a release without one (created by hand) gets a new file
+      # instead of a failure. The grep makes a rerun idempotent: stale lines for
+      # this job's zips are dropped before the fresh hashes are appended, while
+      # the tarball line and an earlier signed-XPI line survive.
+      - name: Assemble checksums.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          existing="$RUNNER_TEMP/existing-checksums"
+          mkdir -p "$existing"
+          if ! gh release download "$TAG" --pattern checksums.txt --dir "$existing" --clobber 2>/dev/null; then
+            echo "::notice::release $TAG has no checksums.txt yet; creating one"
+            : > "$existing/checksums.txt"
+          fi
+          grep -v -E '  dsh-marker-(firefox|chromium)-[^ ]*\.zip$' "$existing/checksums.txt" > "$assets/checksums.txt" || true
+          (cd "$assets" && sha256sum dsh-marker-firefox-*.zip dsh-marker-chromium-*.zip >> checksums.txt)
+          cat "$assets/checksums.txt"
+
+      - name: Dry run — report what would be uploaded
+        if: env.DRY_RUN == 'true'
+        env:
+          AMO_READY: ${{ steps.channels.outputs.amo }}
+          CWS_READY: ${{ steps.channels.outputs.cws }}
+          EDGE_READY: ${{ steps.channels.outputs.edge }}
+          EDGE_PUBLISH: ${{ vars.EDGE_PUBLISH }}
+          FF_VERSION: ${{ steps.artifacts.outputs.firefox_version }}
+          CR_VERSION: ${{ steps.artifacts.outputs.chromium_version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          echo "::notice::dry_run=true ($TAG): build and validation ran; nothing is uploaded to the GitHub Release or to any store"
+          echo "release assets that would be attached:"
+          (cd "$assets" && ls -l dsh-marker-*.zip checksums.txt && sha256sum dsh-marker-*.zip)
+          echo "--- checksums.txt as it would be attached ---"
+          cat "$assets/checksums.txt"
+          echo "--- store channels ---"
+          echo "AMO    (Firefox $FF_VERSION, listed): credentials=$AMO_READY; would run web-ext sign --channel listed"
+          echo "CWS    (Chromium $CR_VERSION, $CWS_PUBLISH_TYPE): credentials=$CWS_READY; would run :upload then :publish"
+          echo "Edge   (Chromium $CR_VERSION): flag vars.EDGE_PUBLISH=${EDGE_PUBLISH:-false}, credentials=$EDGE_READY; submission is a documented TODO, not wired"
+
+      - name: Attach the zips and checksums to the release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          gh release upload "$TAG" "$assets"/dsh-marker-*.zip "$assets"/checksums.txt --clobber
+
+      - name: AMO skipped — no credentials
+        if: env.DRY_RUN != 'true' && steps.channels.outputs.amo != 'true'
+        run: |
+          echo "::notice::AMO signing skipped: AMO_JWT_ISSUER and AMO_JWT_SECRET are not set on the release environment. The unsigned Firefox zip is on the GitHub Release; AMO received nothing."
+
+      # A listed upload is a submission for review, not a publication (§4.6).
+      # The step reports "submitted, pending review" and never "live"; the only
+      # unambiguous success is web-ext returning a signed XPI, which is attached
+      # to the release when it does.
+      - name: Submit to AMO (listed)
+        id: amo
+        # A failed channel must not stop the next one (§4.7); the final step
+        # turns any failure into a red run after every channel has had a turn.
+        continue-on-error: true
+        if: env.DRY_RUN != 'true' && steps.channels.outputs.amo == 'true'
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          ADDON_ID: ${{ steps.artifacts.outputs.addon_id }}
+          FF_VERSION: ${{ steps.artifacts.outputs.firefox_version }}
+          PRODUCT_VERSION: ${{ steps.version.outputs.value }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          log="$assets/amo/web-ext.log"
+          mkdir -p "$assets/amo"
+
+          if [ ! -f packages/extension/amo-metadata.json ]; then
+            echo "::notice::packages/extension/amo-metadata.json is missing, so there is no listing metadata for a listed upload; skipping AMO. Add the file to enable it."
+            exit 0
+          fi
+          if [ -z "$ADDON_ID" ]; then
+            echo "::error::dist/firefox/manifest.json declares no browser_specific_settings.gecko.id; AMO cannot identify the add-on"
+            exit 1
+          fi
+          if [ "$FF_VERSION" != "$PRODUCT_VERSION" ]; then
+            echo "::error::refusing to submit to AMO: the Firefox artifact is version $FF_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+            exit 1
+          fi
+
+          # Idempotency, before web-ext runs. AMO's public v5 API lists the
+          # add-on's versions without auth: GET
+          # https://addons.mozilla.org/api/v5/addons/addon/{id}/versions/
+          # A 200 whose results contain this exact version means a rerun, so
+          # skip instead of making AMO reject a duplicate number. A 404 means no
+          # listing exists yet, and the first listed submission is manual
+          # (§4.6), so skip instead of failing. Any other status is
+          # inconclusive: warn and let web-ext (the authoritative server) decide.
+          status="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/amo-versions.json" -w '%{http_code}' \
+            "https://addons.mozilla.org/api/v5/addons/addon/${ADDON_ID}/versions/?page_size=50" || true)"
+          case "$status" in
+            200)
+              if jq -e --arg v "$FF_VERSION" '.results[]? | select(.version == $v)' "$RUNNER_TEMP/amo-versions.json" >/dev/null 2>&1; then
+                echo "::notice::AMO already lists $ADDON_ID $FF_VERSION; nothing to upload"
+                exit 0
+              fi
+              ;;
+            404)
+              echo "::notice::AMO has no listing for $ADDON_ID yet; the first listed submission is manual (§4.6), skipping"
+              exit 0
+              ;;
+            *)
+              echo "::warning::could not read the AMO version list (HTTP ${status:-no-response}); letting web-ext decide"
+              ;;
+          esac
+
+          # §4.8: web-ext produces the signed artifact and runs with the AMO
+          # credentials, so it is pinned to one exact version here instead of
+          # `npx web-ext` (the unpinned call §4.8 calls out). Bump this literal
+          # deliberately, after reading the release notes.
+          #
+          # 10.x is the current line and needs Node 20+ (this job runs 24). The
+          # `--use-submission-api` flag an older guide mentions is gone on
+          # purpose: from v8 the submission API is what `sign` uses by default,
+          # which is also what makes `--channel listed --amo-metadata` work.
+          npm install --global --no-audit --no-fund web-ext@10.8.0
+          web-ext --version
+
+          set +e
+          web-ext sign \
+            --source-dir dist/firefox \
+            --artifacts-dir "$assets/amo" \
+            --channel listed \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET" \
+            --amo-metadata packages/extension/amo-metadata.json \
+            2>&1 | tee "$log"
+          sign_status="${PIPESTATUS[0]}"
+          set -e
+
+          xpi="$(find "$assets/amo" -maxdepth 1 -type f -name '*.xpi' -print -quit)"
+          if [ -n "$xpi" ]; then
+            name="dsh-marker-firefox-${PRODUCT_VERSION}.xpi"
+            cp "$xpi" "$assets/$name"
+            sha="$(sha256sum "$assets/$name" | cut -d' ' -f1)"
+            grep -vF "  $name" "$assets/checksums.txt" > "$assets/checksums.txt.tmp" || true
+            mv "$assets/checksums.txt.tmp" "$assets/checksums.txt"
+            printf '%s  %s\n' "$sha" "$name" >> "$assets/checksums.txt"
+            gh release upload "$TAG" "$assets/$name" "$assets/checksums.txt" --clobber
+            echo "::notice::AMO returned the signed XPI for $ADDON_ID $FF_VERSION and it is attached to $TAG. A listed version still waits for review; it is not live until a reviewer approves it."
+            exit 0
+          fi
+          if grep -qiE 'already (exists|been uploaded|submitted)|version .* already' "$log"; then
+            echo "::notice::AMO already holds $ADDON_ID $FF_VERSION (web-ext reported a duplicate); nothing to upload"
+            exit 0
+          fi
+          if grep -qiE 'submitted for review|pending review|awaiting review|in review|timed out waiting' "$log"; then
+            echo "::notice::AMO accepted $ADDON_ID $FF_VERSION — submitted, pending review. Nothing is live until a reviewer approves it."
+            exit 0
+          fi
+          if [ "$sign_status" -eq 0 ]; then
+            echo "::notice::AMO accepted $ADDON_ID $FF_VERSION — submitted, pending review (web-ext returned no XPI)."
+            exit 0
+          fi
+          echo "::error::web-ext sign failed for $ADDON_ID $FF_VERSION (exit $sign_status); see the log above"
+          exit 1
+
+      - name: CWS skipped — no credentials
+        if: env.DRY_RUN != 'true' && steps.channels.outputs.cws != 'true'
+        run: |
+          echo "::notice::Chrome Web Store submission skipped: CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN, vars.CWS_PUBLISHER_ID or vars.CWS_ITEM_ID are not set on the release environment. The unsigned Chromium zip is on the GitHub Release; CWS received nothing."
+
+      # Chrome Web Store API v2. `:publish` submits for review, it does not
+      # publish (§4.6); the item must already exist in the CWS dashboard
+      # because the API cannot create one, and the publisher/item ids live in
+      # repository or environment variables, never in the zip.
+      - name: Submit to the Chrome Web Store
+        id: cws
+        continue-on-error: true
+        if: env.DRY_RUN != 'true' && steps.channels.outputs.cws == 'true'
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          CR_VERSION: ${{ steps.artifacts.outputs.chromium_version }}
+          PRODUCT_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          zip_path="$assets/dsh-marker-chromium-${PRODUCT_VERSION}.zip"
+          publish_type="${CWS_PUBLISH_TYPE:-DEFAULT_PUBLISH}"
+          case "$publish_type" in
+            DEFAULT_PUBLISH|STAGED_PUBLISH) ;;
+            *)
+              echo "::error::vars.CWS_PUBLISH_TYPE must be DEFAULT_PUBLISH or STAGED_PUBLISH, not '$publish_type'"
+              exit 1
+              ;;
+          esac
+          if [ "$CR_VERSION" != "$PRODUCT_VERSION" ]; then
+            echo "::error::refusing to submit to CWS: the Chromium artifact is version $CR_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+            exit 1
+          fi
+
+          # OAuth 2.0 refresh-token exchange. The refresh token must have been
+          # minted with the https://www.googleapis.com/auth/chromewebstore
+          # scope; the short-lived access token is masked and never printed.
+          token_file="$RUNNER_TEMP/cws-token.json"
+          http="$(curl -sS --max-time 30 -o "$token_file" -w '%{http_code}' \
+            -X POST 'https://oauth2.googleapis.com/token' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "client_id=$CWS_CLIENT_ID" \
+            --data-urlencode "client_secret=$CWS_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$CWS_REFRESH_TOKEN" \
+            --data-urlencode 'grant_type=refresh_token' || true)"
+          access_token="$(jq -r '.access_token // empty' "$token_file" 2>/dev/null || true)"
+          if [ "$http" != "200" ] || [ -z "$access_token" ]; then
+            error="$(jq -r '.error_description // .error // "no access_token"' "$token_file" 2>/dev/null || echo 'unreadable response')"
+            echo "::error::CWS OAuth refresh failed (HTTP ${http:-no-response}): $error"
+            exit 1
+          fi
+          echo "::add-mask::$access_token"
+          auth="Authorization: Bearer $access_token"
+          item_url="https://chromewebstore.googleapis.com/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}"
+
+          # Idempotency, before uploading. CWS API v2 :fetchStatus reports the
+          # submitted and published revisions with their crxVersion values:
+          #   * the version is already submitted or published -> a rerun, skip;
+          #   * the version is stored but not submitted (a previous run uploaded
+          #     it and then failed before :publish) -> do not upload again,
+          #     retry the submission below;
+          #   * 404 means the item does not exist (create it in the dashboard
+          #     first); 401/403 means the token is wrong. Any other status is
+          #     inconclusive: warn and try the upload.
+          status_file="$RUNNER_TEMP/cws-status.json"
+          need_upload=true
+          http="$(curl -sS --max-time 30 -o "$status_file" -w '%{http_code}' \
+            -H "$auth" "${item_url}:fetchStatus" || true)"
+          case "$http" in
+            200)
+              if jq -e --arg v "$CR_VERSION" '[(.publishedItemRevisionStatus // {}), (.submittedItemRevisionStatus // {})] | [.. | objects | .crxVersion? // empty] | index($v)' "$status_file" >/dev/null 2>&1; then
+                echo "::notice::CWS already has $CR_VERSION submitted or published for item $CWS_ITEM_ID; nothing to do"
+                exit 0
+              fi
+              if jq -e --arg v "$CR_VERSION" '[.. | objects | .crxVersion? // empty] | index($v)' "$status_file" >/dev/null 2>&1; then
+                echo "::notice::CWS already stores $CR_VERSION but it is not submitted (a previous run uploaded it and stopped); not re-uploading, retrying :publish"
+                need_upload=false
+              fi
+              ;;
+            404)
+              echo "::error::CWS has no item $CWS_ITEM_ID under publisher $CWS_PUBLISHER_ID. The item must already exist in the CWS dashboard; the API cannot create one."
+              exit 1
+              ;;
+            401|403)
+              echo "::error::CWS rejected the OAuth token (HTTP $http); check the refresh token and its chromewebstore scope"
+              exit 1
+              ;;
+            *)
+              echo "::warning::could not read the CWS item status (HTTP ${http:-no-response}); attempting the upload"
+              ;;
+          esac
+
+          if [ "$need_upload" = "true" ]; then
+            # Media upload: raw zip bytes on the /upload/v2 endpoint.
+            upload_file="$RUNNER_TEMP/cws-upload.json"
+            http="$(curl -sS --max-time 300 -o "$upload_file" -w '%{http_code}' \
+              -X POST \
+              -H "$auth" \
+              -H 'Content-Type: application/zip' \
+              --data-binary "@$zip_path" \
+              "https://chromewebstore.googleapis.com/upload/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}:upload" || true)"
+            case "$http" in
+              2??)
+                echo "CWS upload response:"
+                jq . "$upload_file" 2>/dev/null || cat "$upload_file"
+                upload_state="$(jq -r '.uploadState // empty' "$upload_file" 2>/dev/null || true)"
+                case "$upload_state" in
+                  ''|UPLOAD_STATE_SUCCEEDED) ;;
+                  *)
+                    echo "::error::CWS upload did not succeed (uploadState=$upload_state)"
+                    exit 1
+                    ;;
+                esac
+                ;;
+              *)
+                if grep -qiE 'already (exists|uploaded)' "$upload_file"; then
+                  echo "::notice::CWS already stores $CR_VERSION (the upload reported a duplicate); not re-uploading, trying :publish"
+                else
+                  echo "::error::CWS upload failed (HTTP ${http:-no-response})"
+                  jq . "$upload_file" 2>/dev/null || cat "$upload_file"
+                  exit 1
+                fi
+                ;;
+            esac
+          fi
+
+          # `:publish` submits the uploaded revision for review; it does not
+          # make the version public. STAGED_PUBLISH is the staged-rollout form;
+          # the percentage itself is set separately in the dashboard.
+          publish_file="$RUNNER_TEMP/cws-publish.json"
+          http="$(curl -sS --max-time 60 -o "$publish_file" -w '%{http_code}' \
+            -X POST \
+            -H "$auth" \
+            -H 'Content-Type: application/json' \
+            --data "{\"publishType\":\"$publish_type\"}" \
+            "${item_url}:publish" || true)"
+          case "$http" in
+            2??) ;;
+            *)
+              if grep -qiE 'already (been )?(published|submitted|approved)|already in review|under review' "$publish_file"; then
+                echo "::notice::CWS reports $CR_VERSION is already submitted or published; treating this as a rerun"
+                exit 0
+              fi
+              echo "::error::CWS publish failed (HTTP ${http:-no-response})"
+              jq . "$publish_file" 2>/dev/null || cat "$publish_file"
+              exit 1
+              ;;
+          esac
+          echo "CWS publish response:"
+          jq . "$publish_file" 2>/dev/null || cat "$publish_file"
+
+          # Confirm that the revision reached CWS, and say plainly that review
+          # is still ahead. A submission can take a moment to appear; a
+          # timeout here is a warning, not a failure, because the publish call
+          # itself succeeded.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            http="$(curl -sS --max-time 30 -o "$status_file" -w '%{http_code}' \
+              -H "$auth" "${item_url}:fetchStatus" || true)"
+            if [ "$http" = "200" ] && jq -e --arg v "$CR_VERSION" '[.. | objects | .crxVersion? // empty] | index($v)' "$status_file" >/dev/null 2>&1; then
+              echo "::notice::CWS accepted $CR_VERSION ($publish_type) — submitted, pending review. It is not live until Google approves it."
+              exit 0
+            fi
+            echo "attempt $attempt: CWS has not shown $CR_VERSION yet"
+            sleep 10
+          done
+          echo "::warning::CWS returned success for $CR_VERSION, but the submission is not visible yet. Check the dashboard before retrying; do not upload the same version twice."
+
+      # Edge Add-ons is optional (§4.6) and deliberately not implemented: the
+      # Publish API's current shape (Partner Center, Client ID + API key after
+      # the Azure AD app model was retired) has not been confirmed against the
+      # live docs, and an invented endpoint is worse than a TODO. The gate is
+      # vars.EDGE_PUBLISH, so nothing runs by default.
+      - name: Edge Add-ons disabled
+        if: env.DRY_RUN != 'true' && vars.EDGE_PUBLISH != 'true'
+        run: |
+          echo "::notice::Edge Add-ons publishing is disabled (vars.EDGE_PUBLISH != 'true'); it is optional, and Edge installs CWS items. See the TODO step in release.yml before enabling it."
+
+      - name: Edge Add-ons (TODO — not wired)
+        id: edge
+        continue-on-error: true
+        if: env.DRY_RUN != 'true' && vars.EDGE_PUBLISH == 'true'
+        env:
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          CR_VERSION: ${{ steps.artifacts.outputs.chromium_version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EDGE_CLIENT_ID:-}" ] || [ -z "${EDGE_API_KEY:-}" ]; then
+            echo "::notice::Edge publishing is enabled but EDGE_CLIENT_ID and/or EDGE_API_KEY are not set on the release environment; skipping Edge. The Chromium zip is on the GitHub Release."
+            exit 0
+          fi
+          # Credentials: EDGE_CLIENT_ID (Partner Center Publish API client id,
+          # a UUID) and EDGE_API_KEY (the Partner Center API key), both from
+          # the release environment; the retired Azure AD app model is not
+          # used. TODO before enabling: confirm from the Partner Center docs
+          # the current publish API base URL, the auth header format, the
+          # package-upload call, and the submission/publish call with its
+          # required body. This step must not guess them, and it must confirm
+          # the version is not already in the dashboard before uploading.
+          echo "::error::Edge Add-ons publishing is a documented TODO and is not implemented. Nothing was uploaded for $CR_VERSION."
+          echo "::error::Required credentials are EDGE_CLIENT_ID and EDGE_API_KEY (Partner Center Publish API, Client ID + API key; the Azure AD app model is retired)."
+          exit 1
+
+      # Each store step is continue-on-error so one broken channel cannot stop
+      # the others; this is where the failure becomes a red run, after every
+      # channel has had a turn (§4.7).
+      - name: Store phase verdict
+        if: always()
+        run: |
+          set -euo pipefail
+          failed=""
+          if [ "${{ steps.amo.outcome }}" = "failure" ]; then failed="$failed AMO"; fi
+          if [ "${{ steps.cws.outcome }}" = "failure" ]; then failed="$failed CWS"; fi
+          if [ "${{ steps.edge.outcome }}" = "failure" ]; then failed="$failed Edge"; fi
+          if [ -n "$failed" ]; then
+            echo "::error::store channel(s) failed:$failed. The channels are independent (§4.7); fix the cause and rerun this workflow with the same tag. Every channel skips a version that already exists upstream."
+            exit 1
+          fi
+          echo "::notice::store phase finished without a hard failure. Skipped channels were not submitted; submitted channels are pending the store's review, not live."

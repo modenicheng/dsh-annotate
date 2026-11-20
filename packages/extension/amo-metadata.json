@@ -1,0 +1,27 @@
+{
+  "default_locale": "en-US",
+  "name": {
+    "en-US": "dsh-marker",
+    "zh-CN": "dsh-marker"
+  },
+  "summary": {
+    "en-US": "Mark text, an element, or a region on a page and send it, with a cropped screenshot and its page context, to DeepSeek Harness on your machine.",
+    "zh-CN": "标记网页上的文字、元素或区域，把批注连同裁剪截图和页面信息一起交给本机的 DeepSeek Harness。"
+  },
+  "description": {
+    "en-US": "dsh-marker hands part of a web page to DeepSeek Harness (DSH) on your own computer, as context for your conversation.\n\nMark text, an element, or a region, and the mark arrives in the DSH session you are using, with a cropped screenshot and the page context around it. When a request is ambiguous, the model can ask you to point at something.\n\nHOW IT WORKS\n- Press Alt+Shift+A to enter annotation mode. Select text with Shift+drag, click an element, or drag a region.\n- A numbered marker stays pinned to what you marked, and is re-anchored as the page re-renders.\n- The comment is optional; the button then reads \"Send mark\".\n- Pick the DSH Session that should receive it. The annotation is inserted into that Session's composer as a chip you can remove; nothing reaches the model until you send the message.\n- The model may call annotate_pick; a banner appears on the page and waits for your click until it times out.\n\nWHAT YOU NEED\n- DeepSeek Harness with the dsh-marker bundle enabled, on the same machine. The extension connects over loopback (127.0.0.1:3080 by default) after you paste the bridge token from $DSH_HOME/ext-bridge-token into the popup once.\n- Supported browsers: Firefox (and Zen) and Chromium-based browsers. Firefox needs 128 or newer. Safari is not supported.\n\nWHAT IT DOES NOT DO\n- No account, no developer server, no telemetry, no analytics.\n- Nothing leaves your machine: annotations go to your local DSH host, which stores them under $DSH_HOME.\n- No remote code, no third-party requests, no ads.\n\nPRIVACY\nSee docs/privacy.md in the repository for what is read, where it goes, and what is stored: https://github.com/modenicheng/dsh-annotate\n\nFEEDBACK\nhttps://github.com/modenicheng/dsh-annotate/issues",
+    "zh-CN": "dsh-marker 把网页上标记的内容发给本机的 DeepSeek Harness（DSH），作为对话的上下文。\n\n划词、点元素，或拖框选一块区域；标记连同裁剪截图和周边页面信息，送进你正在用的 DSH 会话。请求含糊时，模型也可以请你指一下。\n\n怎么用\n- 按 Alt+Shift+A 进入批注模式：Shift+划词选文字，点一下选元素，拖动选框选区域。\n- 标记以编号钉在选区或元素上，页面重绘后会重新找位置。\n- 评论可以不写，按钮此时是“只发标记”。\n- 选择送给哪个会话：批注以引用的形式插进那个会话的输入框，随时可以删掉；消息发不发，由你决定。\n- 模型可以调用 annotate_pick 请你指一个位置，页面上会出现提示条等你的点击。\n\n需要什么\n- 本机装了 DeepSeek Harness 并启用了 dsh-marker 插件；在扩展弹窗里粘贴一次 $DSH_HOME/ext-bridge-token 里的令牌。\n- 支持的浏览器：Firefox（含 Zen）与 Chromium 内核浏览器；Firefox 需 128 或更高版本。不支持 Safari。\n\n不做什么\n- 没有账号，没有开发者服务器，没有遥测和统计。\n- 数据不出本机：批注只发给本机的 DSH 宿主，存在 $DSH_HOME 下。\n- 不加载远程代码，不请求第三方资源，没有广告。\n\n隐私\n读什么、发到哪里、存什么，见仓库 docs/privacy.md：https://github.com/modenicheng/dsh-annotate\n\n反馈\nhttps://github.com/modenicheng/dsh-annotate/issues"
+  },
+  "categories": ["developer-tools"],
+  "homepage": "https://github.com/modenicheng/dsh-annotate",
+  "support_url": "https://github.com/modenicheng/dsh-annotate/issues",
+  "privacy_policy": "https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md",
+  "is_experimental": false,
+  "requires_payment": false,
+  "license": "MIT",
+  "release_notes": {
+    "en-US": "First public release.\n\n- Mark text, an element, or a region on a page with Alt+Shift+A and send it to DeepSeek Harness with a cropped screenshot.\n- Numbered markers stay pinned to their anchor across reloads.\n- Credentials are a bridge token you paste once; the extension only ever talks to the host on your machine.",
+    "zh-CN": "首个公开发布。\n\n- 用 Alt+Shift+A 进入批注模式，标记网页上的文字、元素或区域，连同裁剪截图一起发给 DeepSeek Harness。\n- 编号标记钉在锚点上，页面重载后位置不丢。\n- 桥接令牌只需在弹窗里粘贴一次；扩展只与本机的宿主通信。"
+  },
+  "approval_notes": "The uploaded package is the readable source: no bundler, no minification, no build step, so no source submission is required beyond this package. All scripts are plain JavaScript in the zip. The extension talks only to the user's local DSH host on 127.0.0.1 (see host_permissions); the <all_urls> content script exists so the user can annotate any page they choose to. Data collection: none."
+}

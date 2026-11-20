@@ -6,6 +6,9 @@
     <title>dsh-marker</title>
     <link rel="stylesheet" href="popup.css">
     <!-- Classic scripts only: the shared protocol is generated as a global. -->
+    <!-- First, always: aliases `chrome` to `browser` below Chrome 148 and adapts
+         the message listener for it. -->
+    <script src="../shared/platform.js"></script>
     <script src="../shared/protocol.global.js"></script>
     <!-- One endpoint parser for the popup and the background. -->
     <script src="../background/endpoints.js"></script>

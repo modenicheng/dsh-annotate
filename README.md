@@ -3,6 +3,8 @@
 [![CI](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml/badge.svg)](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 Visual annotations from your everyday browser, as first-class context for
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH).
 
@@ -12,24 +14,11 @@ cropped screenshot, DOM selectors, and page context. The model can also ask you
 to point at something (`annotate_pick`) when a request is ambiguous.
 
 > **Status: early development.** The protocol, the host plugin, and the
-> extension are implemented and covered by tests. The host half is verified
-> against a live `dsh web` instance, and the extension's bridge connection is
-> verified in a real Firefox 159.0 session (token handshake over `ws://127.0.0.1`);
-> the capture gestures still need a pass in a real browser. An annotation cited
-> from the DSH composer as a `dsh-anno:` mention renders as a chip, is routed to
-> the conversation the window is showing, and shows its content and crop on
-> hover — verified end to end in a live Web Client. That delivery is pushed, not
-> polled: the host nudges the page's event stream the moment a mention is queued
-> (D24).
-> Not covered yet: the browser-side pass over the discovery flow. A host whose
-> port is not `3080` (DSH Desktop picks its port at launch) is published by the
-> host and found by the extension — the endpoint record, the loopback locator,
-> the resolution chain, the ranking, and the popup import all ship, and the
-> chain has been verified against a live `--port 0` host under `node:vm`. What
-> is still unproven is the same flow in a real Firefox session, and the Desktop
-> app itself (M4.5c). Design and rationale:
-> [docs/DISCOVERY.md](docs/DISCOVERY.md). See
-> [docs/PLAN.md](docs/PLAN.md) for what is proven and what is not.
+> extension are implemented and covered by tests. The host half and the
+> mention-to-chip delivery are verified against a live `dsh web` instance; the
+> browser-side capture gestures and discovery flow still need a pass in a real
+> browser. What is proven and what is not is tracked in
+> [docs/PLAN.md](docs/PLAN.md).
 
 ## Architecture
 
@@ -86,93 +75,11 @@ bridge is mounted on the DSH host webserver and lives exactly as long as
 `dsh web` does. A host whose port is not `3080` also opens one small loopback
 *locator* so a browser can find it; it answers a single address lookup and
 carries no annotation data. Both sides are plain ESM JavaScript with no build
-step. See [docs/DISCOVERY.md](docs/DISCOVERY.md) for the whole chain.
+step.
 
-### `ws://` or `wss://`: the host decides
-
-A stock local install is plain HTTP on loopback, so the extension must reach it
-with `ws://` and `http://`. Two things keep that working:
-
-- **The extension's page CSP must not upgrade insecure requests.** Firefox's
-  MV3 default extension policy is
-  `script-src 'self'; upgrade-insecure-requests;`, and that directive rewrites
-  the bridge's `ws://` to `wss://` (and its `http://` health probe to `https://`)
-  before any of our code can intervene. `manifest.json` therefore declares an
-  explicit `content_security_policy.extension_pages` without it, and
-  `node scripts/check-manifest.mjs` fails if that declaration ever disappears or
-  brings the directive back.
-- **The scheme is negotiated, not guessed.** Before connecting, the extension
-  reads `/ext/anno/health`, which reports `secure` and a complete `wsUrl` derived
-  from how the request reached the host: a TLS socket or a TLS-configured DSH
-  webserver yields `wss://`; a request forwarded by a TLS-terminating reverse
-  proxy (with `X-Forwarded-Proto: https`) yields `wss://` too; anything else
-  yields `ws://`. On a plain host the probe goes to `http://` and the answer is
-  `ws://`, so the default path is unchanged. The extension opens the advertised
-  URL and only falls back to the address saved in the popup when the probe
-  cannot reach the host at all.
-
-The popup accepts a bare host and port (`127.0.0.1` + `3080`, the pre-existing
-shape, kept so old settings keep working) or a whole URL
-(`wss://anno.example.com`). A typed scheme is an explicit override for setups
-where the probe is unavailable; leaving it out is the normal case.
-
-### Desktop, and a port that moves
-
-DSH Desktop composes the same Web bundle, but its launcher chooses the port, so
-the default `127.0.0.1:3080` is wrong on every launch. That is handled: a host
-whose port moves publishes where it is, and the extension finds it.
-
-The answer splits the two questions the popup used to answer by hand
-([docs/DISCOVERY.md](docs/DISCOVERY.md)):
-
-- **Where is it now?** When the port is not `3080`, the host opens a loopback
-  *locator* on `30810–30812` that answers one `GET /ext/anno/locate` with its
-  origin — no token, no annotation data. On start the host also writes
-  `$DSH_HOME/ext-bridge-endpoint.json` with the same address, for manual entry,
-  tooling, and the cases the locator cannot cover. A fresh install starts in
-  **Automatic** mode: one round probes the three locator ports plus the default
-  `3080`, ranks the answers, verifies the chosen one against
-  `/ext/anno/health` (the `instanceId` must agree), and connects. A host that
-  answered last is remembered for twelve hours, so a restart usually costs one
-  health probe. **Manual** mode is exactly the old behaviour, and a typed
-  address in Automatic mode is treated as an explicit override. The popup also
-  imports the record file and lists the hosts it found, so a wrong pick is
-  correctable. The scheme stays the host's decision, as above.
-- **Which host may I talk to?** Unchanged: the bridge token, pasted once from
-  `$DSH_HOME/ext-bridge-token`. The token is not copied into any other file —
-  the extension cannot read files anyway, and a second copy would only add a
-  thing to rotate and leak.
-
-Nothing in the bridge changes: the locator publishes an address, the websocket
-stays the only data path, and a stock `dsh web` on `3080` behaves exactly as it
-does today. D20–D22 in [docs/DECISIONS.md](docs/DECISIONS.md) record why a
-proxy, a second bridge, and token-carrying files were rejected.
-
-### Behind an HTTPS reverse proxy
-
-TLS terminates at the proxy, so the proxy must **forward upgrades** and tell the
-host the original scheme:
-
-```nginx
-location /ext/anno {
-  proxy_pass http://127.0.0.1:3080;
-  proxy_http_version 1.1;
-  proxy_set_header Upgrade $http_upgrade;
-  proxy_set_header Connection "upgrade";
-  proxy_set_header Host $host;
-  proxy_set_header X-Forwarded-Proto $scheme;
-  proxy_set_header X-Forwarded-Host $host;
-}
-```
-
-`X-Forwarded-Proto` is what makes health answer `wss://`; without it the host can
-only advertise `ws://`. The upgrade route itself is scheme-independent: it reads
-no forwarding header and no `Origin`, so a proxy that terminates TLS is invisible
-to the handshake, and the bridge token remains the only admission check. The
-extension's `host_permissions` cover loopback only (`http(s)://127.0.0.1/*`,
-`ws(s)://127.0.0.1/*`, and the `localhost` forms); a host reached through a
-public domain needs that origin added to the manifest before the extension may
-probe or connect to it.
+Non-default deployments — Desktop's moving port, TLS, reverse proxies — are
+covered in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md); the discovery design and
+rationale are in [docs/DISCOVERY.md](docs/DISCOVERY.md).
 
 ## Install
 
@@ -190,8 +97,6 @@ dsh plugin add dsh-marker
 
 `plugin add` pulls the bundle from the npm registry together with its one
 runtime dependency (`ws`), so the machine needs the registry reachable once.
-The plugin manager reads the title, description, detail page, and icon from the
-installed package; nothing else is copied into the profile by hand.
 
 Development uses an isolated `anno` profile so the daily `web` profile is left
 untouched, and installs from this checkout instead of the registry:
@@ -217,10 +122,12 @@ and enable `dsh-marker`. The same page can install a local bundle directly
 
 ### Extension
 
-> Not available yet: `packages/extension` is still under construction (M2). The
-> steps below are the intended flow.
+> Not in a store yet: the first AMO and Chrome Web Store listings are not live,
+> so install from this checkout. Store copy is waiting in
+> [docs/STORE_LISTING.md](docs/STORE_LISTING.md).
 
-The extension has no build step. Load it as a temporary add-on:
+The source needs no build step — `packages/extension` is the extension, with no
+bundler, no TypeScript and no dependency. Load it as a temporary add-on:
 
 1. Open `about:debugging#/runtime/this-firefox` (Zen: `about:debugging`).
 2. Choose **Load Temporary Add-on…** and select
@@ -229,57 +136,30 @@ The extension has no build step. Load it as a temporary add-on:
    `$DSH_HOME/ext-bridge-token` (`%USERPROFILE%\.dsh\ext-bridge-token` on
    Windows). Leave **Connection** on *Automatic* and the address at the default
    `127.0.0.1` / `3080`, and the extension finds a host whose port moved by
-   itself. Switch to *Manual* to type an address as before (that is also what
-   every install before this feature keeps); a full URL such as
+   itself. Switch to *Manual* to type an address; a full URL such as
    `wss://anno.example.com` works in either mode, and with no scheme the
    extension asks the host which one to use. If automatic discovery cannot find
    the host, **Import endpoint file…** reads the address from
-   `$DSH_HOME/ext-bridge-endpoint.json` — or copy its `"origin"` into the
-   address field. The token is still pasted once from
-   `$DSH_HOME/ext-bridge-token` ([docs/DISCOVERY.md](docs/DISCOVERY.md)).
+   `$DSH_HOME/ext-bridge-endpoint.json` ([docs/DISCOVERY.md](docs/DISCOVERY.md)).
 4. Press `Alt+Shift+A` on a page to enter annotation mode: select text, click
    an element, or drag a region, then press Enter. The comment is optional —
    with an empty one the mark is sent on its own (the button reads
    **Send mark** / **只发标记**).
 
-Temporary add-ons disappear when the browser closes. M5 covers a signed `.xpi`
-for a permanent install.
+Temporary add-ons disappear when the browser closes. A signed `.xpi` from
+addons.mozilla.org is what makes the install permanent (M5).
 
-## Security model
+The two store packages are generated from that one source tree:
 
-The bridge is local-only by design:
+```sh
+node scripts/build-extension.mjs        # dist/firefox + dist/chromium
+```
 
-- **No public port by default.** It attaches to the DSH host webserver, which
-  binds to loopback (`127.0.0.1`) by default. Putting that webserver behind a
-  tunnel or reverse proxy makes the websocket reachable wherever that server is,
-  so terminate TLS in front of it (which the host then advertises as `wss://`),
-  do not log frames, and keep the port off `0.0.0.0`.
-- **Token handshake.** The first frame must be
-  `hello { token, version }`. The token is 32 random bytes as hex, stored in
-  `$DSH_HOME/ext-bridge-token` with owner-only permissions on POSIX. It is
-  compared in constant time (`sha256` + `timingSafeEqual`). A client that does
-  not authenticate within 5 seconds is disconnected, and the protocol version
-  must match exactly.
-- **No token, no data.** Without a valid token the host closes the socket; the
-  only anonymous endpoint is `/ext/anno/health`, which reports the protocol
-  version, open-annotation/client counts, and the scheme/URL a browser should
-  use — never annotation content.
-- **Discovery publishes an address, not a secret.** The loopback locator answers
-  one `GET` with the host's origin and a per-process id; it returns no token and
-  no annotation data, sends no CORS header, and refuses a `Host` that is not
-  loopback, so a web page can neither read the answer nor cause a state change.
-  The endpoint record carries the same address and timestamps and no secret
-  either; the token stays in `ext-bridge-token`, pasted once by the user. See
-  [docs/DISCOVERY.md](docs/DISCOVERY.md).
-- **Bounded input.** Frames are capped at 32 MiB, records are validated against
-  `packages/protocol/src/index.js`, and the store only keeps references to
-  screenshots that DSH's own attachment service accepts.
-- **Local storage.** Annotations live under `$DSH_HOME`; nothing leaves the
-  machine and there is no telemetry. The model sees annotations exactly like
-  any other local tool output in the session.
+Firefox is what has been run for real; Chromium is built and lint-clean but
+still needs its browser QA pass ([docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)).
 
-The practical trust boundary: anyone who can read `$DSH_HOME/ext-bridge-token`
-or write to your profile directory can already act as you locally.
+What the extension reads, where it sends it and what it keeps locally is
+[docs/privacy.md](docs/privacy.md) — the same page the stores link to.
 
 ## Tools
 
@@ -294,6 +174,36 @@ broadcast changes back to connected browsers.
 | `annotate_pick` | Ask the user to point at something in the browser; the call waits (5 s–15 min, default 2 min) for a selection, element, or region. |
 | `annotate_clear` | Bulk-delete annotations by `status` and/or `before_iso`. |
 
+## Security model
+
+The bridge is local-only by design:
+
+- **No public port by default.** It attaches to the DSH host webserver, which
+  binds to loopback (`127.0.0.1`) by default. Putting that webserver behind a
+  tunnel or reverse proxy makes the websocket reachable wherever that server is,
+  so terminate TLS in front of it, do not log frames, and keep the port off
+  `0.0.0.0`.
+- **Token handshake.** The first frame must be `hello { token, version }`. The
+  token is 32 random bytes as hex, stored in `$DSH_HOME/ext-bridge-token` with
+  owner-only permissions on POSIX, and compared in constant time. A client that
+  does not authenticate within 5 seconds is disconnected, and the protocol
+  version must match exactly.
+- **No token, no data.** Without a valid token the host closes the socket; the
+  only anonymous endpoint is `/ext/anno/health`, which reports the protocol
+  version, counts, and the scheme/URL a browser should use — never annotation
+  content.
+- **Discovery publishes an address, not a secret.** The loopback locator answers
+  one `GET` with the host's origin and a per-process id; it returns no token and
+  no annotation data, and refuses a `Host` that is not loopback.
+- **Bounded input.** Frames are capped at 32 MiB, records are validated against
+  `packages/protocol/src/index.js`, and the store only keeps references to
+  screenshots that DSH's own attachment service accepts.
+- **Local storage.** Annotations live under `$DSH_HOME`; nothing leaves the
+  machine and there is no telemetry.
+
+The practical trust boundary: anyone who can read `$DSH_HOME/ext-bridge-token`
+or write to your profile directory can already act as you locally.
+
 ## Where data lives
 
 | Location | Contents |
@@ -301,8 +211,8 @@ broadcast changes back to connected browsers.
 | `$DSH_HOME/annotations/queue.jsonl` | Append-only event log (`put`, `patch`, `del`, `img`), folded in memory at startup and compacted when it grows stale. |
 | DSH attachment service | Cropped screenshots; the log stores only the attachment reference. |
 | `$DSH_HOME/ext-bridge-token` | Bridge token, generated on first use with mode `0600`. |
-| `$DSH_HOME/ext-bridge-endpoint.json` | The listening origin, `instanceId`, profile label, and timestamps — address only, no token, written atomically on every start with mode `0600`. Used for manual entry, tooling, and hosts the locator cannot reach. |
-| Browser `storage.local` | Extension token, offline outbox, UI preferences, and the endpoint the host advertised last (so a restart reconnects without probing again). |
+| `$DSH_HOME/ext-bridge-endpoint.json` | The listening origin, `instanceId`, profile label, and timestamps — address only, no token, written atomically on every start. |
+| Browser `storage.local` | Extension token, offline outbox, UI preferences, and the endpoint the host advertised last. Details: [docs/privacy.md](docs/privacy.md#what-is-stored-in-the-browser). |
 
 `$DSH_HOME` defaults to `~/.dsh` (`%USERPROFILE%\.dsh` on Windows). It is shared
 by every profile on the machine, so one token works for whichever profile is
@@ -318,23 +228,14 @@ node scripts/smoke-ws.mjs ws://127.0.0.1:3080/ext/anno   # verify a booted bridg
 node scripts/smoke-discovery.mjs                    # verify the record + locator of a --port 0 host
 ```
 
-`smoke-ws.mjs` drives the real socket: it reads `$DSH_HOME/ext-bridge-token`,
-checks that `/ext/anno/health` advertises the same scheme as the URL under test,
-creates an annotation with a 1×1 PNG crop, queries it back, resolves it, and
-replays the id to prove idempotency. Run it after installing the bundle and
-after any protocol change; it accepts a `wss://` URL as well as `ws://`.
-
-`smoke-discovery.mjs` is its discovery counterpart: start a host with
-`dsh --profile anno --port 0`, then run the script. It reads
-`$DSH_HOME/ext-bridge-endpoint.json`, probes the three locator ports, and fails
-unless the record's `instanceId` matches both the locator answer and
-`/ext/anno/health` — and unless neither the record nor the answer contains
-anything shaped like the token.
-
-The quoted glob is intentional: Node expands it itself, which keeps the command
-identical on Windows, macOS, and Linux. `pnpm run check` fetches the pinned
-Biome version through `npx`, so it needs network access the first time; the
-tests and hooks do not.
+`smoke-ws.mjs` drives the real socket end to end (health probe, token
+handshake, create → query → resolve, idempotent replay); run it after installing
+the bundle and after any protocol change. `smoke-discovery.mjs` is its discovery
+counterpart against a `dsh --profile anno --port 0` host. The quoted glob is
+intentional: Node expands it itself, which keeps the command identical on
+Windows, macOS, and Linux. `pnpm run check` fetches the pinned Biome version
+through `npx`, so it needs network access the first time; the tests and hooks do
+not.
 
 Local hooks enforce Conventional Commits and run the checks before each commit:
 
@@ -349,21 +250,27 @@ and the generated-file rule.
 
 | Phase | Scope | State |
 |---|---|---|
-| M0 | Protocol, repository base, CI, hooks | done; CI green on GitHub Actions (Node 22 and 24) |
-| M1 | Host plugin, storage loop, tools | implemented and verified against a live `dsh web` instance: health route, token handshake, create → ack → broadcast, query across query-string changes, resolve/delete, idempotent replay, attachment-backed crop |
-| M2 | Extension capture: gestures, overlay, crop, outbox | implemented; the bridge connects from a real Firefox 159.0 session, the gestures themselves are **not yet exercised in a real browser** |
-| M3 | Re-anchoring and agent-initiated picks | implemented on both sides (hydrator fallback chains, pick banner, timeout and cancel); browser behaviour unverified |
-| M3.5 | `dsh-anno:` mentions: client chip and pre-step context | implemented and verified in a live Web Client (Firefox 159.0): the mention renders as one chip, survives a reload, and the model answers from the anchor, comment, and crop |
-| M3.6 | Target picker and queued delivery into another Session | delivered and verified in a live Web Client — the mention arrives as one atomic chip the user can read and remove before sending (D17), and an annotation submitted without picking a target is routed to the conversation the window is showing (D18). The overlay's picker rows are still unexercised in a real browser |
-| M3.7 | Chip hover card: the annotation's content and its click-time crop | implemented and verified in a live Web Client — hovering the chip opens the product's `HoverCard` with the page, quote or element, comment, and the stored screenshot, read back over same-origin routes; the record carries the frame frozen at click time (D19) |
-| M3.8 | Push delivery and a snapshot catalog | implemented: a mention queued for the Session on screen is nudged to the page over `/ext/anno/events` instead of waiting for a 4 s poll, and the target picker answers from the Host's own title projections instead of folding every Session log per request (D24). Live verification is pending a host restart |
+| M0 | Protocol, repository base, CI, hooks | done |
+| M1 | Host plugin, storage loop, tools | implemented, verified against a live host |
+| M2 | Extension capture: gestures, overlay, crop, outbox | implemented; browser QA pending |
+| M3 / M3.5–M3.8 | Re-anchoring, picks, `dsh-anno:` mentions, chip hover card, push delivery | implemented; browser-side pieces pending live verification |
 | M4 | Developer context, session routing, multi-window | planned |
-| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered on both sides: the host writes the record on every start, serves the locator on `30810–30812` when its port is not `3080`, and reports `instanceId` in `/ext/anno/health`; the extension resolves, ranks, verifies, and remembers the host, and the popup has the mode switch, the record import, and the discovered-hosts list. The resolution chain was verified end to end against a real `--port 0` host (three locator ports, a stale answer rejected, `instanceId` cross-check, address remembered); the real-browser session, the Windows/Linux matrix, and a Desktop run are M4.5c. Design in [docs/DISCOVERY.md](docs/DISCOVERY.md), decisions D20–D22 |
+| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; real-browser and Desktop runs pending (M4.5c) |
 | M5 | Signing and distribution | planned |
 
 The detailed deliverables and acceptance criteria are in
 [docs/PLAN.md](docs/PLAN.md); implementation decisions and their rationale are
 in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+## Documentation
+
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — TLS, reverse proxies, Desktop's moving port
+- [docs/DISCOVERY.md](docs/DISCOVERY.md) — discovery design and rationale
+- [docs/INTERACTION.md](docs/INTERACTION.md) — interaction and capture UX
+- [docs/privacy.md](docs/privacy.md) — data handling and privacy
+- [docs/PLAN.md](docs/PLAN.md) / [docs/DECISIONS.md](docs/DECISIONS.md) — roadmap, decisions
+- [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) / [docs/STORE_LISTING.md](docs/STORE_LISTING.md) — store packaging and listing
+- [CONTRIBUTING.md](CONTRIBUTING.md) — commit format, hooks, generated-file rule
 
 ## License
 

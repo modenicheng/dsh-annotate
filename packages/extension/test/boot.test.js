@@ -19,6 +19,7 @@ import vm from 'node:vm'
 const here = dirname(fileURLToPath(import.meta.url))
 const extensionRoot = dirname(here)
 
+/** The background files in manifest order (`manifest.json` `background.scripts`). */
 const SCRIPTS = [
   'src/shared/protocol.global.js',
   'src/background/endpoints.js',
@@ -31,6 +32,13 @@ const SCRIPTS = [
   'src/background/routing.js',
   'src/background/main.js',
 ]
+
+/**
+ * The engine shim. It is not in the Gecko list above (Gecko exposes `browser`
+ * itself), but the Chromium service worker imports it before the same files,
+ * and `platform.js` is what tells `main.js` which engine it is on.
+ */
+const PLATFORM_SCRIPT = 'src/shared/platform.js'
 
 /**
  * An event object whose listeners the test can fire.
@@ -64,8 +72,10 @@ function resolved(value) {
  * The `browser` surface the background touches. Anything not modelled here is
  * a deliberate failure, not a silent no-op: an unknown API means this stub and
  * the code have diverged.
+ * @param {{ extensionUrl?: string }} [options] `runtime.getURL`'s prefix, which
+ *   is what `platform.js` uses to tell the engines apart
  */
-function createBrowserStub() {
+function createBrowserStub({ extensionUrl = 'moz-extension://test/' } = {}) {
   const onMessage = event('runtime.onMessage')
   const onInstalled = event('runtime.onInstalled')
   const onStartup = event('runtime.onStartup')
@@ -79,11 +89,13 @@ function createBrowserStub() {
   /** @type {Map<string, any>} */
   const stored = new Map()
   const badge = { text: '', color: undefined }
+  /** @type {{ name: string, periodInMinutes?: number }[]} */
+  const alarms = []
 
   const browser = {
     runtime: {
       getManifest: () => ({ version: '0.1.0', manifest_version: 3 }),
-      getURL: (path) => `moz-extension://test/${path}`,
+      getURL: (path) => `${extensionUrl}${path}`,
       id: 'dsh-marker@modenic.top',
       onMessage,
       onInstalled,
@@ -114,7 +126,9 @@ function createBrowserStub() {
     },
     alarms: {
       onAlarm,
-      create: resolved(undefined),
+      create: async (name, info) => {
+        alarms.push({ name, ...info })
+      },
       clear: resolved(true),
       get: async () => undefined,
       getAll: resolved([]),
@@ -146,6 +160,7 @@ function createBrowserStub() {
     events: { onMessage, onInstalled, onStartup, onAlarm, onCommand, onTabRemoved, onTabUpdated, onTabActivated },
     stored,
     badge,
+    alarms,
   }
 }
 
@@ -170,28 +185,44 @@ async function waitUntil(predicate, timeoutMs = 2_000) {
  * `main.js` starts booting as soon as it loads, so the stored token has to exist
  * before the scripts are evaluated; otherwise the first attempt stops at
  * `no-token` and no socket is ever constructed.
- * @param {{ token?: string, prefs?: Record<string, any> | null, storage?: Record<string, any> | null, fetch?: (url: string) => Promise<any> }} [options]
+ * @param {{
+ *   token?: string,
+ *   prefs?: Record<string, any> | null,
+ *   storage?: Record<string, any> | null,
+ *   fetch?: (url: string) => Promise<any>,
+ *   engine?: 'gecko' | 'chromium',
+ * }} [options] `engine` picks the API shape: Gecko has `browser` and no shim
+ *   script, Chromium below 148 has only `chrome` and loads `platform.js` first,
+ *   exactly as its service worker does
  */
 async function bootBackground(options = {}) {
   const {
     token = 'test-token',
     prefs = null,
     storage = null,
+    engine = 'gecko',
     fetch = async () => {
       throw new Error('offline')
     },
   } = options
-  const { browser, events, stored, badge } = createBrowserStub()
+  const chromium = engine === 'chromium'
+  const { browser, events, stored, badge, alarms } = createBrowserStub({
+    extensionUrl: chromium ? 'chrome-extension://test/' : 'moz-extension://test/',
+  })
+  const scripts = chromium ? [PLATFORM_SCRIPT, ...SCRIPTS] : [...SCRIPTS]
   /** @type {string[]} */
   const errors = []
   /** @type {any[]} */
   const sockets = []
 
   class FakeWebSocket {
+    static CONNECTING = 0
+    static OPEN = 1
+
     /** @param {string} url */
     constructor(url) {
       this.url = url
-      this.readyState = 0
+      this.readyState = FakeWebSocket.CONNECTING
       this.sent = []
       sockets.push(this)
     }
@@ -207,7 +238,6 @@ async function bootBackground(options = {}) {
 
   const timers = []
   const sandbox = {
-    browser,
     WebSocket: FakeWebSocket,
     fetch,
     AbortController,
@@ -237,13 +267,17 @@ async function bootBackground(options = {}) {
     navigator: { userAgent: 'node', language: 'en-US' },
     document: undefined,
   }
+  // Chrome exposes no `browser` namespace before version 148; `platform.js` is
+  // what creates it, so the Chromium context must not provide one.
+  if (chromium) sandbox.chrome = browser
+  else sandbox.browser = browser
   sandbox.globalThis = sandbox
   const context = vm.createContext(sandbox)
   if (token !== '') stored.set('anno.token', token)
   if (prefs !== null) stored.set('anno.prefs', prefs)
   if (storage !== null) for (const [key, value] of Object.entries(storage)) stored.set(key, value)
 
-  for (const path of SCRIPTS) {
+  for (const path of scripts) {
     const code = await readScript(path)
     try {
       vm.runInContext(code, context, { filename: path })
@@ -263,7 +297,7 @@ async function bootBackground(options = {}) {
       ns.netState.connection === 'offline' ||
       ns.netState.connection === 'error',
   )
-  return { sandbox, ns, errors, sockets, events, stored, badge, timers }
+  return { sandbox, ns, errors, sockets, events, stored, badge, timers, alarms }
 }
 
 /** A health body shaped like the host's, for the probe stubs below. */
@@ -587,4 +621,57 @@ test('every script listed by the manifest exists', async () => {
   for (const entry of manifest.content_scripts ?? []) for (const script of entry.js ?? []) referenced.add(script)
   referenced.add(manifest.action.default_popup)
   for (const path of referenced) await readScript(path)
+})
+
+/**
+ * Put a harness's socket into the state `hello.ok` would leave it in, so the
+ * keepalive paths can be observed.
+ * @param {{ ns: any, sockets: any[] }} harness
+ */
+function authenticate(harness) {
+  const socket = harness.sockets[0]
+  assert.ok(socket !== undefined, 'a socket was created')
+  socket.readyState = 1 // WebSocket.OPEN
+  harness.ns.setNetState({ connection: 'connected' })
+  return socket
+}
+
+/** @param {{ sent: string[] }} socket */
+function frameTypes(socket) {
+  return socket.sent.map((raw) => JSON.parse(String(raw)).t)
+}
+
+test('Chromium keeps the service worker alive with a 20 s ping, not the alarm', async () => {
+  const harness = await bootBackground({
+    engine: 'chromium',
+    fetch: async () => ({ ok: true, status: 200, json: async () => healthBody() }),
+  })
+  // Below Chrome 148 there is no `browser`, and `platform.js` is what makes one.
+  assert.equal(harness.sandbox.browser, harness.sandbox.chrome, 'the shim published `browser` from `chrome`')
+
+  const intervals = harness.timers.filter((timer) => timer.repeat === true)
+  assert.equal(intervals.length, 1, 'one interval: the keepalive')
+  assert.equal(intervals[0].ms, 20_000)
+  // Chrome clamps a sub-minute alarm period, so the alarm cannot beat faster
+  // than 30 s: it is a whole minute here and only reconnects/refreshes.
+  assert.equal(harness.alarms[0].periodInMinutes, 1)
+
+  const socket = authenticate(harness)
+  intervals[0].fn()
+  assert.deepEqual(frameTypes(socket), ['ping'], 'the interval sends the frame that already exists')
+
+  await harness.events.onAlarm.fire({ name: harness.ns.ALARM_NAME })
+  assert.deepEqual(frameTypes(socket), ['ping'], 'the alarm must not add a second heartbeat')
+})
+
+test('Gecko keeps the 20 s alarm and starts no second timer', async () => {
+  const harness = await bootBackground({
+    fetch: async () => ({ ok: true, status: 200, json: async () => healthBody() }),
+  })
+  assert.deepEqual(harness.timers.filter((timer) => timer.repeat === true), [], 'no interval on Gecko')
+  assert.equal(harness.alarms[0].periodInMinutes, 20 / 60)
+
+  const socket = authenticate(harness)
+  await harness.events.onAlarm.fire({ name: harness.ns.ALARM_NAME })
+  assert.deepEqual(frameTypes(socket), ['ping'], 'the alarm is still the Gecko heartbeat')
 })

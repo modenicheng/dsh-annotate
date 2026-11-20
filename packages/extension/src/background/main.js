@@ -1,9 +1,16 @@
 /**
- * Background entry point: event wiring, boot, and the keepalive alarm.
+ * Background entry point: event wiring, boot, and the keepalive.
  *
- * Loaded last by manifest.json. Event listeners are registered synchronously at
- * the top level because Firefox starts the event page in order to dispatch
- * them; anything after an `await` would miss the very event that woke the page.
+ * Loaded last by manifest.json (and by `sw.js` for Chromium). Event listeners
+ * are registered synchronously at the top level because Firefox starts the
+ * event page in order to dispatch them, and Chromium starts the service worker
+ * for the same reason; anything after an `await` would miss the very event that
+ * woke it.
+ *
+ * The heartbeat differs by engine and is decided in one place below: Gecko
+ * accepts sub-minute alarm periods and wakes an event page with them, Chromium
+ * clamps alarms to 30 s and kills an idle service worker after ~30 s, so there
+ * the alarm cannot be the keepalive.
  */
 ;(() => {
   const ns = globalThis.__DSH_ANNO_BG__
@@ -15,18 +22,51 @@
   /** Explicit command id from manifest.json; never `_execute_action`. */
   const COMMAND_ID = 'annotate-page'
   /**
-   * 20 seconds. Firefox accepts sub-minute alarm periods; if a build clamps it
-   * to a minute, the event-page start and the socket's own retry still restore
-   * the connection, only the idle wake-up gets slower.
+   * `src/shared/platform.js`, loaded first when the manifest (or `sw.js`)
+   * lists it. It is the only file allowed to know the engine.
    */
-  const ALARM_PERIOD_MINUTES = 20 / 60
-  /** How often the keepalive also refreshes the record snapshot (3 x 20 s). */
+  const platform = globalThis.__DSH_PLATFORM__
+  const IS_CHROMIUM = platform !== undefined && platform.isChromium === true
+  /**
+   * 20 seconds on Gecko, where the alarm is the keepalive and an event page
+   * accepts a sub-minute period. On Chromium a period below 30 s is clamped,
+   * so a plain minute is the floor that still means what it says; there the
+   * alarm only reconnects and refreshes (see `keepalive`).
+   */
+  const ALARM_PERIOD_MINUTES = IS_CHROMIUM ? 1 : 20 / 60
+  /**
+   * Chromium's heartbeat: the host already answers `ping` with `pong`, and a
+   * WebSocket plus traffic inside the worker's idle window is the sanctioned
+   * way to keep it alive, so this reuses the frame that exists instead of
+   * adding a protocol message.
+   */
+  const KEEPALIVE_INTERVAL_MS = 20_000
+  /** Every third keepalive pass also refreshes the record snapshot. */
   const SNAPSHOT_REFRESH_EVERY = 3
 
   let bootPromise = null
   let keepaliveCount = 0
 
-  browser.runtime.onMessage.addListener((message, sender) => ns.routing.handleMessage(message, sender))
+  /**
+   * Register the async message handler through the platform shim. Below
+   * Chromium 148 a listener that returns a promise has its channel closed and
+   * the caller receives `undefined`, so the shim turns this one handler into
+   * `sendResponse` + `return true` there and registers it unchanged on Gecko.
+   * Without the shim (a manifest that does not list it) the raw form is still
+   * correct on Gecko, so boot continues instead of failing.
+   * @param {(message: any, sender: any) => Promise<any>} handler
+   */
+  function addMessageListener(handler) {
+    if (platform !== undefined && typeof platform.onMessage === 'function') {
+      platform.onMessage(handler)
+      return
+    }
+    browser.runtime.onMessage.addListener(handler)
+  }
+
+  addMessageListener((message, sender) => ns.routing.handleMessage(message, sender))
+
+  if (IS_CHROMIUM) startKeepaliveInterval()
 
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== ns.ALARM_NAME) return
@@ -138,15 +178,38 @@
   }
 
   /**
-   * Every 20 s: keep the socket honest. Sending `ping` both proves the socket
-   * is alive (the host answers `pong`) and lets an idle event page finish its
-   * work; a closed socket is reconnected here after suspension.
+   * Chromium's keepalive: one `ping` every 20 s while the socket is
+   * authenticated. The host answers `pong`, so the worker sees traffic well
+   * inside its 30 s idle window and the socket proves itself at the same time.
+   * Started only on Chromium: a Gecko event page has no idle termination to
+   * fight, and a second timer there would duplicate the alarm for nothing.
+   */
+  function startKeepaliveInterval() {
+    setInterval(() => {
+      if (!ns.net.isAuthed()) return
+      ns.net.send({ t: 'ping' })
+      void ns.outbox.flush({ reason: 'interval' })
+    }, KEEPALIVE_INTERVAL_MS)
+  }
+
+  /**
+   * One alarm pass. On Gecko this is the whole heartbeat, every 20 s: sending
+   * `ping` proves the socket is alive (the host answers `pong`) and lets an
+   * idle event page finish its work; a closed socket is reconnected here after
+   * suspension.
+   *
+   * On Chromium the 20 s interval owns the heartbeat, so this pass only does
+   * what a freshly woken service worker needs: reconnect when the socket is
+   * down, and refresh the record snapshot every third pass. It must not send
+   * the ping, or two timers would beat at different rates.
    */
   async function keepalive() {
     try {
       if (ns.net.isAuthed()) {
-        ns.net.send({ t: 'ping' })
-        void ns.outbox.flush({ reason: 'alarm' })
+        if (!IS_CHROMIUM) {
+          ns.net.send({ t: 'ping' })
+          void ns.outbox.flush({ reason: 'alarm' })
+        }
         keepaliveCount += 1
         if (keepaliveCount % SNAPSHOT_REFRESH_EVERY === 0) {
           void ns.routing.refreshRecords().catch((error) => {

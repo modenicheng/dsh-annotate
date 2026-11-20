@@ -16,7 +16,7 @@ const run = promisify(execFile)
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 
 /** Directories that never contain hand-written source worth checking. */
-const SKIP_DIRS = new Set(['.git', '.acl-recovery', 'coverage', 'dist', 'node_modules', 'web-ext-artifacts'])
+const SKIP_DIRS = new Set(['.git', '.acl-recovery', '.agents', 'coverage', 'dist', 'node_modules', 'web-ext-artifacts'])
 const EXTENSIONS = new Set(['.js', '.mjs', '.cjs'])
 
 /**

@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "dsh-marker",
+    "description": "Product name; identical in every locale because it is a brand."
+  },
+  "extDescription": {
+    "message": "Mark text, elements, or regions in a page and hand them to DeepSeek Harness with a cropped screenshot.",
+    "description": "Must fit the 132-character store summary limit."
+  },
+  "actionTitle": {
+    "message": "Annotate this page (Alt+Shift+A)",
+    "description": "Toolbar button tooltip."
+  }
+}

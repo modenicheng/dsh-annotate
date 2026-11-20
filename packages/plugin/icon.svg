@@ -1,8 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="dsh-marker">
-  <rect width="32" height="32" rx="8" fill="#1f6feb"/>
-  <rect x="8" y="6" width="16" height="20" rx="2.5" fill="#ffffff" fill-opacity="0.94"/>
-  <rect x="11" y="11" width="10" height="3" rx="1.5" fill="#1f6feb" fill-opacity="0.35"/>
-  <rect x="11" y="16.5" width="7" height="3" rx="1.5" fill="#1f6feb" fill-opacity="0.2"/>
-  <circle cx="21.5" cy="22.5" r="4.5" fill="#f0883e"/>
-  <circle cx="21.5" cy="22.5" r="1.8" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="32" height="32" role="img" aria-label="dsh-marker">
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="#1f6feb"/>
+  <polygon points="31.8,26.3 76.45,44.2 82.25,46.5 76.3,48.4 60.7,53.35 54.75,55.25 52.75,61.2 48,75.55 46,81.5 43.95,75.6 28.05,29.9 26,24" fill="#ffffff"/>
+  <circle cx="89" cy="93" r="18" fill="#f0883e"/>
 </svg>

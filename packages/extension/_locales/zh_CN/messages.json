@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "dsh-marker",
+    "description": "产品名，各语言一致，属于品牌。"
+  },
+  "extDescription": {
+    "message": "在网页上标注文字、元素或区域，连同裁剪截图一起交给 DeepSeek Harness。",
+    "description": "需符合商店 132 字符摘要上限。"
+  },
+  "actionTitle": {
+    "message": "标注当前页面（Alt+Shift+A）",
+    "description": "工具栏按钮的提示文字。"
+  }
+}

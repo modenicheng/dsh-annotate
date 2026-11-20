@@ -168,7 +168,12 @@
     document.addEventListener('dragover', (event) => event.preventDefault())
     document.addEventListener('drop', (event) => event.preventDefault())
 
-    browser.runtime.onMessage.addListener((message) => {
+    // One listener for status pushes and host events. It goes through the
+    // platform shim (popup.html loads it first) so that Chromium below 148,
+    // where a promise-returning listener's reply is dropped, sees the same
+    // empty answer Gecko gets; on Gecko the shim registers it unchanged.
+    const platform = globalThis.__DSH_PLATFORM__
+    const onMessage = (message) => {
       if (message === null || typeof message !== 'object') return undefined
       if (message.type === MSG.TO_CONTENT.status && typeof message.connection === 'string') {
         applyStatus(message)
@@ -179,7 +184,9 @@
         return undefined
       }
       return undefined
-    })
+    }
+    if (platform !== undefined && typeof platform.onMessage === 'function') platform.onMessage(onMessage)
+    else browser.runtime.onMessage.addListener(onMessage)
 
     browser.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== 'local') return
