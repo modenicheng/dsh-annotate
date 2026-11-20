@@ -31,6 +31,7 @@
       mutate: 'anno.mutate',
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
+      createSession: 'anno.session.create',
     },
     content: {
       records: 'anno.records',
@@ -91,6 +92,8 @@
     prefs: {},
     restricted: '',
     submitting: false,
+    /** Confirmed "new session" target for the composer, or null. */
+    newSessionChoice: null,
     /** Session the annotation is queued for; empty until the catalog answers. */
     targetId: '',
     hookInstalled: false,
@@ -695,11 +698,21 @@
         if (!ui) return
         if (!reply || reply.ok !== true) {
           failed(replyError(reply))
+          ui.setNewSessionAvailable(state.connection === 'connected' || state.connection === 'open')
           return
         }
-        ui.setTargets(Array.isArray(reply.items) ? reply.items : [], reply.defaultSessionId || '')
+        ui.setNewSessionAvailable(true)
+        ui.setTargets(
+          Array.isArray(reply.items) ? reply.items : [],
+          reply.defaultSessionId || '',
+          '',
+          Array.isArray(reply.workspaces) ? reply.workspaces : [],
+        )
       },
-      (error) => failed(String(error && error.message ? error.message : error)),
+      (error) => {
+        failed(String(error && error.message ? error.message : error))
+        if (ui) ui.setNewSessionAvailable(state.connection === 'connected' || state.connection === 'open')
+      },
     )
   }
 
@@ -780,6 +793,30 @@
     )
   }
 
+  /**
+   * Create the session the composer's target asked for, when it did. Runs
+   * before the annotation is submitted so the mention routes to the new
+   * conversation; a failure keeps the composer open with the comment intact.
+   * @returns {Promise<{ ok: boolean, sessionId?: string, error?: string }>}
+   */
+  function ensureNewSession() {
+    const choice = state.newSessionChoice
+    if (!choice) return Promise.resolve({ ok: true })
+    return Promise.resolve(
+      send(MSG.background.createSession, {
+        mode: choice.mode,
+        ...(choice.workspaceId ? { workspaceId: choice.workspaceId } : {}),
+        ...(choice.path ? { path: choice.path } : {}),
+        ...(choice.title ? { title: choice.title } : {}),
+      }),
+    ).then((reply) => {
+      const normalized = normalizeReply(reply)
+      if (normalized.ok === false) return { ok: false, error: replyError(normalized) || t('createFailed') }
+      if (!normalized.sessionId) return { ok: false, error: t('createFailed') }
+      return { ok: true, sessionId: normalized.sessionId }
+    })
+  }
+
   function handleSend(payload) {
     if (!ui) return
     const anchorState = state.anchorState
@@ -794,9 +831,18 @@
     ui.setComposerError('')
     ui.setComposerBusy(true)
 
-    const request = pick
-      ? sendPickAnswer(pick, draft, cropRect, viewport)
-      : send(MSG.background.submit, { record: draft, cropRect, viewport }).then(normalizeReply)
+    // A "new session" target needs its session to exist before the annotation
+    // names it; the two steps are deliberately not queued as one.
+    const request = ensureNewSession().then((created) => {
+      if (created.ok !== true) return { ok: false, error: created.error || t('createFailed') }
+      if (created.sessionId) {
+        draft.routing = { ...draft.routing, sessionId: created.sessionId }
+        state.targetId = created.sessionId
+      }
+      return pick
+        ? sendPickAnswer(pick, draft, cropRect, viewport)
+        : send(MSG.background.submit, { record: draft, cropRect, viewport }).then(normalizeReply)
+    })
 
     request.then((reply) => {
       state.submitting = false
@@ -808,6 +854,7 @@
         ui.setComposerError(reason || t('sendFailed'))
         return
       }
+      state.newSessionChoice = null
       ui.setComposerBusy(false)
       ui.closeComposer()
       clearAnchor()
@@ -1176,6 +1223,9 @@
     state.connection = String(message.connection || '')
     state.connected = connectionToHud(state.connection)
     if (message.outbox && typeof message.outbox.count === 'number') state.outbox = message.outbox.count
+    if (ui && ui.setNewSessionAvailable) {
+      ui.setNewSessionAvailable(state.connection === 'connected' || state.connection === 'open')
+    }
     syncHud()
   }
 
@@ -1271,6 +1321,10 @@
       onTargetRequest: () => void loadTargets(),
       onTarget: (id) => {
         state.targetId = String(id)
+      },
+      onTargetNew: (choice) => {
+        state.newSessionChoice = choice
+        if (choice) state.targetId = ''
       },
     })
     ui.mount()

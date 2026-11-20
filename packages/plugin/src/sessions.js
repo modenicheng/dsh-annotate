@@ -232,11 +232,16 @@ function projectionTitle(row) {
  * @param {ReturnType<typeof createSessionCatalog>} options.catalog
  * @param {string} options.token
  * @param {(presented: unknown, expected: string) => boolean} options.matchesToken
+ * @param {{ warn?: (...args: any[]) => void }} [options.logger]
  * @param {() => string | undefined} [options.preferred] Session the Client is showing, when it said so
+ * @param {() => Promise<any[]>} [options.workspaces] registered workspaces, when a provisioner is mounted
  * @param {string} [options.path]
  * @returns {() => void} disposer
  */
-export function registerSessionsRoute(webServer, { catalog, token, matchesToken, preferred, path = SESSIONS_PATH }) {
+export function registerSessionsRoute(
+  webServer,
+  { catalog, token, matchesToken, logger, preferred, workspaces, path = SESSIONS_PATH },
+) {
   return webServer.register({
     kind: 'exact',
     path,
@@ -274,8 +279,23 @@ export function registerSessionsRoute(webServer, { catalog, token, matchesToken,
           ...(Number.isFinite(limit) ? { limit } : {}),
           includeSubagents: url.searchParams.get('subagents') === '1',
         })
-        .then((value) => {
-          send(200, { ok: true, ...value, defaultSessionId: defaultId(value.items, preferred?.()) })
+        .then(async (value) => {
+          // The "new session" arm of the picker needs the workspace list on the
+          // same open; a failure only loses that arm, never the catalog.
+          let rows = []
+          if (workspaces !== undefined) {
+            try {
+              rows = await workspaces()
+            } catch (error) {
+              logger?.warn?.(`annotations: workspace list unavailable (${messageOf(error)})`)
+            }
+          }
+          send(200, {
+            ok: true,
+            ...value,
+            workspaces: rows,
+            defaultSessionId: defaultId(value.items, preferred?.()),
+          })
         })
         .catch((error) => {
           send(500, { ok: false, error: 'catalog', message: messageOf(error) })

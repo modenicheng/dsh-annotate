@@ -71,6 +71,18 @@
       targetQuery: '',
       targetActive: 0,
       targetNote: '',
+      /** 'pick' lists Sessions; 'new' targets a session the host will create. */
+      targetMode: 'pick',
+      /** The workspace sub-panel inside the picker. */
+      newPanelOpen: false,
+      /** Draft workspace choice while the sub-panel is open. */
+      newMode: 'default',
+      newWorkspaceId: '',
+      newPath: '',
+      newTitle: '',
+      /** True when the host is too far away to create a session. */
+      newUnavailable: false,
+      workspaces: [],
       busy: false,
       toastTimer: 0,
       hoverVisible: false,
@@ -183,6 +195,8 @@
       setComposerBusy: ctx.composer.setComposerBusy,
       setComposerError: ctx.composer.setComposerError,
       setTargets: ctx.target.setTargets,
+      setNewSessionAvailable: ctx.target.setNewSessionAvailable,
+      newSessionChoice: ctx.target.newChoice,
       refreshPositions,
       closeBadgeCard: ctx.badges.closeBadgeCard,
       setHidden(hidden) {

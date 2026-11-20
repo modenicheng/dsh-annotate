@@ -761,6 +761,8 @@
         return mutate(message)
       case MSG.TO_BACKGROUND.sessions:
         return onSessions(message)
+      case MSG.TO_BACKGROUND.createSession:
+        return onCreateSession(message)
       default:
         return undefined
     }
@@ -807,6 +809,7 @@
       const payload = {
         ok: true,
         items: Array.isArray(body.items) ? body.items : [],
+        workspaces: Array.isArray(body.workspaces) ? body.workspaces : [],
         defaultSessionId: typeof body.defaultSessionId === 'string' ? body.defaultSessionId : '',
         truncated: body.truncated === true,
       }
@@ -814,6 +817,73 @@
       return payload
     } catch (error) {
       return failure(`could not read the session list (${ns.describeError(error)})`)
+    }
+  }
+
+  /**
+   * Turn the websocket origin into the http origin a bridge route lives on.
+   * @param {string} pathname
+   * @returns {{ ok: true, url: string } | { ok: false, error: string }}
+   */
+  function bridgeHttpUrl(pathname) {
+    const wsUrl = ns.netState.wsUrl
+    if (typeof wsUrl !== 'string' || wsUrl === '') return { ok: false, error: 'not connected to DeepSeek Harness yet' }
+    try {
+      const parsed = new URL(wsUrl)
+      parsed.protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:'
+      parsed.pathname = pathname
+      parsed.search = ''
+      return { ok: true, url: parsed.href }
+    } catch (error) {
+      return { ok: false, error: `unusable bridge address (${ns.describeError(error)})` }
+    }
+  }
+
+  /**
+   * Create a Session on the host for the composer's "new session" target.
+   *
+   * Creation is online-only: a session that does not exist yet has no outbox
+   * entry to replay, so an offline answer is a definite no rather than a queue.
+   * The sessions cache is dropped afterwards so the next picker open sees the
+   * new conversation.
+   * @param {any} message
+   */
+  async function onCreateSession(message) {
+    if (!ns.net.isAuthed()) return failure('the host is offline; a new session needs a live connection')
+    const token = await ns.readToken()
+    if (typeof token !== 'string' || token === '') return failure('the bridge token is missing')
+    if (PROTOCOL === undefined) return failure('the protocol bundle did not load')
+
+    const body = {
+      mode: field(message, 'mode'),
+      ...(field(message, 'workspaceId') === undefined ? {} : { workspaceId: field(message, 'workspaceId') }),
+      ...(field(message, 'path') === undefined ? {} : { path: field(message, 'path') }),
+      ...(field(message, 'title') === undefined ? {} : { title: field(message, 'title') }),
+    }
+    const errors = PROTOCOL.validateSessionCreateRequest(body)
+    if (errors.length > 0) return failure(`the new-session request is invalid: ${errors.join('; ')}`)
+
+    const target = bridgeHttpUrl('/ext/anno/session-create')
+    if (target.ok !== true) return failure(target.error)
+    try {
+      const response = await fetch(target.url, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'content-type': 'application/json', 'x-anno-token': token },
+        body: JSON.stringify(body),
+      })
+      const answer = await response.json()
+      if (response.ok !== true || answer?.ok === false) {
+        return failure(typeof answer?.message === 'string' ? answer.message : `the host answered ${response.status}`)
+      }
+      sessionsCache = { at: 0, payload: null }
+      return {
+        ok: true,
+        sessionId: typeof answer.sessionId === 'string' ? answer.sessionId : '',
+        workspace: ns.isPlainObject(answer.workspace) ? answer.workspace : null,
+      }
+    } catch (error) {
+      return failure(`could not create the session (${ns.describeError(error)})`)
     }
   }
 

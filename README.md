@@ -256,6 +256,7 @@ and the generated-file rule.
 | M3 / M3.5–M3.8 | Re-anchoring, picks, `dsh-anno:` mentions, chip hover card, push delivery | implemented; browser-side pieces pending live verification |
 | M4 | Developer context, session routing, multi-window | planned |
 | M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; real-browser and Desktop runs pending (M4.5c) |
+| M4.6 | Send an annotation into a new session (default / existing / new workspace) | implemented; browser QA pending |
 | M5 | Signing and distribution | planned |
 
 The detailed deliverables and acceptance criteria are in

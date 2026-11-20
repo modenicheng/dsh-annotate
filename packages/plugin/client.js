@@ -685,11 +685,53 @@ window.__ModuleLoader__.load({
       return null
     }
 
+    /**
+     * Follow the Host's "a session was created" nudge by switching the page to
+     * that session, when the build exposes a way to do it.
+     *
+     * The overlay's "new session" target creates a conversation the user is not
+     * looking at; without this the mention chip waits in the queue until they
+     * find it in the sidebar. Navigation is best-effort: the conversation
+     * service is duck-typed because its selection API is not part of any
+     * stable contract, and a build without one keeps the queued delivery — the
+     * chip lands the moment the user opens the session by hand.
+     * @param {string} sessionId
+     */
+    function navigateToSession(sessionId) {
+      if (typeof sessionId !== 'string' || sessionId === '') return
+      try {
+        const conversation = window.__DSH_ANNO_CONTEXT__?.uiConversation
+        const opener =
+          conversation && (conversation.openSession ?? conversation.selectSession ?? conversation.navigateToSession)
+        if (typeof opener === 'function') {
+          opener(sessionId)
+          trace('session-nav')
+          return
+        }
+      } catch {
+        // A closed-over service that threw is the same as none.
+      }
+      trace('session-nav-unavailable')
+    }
+
+    /**
+     * The page-level listener for created sessions. It is deliberately outside
+     * {@link QueuedMentions}: that component only exists for a session the page
+     * is already showing, and this event is about one it is not.
+     * @returns {() => void} unsubscribe
+     */
+    function followCreatedSessions() {
+      return listenForEvents((event) => {
+        if (event?.t === 'session') navigateToSession(String(event.sessionId ?? ''))
+      })
+    }
+
     return {
       inject: ['slots', 'uiConversation'],
       /** The draft composition this plugin owns; exported for its unit test. */
       composeDraft,
       apply(ctx) {
+        window.__DSH_ANNO_CONTEXT__ = ctx
         mark('data-dsh-anno-hovercard', HoverCard === undefined ? 'unavailable' : 'primitives')
         // One stylesheet for the whole page, removed when the plugin disposes.
         ctx.effect(() => {
@@ -711,6 +753,9 @@ window.__ModuleLoader__.load({
           },
           'dsh-marker: event stream',
         )
+        // "A session was created for something you marked" — switch to it when
+        // the build allows, so the chip is in the composer the user lands on.
+        ctx.effect(() => followCreatedSessions(), 'dsh-marker: created-session follow')
         ctx.slots.inject('conversation.user.text.node', function* () {
           yield ctx.slots.register({ name: 'conversation.user.text.node', key: 'anno', priority: 100 }, AnnoReference)
         })

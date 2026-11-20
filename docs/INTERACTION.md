@@ -25,8 +25,19 @@ conversation. Nothing is injected behind the user's back.
 - Search filters over title, session id, cwd, and workspace name.
 - The row detail (shown on hover/focus) carries the workspace name and relative
   last activity, plus `running` / `blank` state.
-- The first entry is **＋ 新建会话**, which creates a Session in the workspace of
-  the currently targeted one (or the default workspace).
+- The first entry is **＋ 新建会话**, pinned above the list and disabled while
+  the host is offline (creation cannot queue, D25). It opens a workspace
+  sub-panel with three modes: **默认工作区** (no location — the same default
+  the Client's own new-session button resolves), **each registered workspace**
+  (the new Session joins it), and **新建工作区** (an absolute path plus an
+  optional title; the Host creates the directories and registers the workspace
+  idempotently). Confirming a mode sets the target to `新建 · <workspace>`;
+  the Session itself is created at send time, before the annotation names it,
+  so a creation failure keeps the composer open with the comment intact. The
+  Host publishes `{t:'session', sessionId}` after a create and the Client half
+  follows it: the page switches to the new Session when the build exposes a
+  selection hook, and otherwise the chip waits in the queue until the user
+  opens it.
 - Default selection: the Session the DSH window is showing. The Client half
   reports it (`POST /ext/anno/focus`, refreshed on mount and when the window
   regains focus), and the Host answers `defaultSessionId` with it while the
@@ -35,8 +46,11 @@ conversation. Nothing is injected behind the user's back.
   routes an annotation that was submitted without touching the picker (D18).
 
 Host data source: `GET /ext/anno/sessions?token=…` (`packages/plugin/src/sessions.js`).
-It returns `{ok, items[], total, truncated, defaultSessionId}` where each item is
-`{id, title, updatedAt, running, blank, agentAvailable, cwd, workspace}`.
+It returns `{ok, items[], total, truncated, defaultSessionId, workspaces[]}` where each item is
+`{id, title, updatedAt, running, blank, agentAvailable, cwd, workspace}` and each
+workspace row is `{id, title, path}`. Creation is
+`POST /ext/anno/session-create` (`packages/plugin/src/provision.js`), same
+token, body `{mode, workspaceId?, path?, title?}`.
 
 ## What travels in the message
 

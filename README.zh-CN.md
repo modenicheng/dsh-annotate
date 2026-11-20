@@ -234,6 +234,7 @@ git config core.hooksPath .githooks
 | M3 / M3.5–M3.8 | 重锚定、pick、`dsh-anno:` mention、chip 悬浮卡、推送投递 | 已实现；浏览器侧待真机验证 |
 | M4 | 开发者上下文、会话路由、多窗口 | 计划中 |
 | M4.5 | 发现：Desktop 移动端口、端点记录、回环定位器 | 已交付；真机浏览器与 Desktop 运行待做（M4.5c） |
+| M4.6 | 批注发送到新建会话（默认 / 已有 / 新建工作区） | 已实现；浏览器 QA 待做 |
 | M5 | 签名与分发 | 计划中 |
 
 详细交付物和验收标准见 [docs/PLAN.md](docs/PLAN.md)（英文）；实现决策及理由见

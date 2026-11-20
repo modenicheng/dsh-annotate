@@ -361,6 +361,102 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
 .target-empty { padding: 8px 6px; color: var(--text-dim); font-size: var(--text-caption); line-height: var(--text-caption-lh); }
+/* The "new session" arm: one pinned action row above the list, and a workspace
+   sub-panel that replaces the list while it is open. Same skin as the picker so
+   the two read as one control. */
+.target-new { margin: 0 4px; color: #93c5fd; }
+.target-new:disabled { color: var(--text-dim); cursor: not-allowed; }
+.target-new-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  overflow-y: auto;
+}
+.target-new-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.target-back {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
+  cursor: pointer;
+}
+.target-back:hover { background: rgba(255, 255, 255, 0.12); }
+.target-new-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.target-new-options { display: flex; flex-direction: column; gap: 2px; }
+.target-new-option[aria-pressed="true"] { background: rgba(37, 99, 235, 0.28); }
+.target-row-meta {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #94a3b8;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
+.target-new-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.target-new-label {
+  color: var(--text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
+.target-new-path {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e7eb;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
+  outline: none;
+}
+.target-new-title-input {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e7eb;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  outline: none;
+}
+.target-new-use {
+  align-self: flex-end;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
+  cursor: pointer;
+}
+.target-new-use:hover { background: #1d4ed8; }
+.target-new-error {
+  color: #fca5a5;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
 .badge {
   position: fixed;
   width: ${BADGE_PX}px;

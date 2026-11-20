@@ -31,6 +31,15 @@ const HEALTH_PATH = '/ext/anno/health'
 const SESSIONS_PATH = '/ext/anno/sessions'
 
 /**
+ * Online session creation for the overlay's "new session" target.
+ *
+ * POST only, token-gated like the catalog. Creation is never queued: a session
+ * that does not exist yet has no outbox entry to replay, so the route answers
+ * or fails while the composer is still open.
+ */
+const SESSION_CREATE_PATH = '/ext/anno/session-create'
+
+/**
  * Durable hand-off from the extension to the Web Client: mentions waiting to be
  * appended to one Session's composer. Same-origin only — the GUI is the page
  * this Host serves, and it never sees the extension's bridge token.
@@ -158,6 +167,61 @@ const LIMITS = {
   sessionsLimit: 100,
   /** Chip label carried by a routed mention; presentation only, never identity. */
   labelChars: 200,
+  /** Absolute workspace directory path in a session-create request body. */
+  workspacePathChars: 1_024,
+  /** Workspace title in a session-create request body. */
+  workspaceTitleChars: 200,
+  /** Whole session-create request body, far below any parser's limits. */
+  createBodyChars: 4_096,
+}
+
+/** Session-create workspace modes, in the order the picker offers them. */
+const SESSION_CREATE_MODES = ['default', 'existing', 'new']
+
+/**
+ * Validate one session-create request body.
+ *
+ * @param {unknown} body
+ * @returns {string[]} human-readable violations; empty means usable
+ */
+function validateSessionCreateRequest(body) {
+  if (!isPlainObject(body)) return ['body must be a JSON object']
+  /** @type {string[]} */
+  const errors = []
+  if (!SESSION_CREATE_MODES.includes(body.mode)) {
+    return [`mode must be one of ${SESSION_CREATE_MODES.join('|')}`]
+  }
+  if (body.mode === 'existing') {
+    if (!isString(body.workspaceId) || body.workspaceId.length === 0) {
+      errors.push('workspaceId is required when mode is existing')
+    } else if (body.workspaceId.length > 200) {
+      errors.push('workspaceId exceeds 200 characters')
+    }
+  }
+  if (body.mode === 'new') {
+    const path = body.path
+    if (!isString(path) || path.length === 0) {
+      errors.push('path is required when mode is new')
+    } else {
+      if (path.length > LIMITS.workspacePathChars) {
+        errors.push(`path exceeds ${LIMITS.workspacePathChars} characters`)
+      }
+      // Absolute only: the host resolves it against its own filesystem, and a
+      // relative path would silently land wherever the process happens to run.
+      if (path.startsWith('/') !== true && path.startsWith('\\') !== true && !/^[A-Za-z]:[\\/]/.test(path)) {
+        errors.push('path must be absolute')
+      }
+      if (path.includes('\0')) errors.push('path must not contain null bytes')
+    }
+  }
+  if (body.title !== undefined) {
+    if (!isString(body.title)) errors.push('title must be a string')
+    else if (body.title.trim().length === 0) errors.push('title must not be blank')
+    else if (body.title.length > LIMITS.workspaceTitleChars) {
+      errors.push(`title exceeds ${LIMITS.workspaceTitleChars} characters`)
+    }
+  }
+  return errors
 }
 
 /** Every frame a client may send to the host. */
@@ -620,5 +684,5 @@ function sameDocument(record, url) {
   }
 }
 
-globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, QUEUE_PATH, QUEUE_ACK_PATH, EVENTS_PATH, FOCUS_PATH, ITEM_PATH, IMAGE_PATH, TOKEN_FILE, DISCOVERY_APP, LOCATE_PATH, LOCATE_PORTS, LOCATE_HOST, ENDPOINT_FILE, isInstanceId, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateSnapshot, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
+globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, SESSION_CREATE_PATH, QUEUE_PATH, QUEUE_ACK_PATH, EVENTS_PATH, FOCUS_PATH, ITEM_PATH, IMAGE_PATH, TOKEN_FILE, DISCOVERY_APP, LOCATE_PATH, LOCATE_PORTS, LOCATE_HOST, ENDPOINT_FILE, isInstanceId, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, SESSION_CREATE_MODES, validateSessionCreateRequest, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateSnapshot, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
 })()

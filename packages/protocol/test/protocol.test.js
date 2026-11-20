@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  SESSION_CREATE_MODES,
   describeAnchor,
   encodeFrame,
   formatAnnoMention,
@@ -12,6 +13,7 @@ import {
   parseServerFrame,
   sameDocument,
   validateRecord,
+  validateSessionCreateRequest,
   validateAnchor,
 } from '../src/index.js'
 
@@ -204,4 +206,38 @@ test('mentions parse in order, and a bare URI counts too', () => {
     parsed.references.map((reference) => reference.id),
     ['an-1', 'an-2', 'an-1'],
   )
+})
+
+// ── session-create requests ─────────────────────────────────────────────────
+
+test('session-create bodies accept each workspace mode', () => {
+  assert.deepEqual(validateSessionCreateRequest({ mode: 'default' }), [])
+  assert.deepEqual(validateSessionCreateRequest({ mode: 'existing', workspaceId: 'w-1' }), [])
+  assert.deepEqual(validateSessionCreateRequest({ mode: 'new', path: 'D:\\projects\\my-app', title: 'My App' }), [])
+  assert.deepEqual(validateSessionCreateRequest({ mode: 'new', path: '/home/me/my-app' }), [])
+})
+
+test('session-create bodies reject unknown modes and bad payloads', () => {
+  assert.deepEqual(validateSessionCreateRequest(null), ['body must be a JSON object'])
+  assert.deepEqual(validateSessionCreateRequest({}), [`mode must be one of ${SESSION_CREATE_MODES.join('|')}`])
+  // `existing` names a workspace; anything else is not a choice.
+  for (const body of [{ mode: 'existing' }, { mode: 'existing', workspaceId: '' }]) {
+    assert.match(validateSessionCreateRequest(body).join(), /workspaceId is required/)
+  }
+})
+
+test('session-create paths are absolute, bounded and null-free', () => {
+  for (const path of ['projects/app', '', 'a\0b']) {
+    const errors = validateSessionCreateRequest({ mode: 'new', path })
+    assert.notEqual(errors.length, 0, path)
+  }
+  const long = `D:\\${'x'.repeat(2_000)}`
+  assert.match(validateSessionCreateRequest({ mode: 'new', path: long }).join(), /exceeds/)
+})
+
+test('session-create titles are optional but bounded and non-blank', () => {
+  assert.deepEqual(validateSessionCreateRequest({ mode: 'default', title: undefined }), [])
+  assert.match(validateSessionCreateRequest({ mode: 'default', title: '  ' }).join(), /blank/)
+  assert.match(validateSessionCreateRequest({ mode: 'default', title: 3 }).join(), /string/)
+  assert.match(validateSessionCreateRequest({ mode: 'default', title: 'x'.repeat(300) }).join(), /exceeds/)
 })

@@ -731,3 +731,31 @@ repair poll and records `data-dsh-anno-trace="no-eventsource"`.
 sentence describes the delivery *trigger*, which is what this record replaces.
 The queue, the chip write through `setDraft`, the acknowledgement, the
 `Sec-Fetch-Site` gate, and the no-auto-send rule are unchanged.
+
+## D25 — Session creation is online, token-gated, and never queued
+
+**Decision.** The overlay's "new session" target creates its conversation
+through one POST route (`/ext/anno/session-create`) gated by the bridge token,
+exactly like the session catalog. Three workspace modes: `default` (no
+location — the controller resolves the deployment default, the same path as
+the Client's own new-session button), `existing` (`workspaceId`, the Session
+joins that workspace), and `new` (an absolute path plus optional title, the
+workspace registry creates the directories recursively and resolves
+idempotently, then the Session joins it). Creation is deliberately not queued
+offline: a session that does not exist yet has no outbox entry to replay, so
+the route answers or fails while the composer is still open and the annotation
+stays unsent in the browser.
+
+**Consequences.** `SESSION_CREATE_PATH`, `SESSION_CREATE_MODES`,
+`validateSessionCreateRequest`, and the workspace body limits join the
+protocol constants (synced to both consumers); no websocket frame or record
+shape changed, so `PROTOCOL_VERSION` does not move and an older extension
+simply never sends the new message. The `/ext/anno/sessions` response gains a
+`workspaces` array so the picker's two arms cost one request. The Host
+publishes `{ t: 'session', sessionId }` on the event stream after a create;
+the Client half follows it and switches the page to that session when the
+build exposes a selection hook, and otherwise the mention chip waits in the
+queue until the user opens the session by hand — the queued delivery, the
+acknowledgement, and the no-auto-send rule are untouched (D24). A blank
+session created but never sent into is covered by the controller's blank
+reuse: nothing is leaked by an abandoned gesture.

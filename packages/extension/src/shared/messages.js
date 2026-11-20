@@ -31,6 +31,8 @@ export const TO_BACKGROUND = {
   ready: 'anno.content.ready',
   /** The Session catalog behind the composer's target picker. */
   sessions: 'anno.sessions',
+  /** Create a Session on the host for the "new session" target. */
+  createSession: 'anno.session.create',
 }
 
 /** background → content */

@@ -7,6 +7,11 @@
  * back — a failure to read the list must never block writing the annotation.
  * The picker owns its own reset so the composer does not have to know which
  * nodes or flags are involved in opening and closing it.
+ *
+ * The picker's second arm is "new session": a pinned action row above the list
+ * opens a workspace sub-panel (default / an existing workspace / a brand-new
+ * directory). Confirming a workspace targets a session the Host will create at
+ * send time; the choice travels to `main.js` through `handlers.onTargetNew`.
  */
 ;(function installUiTarget(global) {
   const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
@@ -34,11 +39,49 @@
     targetSearch.placeholder = t('targetSearch')
     const targetList = createElement('div', 'target-list')
     targetList.setAttribute('role', 'listbox')
+
+    // The "new session" arm lives above the list: it is an action, not one of
+    // the options, so it never takes part in the listbox's arrow navigation —
+    // a keyboard user reaches it with Tab, exactly like the search field.
+    const targetNewRow = createElement('button', 'target-row target-new')
+    targetNewRow.type = 'button'
+    targetNewRow.append(createElement('span', 'target-row-title', t('targetNewRow')))
+
+    // The workspace sub-panel replaces the list while it is open. Its rows are
+    // an immediate choice, not a draft: picking one confirms the new-session
+    // target and closes the panel, the same shape as choosing a Session.
+    const targetNewPanel = createElement('div', 'target-new-panel')
+    const targetNewHead = createElement('div', 'target-new-head')
+    const targetNewBack = createElement('button', 'target-back', t('targetBack'))
+    targetNewBack.type = 'button'
+    const targetNewHeadTitle = createElement('span', 'target-new-title', t('targetNewTitle'))
+    targetNewHead.append(targetNewBack, targetNewHeadTitle)
+    const targetNewOptions = createElement('div', 'target-new-options')
+    const targetNewFields = createElement('div', 'target-new-fields')
+    const pathLabel = createElement('label', 'target-new-label', t('workspacePathLabel'))
+    const pathInput = createElement('input', 'target-new-path')
+    pathInput.type = 'text'
+    pathInput.placeholder = t('workspacePathPlaceholder')
+    pathInput.setAttribute('aria-label', t('workspacePathLabel'))
+    pathInput.spellcheck = false
+    const titleLabel = createElement('label', 'target-new-label', t('workspaceTitleLabel'))
+    const titleInput = createElement('input', 'target-new-title-input')
+    titleInput.type = 'text'
+    titleInput.placeholder = t('workspaceTitleLabel')
+    titleInput.setAttribute('aria-label', t('workspaceTitleLabel'))
+    titleInput.spellcheck = false
+    const targetNewUse = createElement('button', 'target-new-use', t('workspaceUse'))
+    targetNewUse.type = 'button'
+    targetNewFields.append(pathLabel, pathInput, titleLabel, titleInput, targetNewUse)
+    const targetNewError = createElement('div', 'target-new-error')
+    targetNewPanel.append(targetNewHead, targetNewOptions, targetNewFields, targetNewError)
+    setVisible(targetNewPanel, false)
+
     const targetTip = createElement('div', 'target-tip')
     // Absolute and pointer-events:none: it must never take part in layout, or
     // showing it would move the rows under the pointer.
     setVisible(targetTip, false)
-    targetPanel.append(targetSearch, targetList)
+    targetPanel.append(targetSearch, targetNewRow, targetList, targetNewPanel)
     target.append(targetButton, targetPanel, targetTip)
     setVisible(targetPanel, false)
     setVisible(target, false)
@@ -132,9 +175,151 @@
     }
 
     function renderTargetButton() {
+      if (state.targetMode === 'new') {
+        targetValue.textContent = fill(t('newSessionLabel'), { name: newSessionName() })
+        targetButton.title = t('targetNew')
+        return
+      }
       const current = state.targets.find((item) => item.id === state.targetId)
       targetValue.textContent = current ? targetTitle(current) : state.targetNote || t('targetLatest')
       targetButton.title = current ? targetWorkspace(current) || targetTitle(current) : t('targetHint')
+    }
+
+    // ── the "new session" arm ────────────────────────────────────────────────
+
+    /** Workspace rows the Host reported; an older host sends none, which is fine. */
+    function workspaces() {
+      return Array.isArray(state.workspaces) ? state.workspaces : []
+    }
+
+    /**
+     * What the composer's send button will ask the background to create, or
+     * `null` when the target is an existing Session after all.
+     * @returns {{ mode: string, workspaceId: string, path: string, title: string } | null}
+     */
+    function newChoice() {
+      if (state.targetMode !== 'new') return null
+      return {
+        mode: state.newMode || 'default',
+        workspaceId: String(state.newWorkspaceId || ''),
+        path: String(state.newPath || ''),
+        title: String(state.newTitle || ''),
+      }
+    }
+
+    /** The workspace name shown on the target button once a mode is chosen. */
+    function newSessionName() {
+      if (state.newMode === 'existing') {
+        const workspace = workspaces().find((item) => item && item.id === state.newWorkspaceId)
+        return String((workspace && (workspace.title || workspace.path)) || t('workspaceDefault'))
+      }
+      if (state.newMode === 'new') {
+        const path = String(state.newPath || '').trim()
+        const segment = path
+          .split(/[\\/]/)
+          .filter((part) => part !== '')
+          .pop()
+        return segment || t('workspaceNew')
+      }
+      return t('workspaceDefault')
+    }
+
+    /** @param {string} mode @param {string} [workspaceId] */
+    function confirmNewSession(mode, workspaceId) {
+      state.targetMode = 'new'
+      state.newMode = mode
+      state.newWorkspaceId = String(workspaceId || '')
+      state.targetId = ''
+      state.targetNote = ''
+      closeTargetPanel()
+      renderTargetButton()
+      if (typeof handlers.onTargetNew === 'function') handlers.onTargetNew(newChoice())
+    }
+
+    /** Leave the new-session arm without choosing anything. */
+    function abandonNewSession() {
+      if (state.targetMode !== 'new') return
+      state.targetMode = 'pick'
+      state.newMode = 'default'
+      state.newWorkspaceId = ''
+      renderTargetButton()
+      if (typeof handlers.onTargetNew === 'function') handlers.onTargetNew(null)
+    }
+
+    function renderNewPanel() {
+      targetNewOptions.textContent = ''
+      targetNewError.textContent = ''
+      setVisible(targetNewFields, state.newMode === 'new')
+
+      /**
+       * @param {string} mode
+       * @param {string} label
+       * @param {string} [meta]
+       * @param {string} [workspaceId]
+       */
+      const addOption = (mode, label, meta, workspaceId) => {
+        const row = createElement('button', 'target-row target-new-option')
+        row.type = 'button'
+        row.setAttribute('aria-pressed', state.newMode === mode ? 'true' : 'false')
+        row.append(createElement('span', 'target-row-title', label))
+        if (meta) row.append(createElement('span', 'target-row-meta', meta))
+        row.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          state.newMode = mode
+          state.newWorkspaceId = String(workspaceId || '')
+          if (mode === 'new') {
+            renderNewPanel()
+            pathInput.focus()
+            return
+          }
+          confirmNewSession(mode, workspaceId)
+        })
+        targetNewOptions.appendChild(row)
+      }
+
+      addOption('default', t('workspaceDefault'), '')
+      for (const workspace of workspaces()) {
+        if (!workspace || typeof workspace.id !== 'string' || workspace.id === '') continue
+        addOption(
+          'existing',
+          String(workspace.title || workspace.path || workspace.id),
+          String(workspace.path || ''),
+          workspace.id,
+        )
+      }
+      addOption('new', t('workspaceNew'), '')
+    }
+
+    function openNewPanel() {
+      state.newPanelOpen = true
+      state.newMode = 'default'
+      state.newWorkspaceId = ''
+      setVisible(targetSearch, false)
+      setVisible(targetList, false)
+      setVisible(targetNewRow, false)
+      setVisible(targetNewPanel, true)
+      renderNewPanel()
+      targetNewBack.focus()
+    }
+
+    function closeNewPanel() {
+      state.newPanelOpen = false
+      setVisible(targetNewPanel, false)
+      setVisible(targetSearch, true)
+      setVisible(targetList, true)
+      setVisible(targetNewRow, true)
+      renderTargetList()
+      targetSearch.focus()
+    }
+
+    /** Reflect the connection: a new session cannot be created offline. */
+    function setNewSessionAvailable(available) {
+      const enabled = available === true
+      if (state.newUnavailable === !enabled) return
+      state.newUnavailable = !enabled
+      targetNewRow.disabled = !enabled
+      targetNewRow.title = enabled ? '' : t('targetNewOffline')
     }
 
     function renderTargetList() {
@@ -194,13 +379,19 @@
     function closeTargetPanel() {
       if (!state.targetOpen) return
       state.targetOpen = false
+      state.newPanelOpen = false
       setVisible(targetPanel, false)
+      setVisible(targetNewPanel, false)
+      setVisible(targetSearch, true)
+      setVisible(targetList, true)
+      setVisible(targetNewRow, true)
       targetSearch.value = ''
       state.targetQuery = ''
     }
 
     /** @param {string} id */
     function chooseTarget(id) {
+      abandonNewSession()
       state.targetId = String(id)
       state.targetNote = ''
       closeTargetPanel()
@@ -214,18 +405,36 @@
      * @param {any[]} items
      * @param {string} [defaultId]
      * @param {string} [note] Failure text shown in place of rows.
+     * @param {any[]} [workspacesList] Registered workspaces for the new-session arm.
      */
-    function setTargets(items, defaultId, note) {
+    function setTargets(items, defaultId, note, workspacesList) {
       state.targets = Array.isArray(items) ? items : []
       state.targetNote = String(note || '')
+      state.workspaces = Array.isArray(workspacesList) ? workspacesList : []
+      if (state.targetMode === 'new' && state.newMode === 'existing') {
+        // A workspace that disappeared is not a choice any more; the arm keeps
+        // working on the default rather than silently targeting nothing.
+        if (!state.workspaces.some((item) => item && item.id === state.newWorkspaceId)) {
+          state.newMode = 'default'
+          state.newWorkspaceId = ''
+          renderTargetButton()
+          if (typeof handlers.onTargetNew === 'function') handlers.onTargetNew(newChoice())
+        }
+      }
       if (state.targetId === '' && typeof defaultId === 'string' && defaultId !== '') state.targetId = defaultId
       if (state.targetId !== '' && !state.targets.some((item) => item.id === state.targetId)) {
         // A target that disappeared from the catalog is not a choice any more.
         state.targetId = typeof defaultId === 'string' ? defaultId : ''
       }
-      setVisible(target, state.composerOpen && (state.targets.length > 0 || state.targetNote !== ''))
+      setVisible(
+        target,
+        state.composerOpen && (state.targets.length > 0 || state.targetNote !== '' || state.targetMode === 'new'),
+      )
       renderTargetButton()
-      if (state.targetOpen) renderTargetList()
+      if (state.targetOpen) {
+        if (state.newPanelOpen === true) renderNewPanel()
+        else renderTargetList()
+      }
     }
 
     /** Opening the composer starts with no query, no panel and no chosen row. */
@@ -233,15 +442,35 @@
       state.targetQuery = ''
       state.targetActive = 0
       state.targetOpen = false
+      state.targetMode = 'pick'
+      state.newPanelOpen = false
+      state.newMode = 'default'
+      state.newWorkspaceId = ''
+      state.newPath = ''
+      state.newTitle = ''
       targetSearch.value = ''
+      pathInput.value = ''
+      titleInput.value = ''
+      targetNewError.textContent = ''
+      setVisible(targetNewPanel, false)
+      setVisible(targetSearch, true)
+      setVisible(targetList, true)
+      setVisible(targetNewRow, true)
       setVisible(targetPanel, false)
       setVisible(target, false)
+      if (typeof handlers.onTargetNew === 'function') handlers.onTargetNew(null)
     }
 
     /** Closing the composer abandons the picker without touching the catalog. */
     function resetForClose() {
       state.targetOpen = false
       state.targetQuery = ''
+      state.targetMode = 'pick'
+      state.newPanelOpen = false
+      setVisible(targetNewPanel, false)
+      setVisible(targetSearch, true)
+      setVisible(targetList, true)
+      setVisible(targetNewRow, true)
       setVisible(targetPanel, false)
       setVisible(target, false)
     }
@@ -251,6 +480,38 @@
       event.stopPropagation()
       if (state.targetOpen) closeTargetPanel()
       else openTargetPanel()
+    })
+    targetNewRow.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (targetNewRow.disabled) return
+      openNewPanel()
+    })
+    targetNewBack.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      closeNewPanel()
+    })
+    targetNewUse.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const path = pathInput.value.trim()
+      if (path === '') {
+        targetNewError.textContent = t('workspacePathRequired')
+        pathInput.focus()
+        return
+      }
+      targetNewError.textContent = ''
+      state.newPath = path
+      state.newTitle = titleInput.value.trim()
+      confirmNewSession('new')
+    })
+    pathInput.addEventListener('input', () => {
+      state.newPath = pathInput.value.trim()
+      if (targetNewError.textContent !== '') targetNewError.textContent = ''
+    })
+    titleInput.addEventListener('input', () => {
+      state.newTitle = titleInput.value.trim()
     })
     targetSearch.addEventListener('input', () => {
       state.targetQuery = targetSearch.value
@@ -266,7 +527,8 @@
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
-          closeTargetPanel()
+          if (state.newPanelOpen === true) closeNewPanel()
+          else closeTargetPanel()
           return
         }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -294,6 +556,8 @@
       panel: targetPanel,
       search: targetSearch,
       setTargets,
+      setNewSessionAvailable,
+      newChoice,
       resetForOpen,
       resetForClose,
     }

@@ -266,6 +266,44 @@ Firefox session (M4.5c).
   [DISCOVERY.md](DISCOVERY.md#13-testing); a real Desktop run on at least one
   platform.
 
+## M4.6 — Send an annotation into a new session
+
+**Goal:** the target picker's second arm — "this annotation starts a new
+conversation" — with the workspace chosen at send time: the default workspace,
+an existing one, or a brand-new directory. Design: [INTERACTION.md](INTERACTION.md)
+(decision D25).
+
+**Deliverables**
+
+- Protocol: `SESSION_CREATE_PATH`, `SESSION_CREATE_MODES`,
+  `validateSessionCreateRequest`, and workspace body limits; synced copies, no
+  frame or record shape change (`PROTOCOL_VERSION` stays).
+- Host: `packages/plugin/src/provision.js` — a provisioner over
+  `sessionController.create` and `workspaceRegistry` (list, idempotent create),
+  plus the token-gated POST route; `/ext/anno/sessions` gains a `workspaces`
+  array; `{t:'session', sessionId}` on the event stream after a create.
+- Client: the page follows a created session when the build exposes a
+  selection hook; otherwise the queued chip waits for the user to open it.
+- Extension: `anno.session.create` message; the picker's pinned
+  **＋ 新建会话** row (disabled offline) with the workspace sub-panel; the
+  composer creates the session at send time, before submitting the annotation.
+- Tests: `packages/plugin/test/provision.test.js` (modes, token gate, body
+  validation, failure reporting), protocol validator cases, and the message
+  contract test.
+
+**Acceptance criteria**
+
+- Choosing 新建会话 → an existing workspace and sending: the Host creates the
+  Session (or reuses the blank one), the annotation routes to it, the chip
+  lands in that Session's composer, and the GUI switches to it when the
+  navigation hook is available.
+- 新建工作区 with an absolute path creates the directories, registers the
+  workspace, and the new Session joins it; repeating the same path resolves to
+  the same workspace.
+- Offline, the ＋ row is disabled with an explanation; creation failures show
+  the Host's message in the composer and never lose the written comment.
+- `pnpm run check` stays green.
+
 ## M5 — Signing and distribution
 
 **Goal:** a normal user can install both halves and upgrade them safely.

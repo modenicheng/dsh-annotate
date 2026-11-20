@@ -22,6 +22,7 @@ import { createEventStream, registerEventsRoute } from './src/events.js'
 import { createFocusStore, focusedSession, registerFocusRoute } from './src/focus.js'
 import { startLocator } from './src/locator.js'
 import { createAnnotationMentions } from './src/mentions.js'
+import { createProvisioner, registerProvisionRoutes } from './src/provision.js'
 import { registerPresentationRoutes } from './src/presentation.js'
 import { createMentionQueue, registerQueueRoutes } from './src/queue.js'
 import { createSessionCatalog, registerSessionsRoute } from './src/sessions.js'
@@ -68,6 +69,19 @@ export async function apply(ctx, config = {}) {
   // The overlay's target catalog. Created here rather than at its route so the
   // warm-up below can wait for the Session services it reads.
   const catalog = createSessionCatalog({ get: (service) => ctx.get(service), logger })
+
+  // The picker's other arm: create a Session (in the default, an existing, or a
+  // brand-new workspace) so an annotation can start a conversation. Created
+  // before its route so the sessions catalog can share the workspace read.
+  const provisioner = createProvisioner({
+    get: (service) => ctx.get(service),
+    logger,
+    onCreated: ({ sessionId }) => {
+      // Same knock as a queued mention: the page that should show this Session
+      // learns to look for it now, and a missed event costs latency, not state.
+      events.publish({ t: 'session', sessionId })
+    },
+  })
 
   const bridge = createBridge({
     store,
@@ -141,9 +155,20 @@ export async function apply(ctx, config = {}) {
           catalog,
           token,
           matchesToken: tokenMatches,
+          logger,
           preferred: () => focusedSession(focus),
+          workspaces: () => provisioner.listWorkspaces(),
         }),
       'dsh-marker: /ext/anno/sessions catalog',
+    )
+    webCtx.effect(
+      () =>
+        registerProvisionRoutes(webCtx.webServer, {
+          provisioner,
+          token,
+          matchesToken: tokenMatches,
+        }),
+      'dsh-marker: /ext/anno/session-create',
     )
     webCtx.effect(() => registerQueueRoutes(webCtx.webServer, { queue }), 'dsh-marker: /ext/anno/queue hand-off')
     webCtx.effect(() => registerEventsRoute(webCtx.webServer, { events }), 'dsh-marker: /ext/anno/events push')

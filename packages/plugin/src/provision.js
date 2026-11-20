@@ -1,0 +1,233 @@
+/**
+ * Online session creation for the overlay's "new session" target.
+ *
+ * The overlay's picker lists Sessions that already exist; this module is the
+ * other arm — "this annotation starts a new conversation" — which only the
+ * Host can honour, because only it owns `sessionController.create` and the
+ * workspace registry. Three workspace modes:
+ *
+ *   - `default`  no location, exactly what the Client's own new-session button does;
+ *   - `existing` one registered workspace by id, the Session joins it;
+ *   - `new`      an absolute path (and optional title), registered first — the
+ *                registry creates missing directories recursively and resolves
+ *                idempotently when the directory is already registered.
+ *
+ * Nothing here is queued. A session that does not exist yet has no outbox
+ * entry to replay, so a failure is answered while the composer is still open
+ * and the annotation stays unsent in the browser.
+ *
+ * @module dsh-marker/provision
+ */
+
+import { LIMITS, SESSION_CREATE_PATH, validateSessionCreateRequest } from './protocol.js'
+
+/** The Client picks its workspace rows per open; a second of staleness is invisible. */
+const WORKSPACES_TTL_MS = 1_000
+
+/**
+ * @param {object} options
+ * @param {(name: string) => any} options.get Cordis service lookup for the mounting context.
+ * @param {(body: any) => void | Promise<void>} options.onCreated Side effect after one created session (push, focus hints).
+ * @param {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void }} [options.logger]
+ * @param {() => number} [options.now] Clock, injected by tests.
+ */
+export function createProvisioner({ get, onCreated, logger, now = Date.now }) {
+  /** @type {{ at: number, items: any[] } | null} */
+  let workspaceCache = null
+
+  /**
+   * Every registered workspace, ordered as the registry keeps them (display
+   * order). Cached for a moment so the picker's workspaces list and a create
+   * that follows in the same gesture do not scan the registry twice.
+   * @returns {Promise<any[]>} `{ id, title, path }` rows
+   */
+  async function listWorkspaces() {
+    const registry = get('workspaceRegistry')
+    if (registry === undefined) throw new Error('the workspace registry is not mounted in this profile')
+    if (workspaceCache !== null && now() - workspaceCache.at < WORKSPACES_TTL_MS) return workspaceCache.items
+    const items = []
+    try {
+      for (const workspace of registry.list()) {
+        items.push({ id: workspace.id, title: workspace.title, path: workspace.path })
+      }
+    } catch (error) {
+      throw new Error(`the workspace registry could not be read (${messageOf(error)})`)
+    }
+    workspaceCache = { at: now(), items }
+    return items
+  }
+
+  /**
+   * Create one Session in the requested workspace mode.
+   *
+   * @param {any} body validated request: `{ mode, workspaceId?, path?, title? }`
+   * @returns {Promise<{ sessionId: string, workspace: { id: string, title: string, path: string } | null }>}
+   */
+  async function createSession(body) {
+    const controller = get('sessionController')
+    if (controller === undefined) throw new Error('the session controller is not mounted in this profile')
+
+    let workspace = null
+    let request = {}
+    if (body.mode === 'existing') {
+      workspace = await findByWorkspaceId(String(body.workspaceId))
+      if (workspace === null) throw new Error('that workspace no longer exists on this host')
+      // `workspaceId` joins the Session to the workspace record; `cwd` is the
+      // standalone alternative and the two are exclusive by contract.
+      request = { workspaceId: workspace.id }
+    } else if (body.mode === 'new') {
+      workspace = await registerWorkspace(String(body.path), typeof body.title === 'string' ? body.title : undefined)
+      request = { workspaceId: workspace.id }
+    }
+    // `default` sends no location: the controller resolves the deployment's
+    // default, the same path the Client's own new-session button takes.
+
+    const value = await controller.create(request)
+    const sessionId = typeof value?.sessionId === 'string' ? value.sessionId : ''
+    if (sessionId === '') throw new Error('the host created the session but returned no identity')
+    logger?.info?.(`annotations: session ${sessionId} created (mode ${String(body.mode)})`)
+    if (onCreated) await onCreated({ sessionId, workspace })
+    return { sessionId, workspace }
+  }
+
+  /** @param {string} workspaceId */
+  async function findByWorkspaceId(workspaceId) {
+    const items = await listWorkspaces()
+    return items.find((item) => item.id === workspaceId) ?? null
+  }
+
+  /**
+   * Register (or idempotently resolve) one workspace over an absolute path.
+   * @param {string} path
+   * @param {string | undefined} title
+   */
+  async function registerWorkspace(path, title) {
+    const registry = get('workspaceRegistry')
+    if (registry === undefined) throw new Error('the workspace registry is not mounted in this profile')
+    try {
+      const workspace = await registry.create(path, title)
+      workspaceCache = null
+      return { id: workspace.id, title: workspace.title, path: workspace.path }
+    } catch (error) {
+      throw new Error(`the workspace could not be created (${messageOf(error)})`)
+    }
+  }
+
+  return { listWorkspaces, createSession }
+}
+
+/**
+ * Serve session creation on the Host webserver.
+ *
+ * The bridge token is the only gate, exactly like the catalog: the overlay
+ * runs on an arbitrary http(s) page, so no cookie or Origin assumption can
+ * hold. POST only; the body is bounded far below anything the parser cares
+ * about, and validation happens before any Host service is touched.
+ *
+ * @param {any} webServer
+ * @param {object} options
+ * @param {ReturnType<typeof createProvisioner>} options.provisioner
+ * @param {string} options.token
+ * @param {(presented: unknown, expected: string) => boolean} options.matchesToken
+ * @param {string} [options.path]
+ * @returns {() => void} disposer
+ */
+export function registerProvisionRoutes(webServer, { provisioner, token, matchesToken, path = SESSION_CREATE_PATH }) {
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'authorization, content-type, x-anno-token',
+    'access-control-allow-methods': 'POST, OPTIONS',
+  }
+  /** @param {number} status @param {any} payload @param {any} request @param {any} response */
+  const send = (status, payload, request, response) => {
+    const body = JSON.stringify(payload)
+    response.writeHead(status, headers)
+    response.end(request.method === 'HEAD' ? undefined : body)
+  }
+
+  return webServer.register({
+    kind: 'exact',
+    path,
+    auth: 'anonymous',
+    handler: (request, response) => {
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204, headers)
+        response.end()
+        return
+      }
+      if (request.method !== 'POST' && request.method !== 'HEAD') {
+        send(405, { ok: false, error: 'method' }, request, response)
+        return
+      }
+      if (!matchesToken(presentedToken(request), token)) {
+        send(401, { ok: false, error: 'token' }, request, response)
+        return
+      }
+      if (request.method === 'HEAD') {
+        send(200, { ok: true }, request, response)
+        return
+      }
+
+      readJson(request)
+        .then(async (body) => {
+          const errors = validateSessionCreateRequest(body)
+          if (errors.length > 0) {
+            send(400, { ok: false, error: 'request', message: errors.join('; ') }, request, response)
+            return
+          }
+          const value = await provisioner.createSession(body)
+          send(200, { ok: true, ...value }, request, response)
+        })
+        .catch((error) => {
+          // A Host service refusing the operation is the expected failure
+          // (missing registry, unusable path); answer it, do not log it twice.
+          send(500, { ok: false, error: 'create', message: messageOf(error) }, request, response)
+        })
+    },
+  })
+}
+
+/** Accept the token from a bearer header, the dedicated header, or the query string. */
+function presentedToken(request) {
+  const header = request.headers?.authorization
+  if (typeof header === 'string' && header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim()
+  const custom = request.headers?.['x-anno-token']
+  if (typeof custom === 'string' && custom !== '') return custom
+  try {
+    return new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.get('token') ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** @param {any} request */
+function readJson(request) {
+  return new Promise((resolve, reject) => {
+    let size = 0
+    const chunks = []
+    request.on('data', (chunk) => {
+      size += chunk.length
+      if (size > LIMITS.createBodyChars) {
+        reject(new Error('body too large'))
+        request.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    request.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      } catch (error) {
+        reject(error)
+      }
+    })
+    request.on('error', reject)
+  })
+}
+
+/** @param {unknown} error */
+function messageOf(error) {
+  return error instanceof Error ? error.message : String(error)
+}
