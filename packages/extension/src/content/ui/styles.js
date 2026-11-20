@@ -27,6 +27,21 @@
   width: 0;
   height: 0;
   z-index: 2147483000;
+  /* Type ramp — English-first, compact density. Exactly three sizes; anything
+     new must map onto one of them. px on purpose: this overlay is injected into
+     pages whose root font-size we do not control, so rem would inherit a
+     foreign scale. */
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-body: 14px;
+  --text-body-lh: 20px;
+  --text-label: 13px;
+  --text-label-lh: 18px;
+  --text-caption: 12px;
+  --text-caption-lh: 16px;
+  /* Muted text on the dark chrome: #6b7280 measured ~3.7:1 against #111827,
+     under the AA 4.5:1 floor at caption sizes. #9ca3af is ~7:1. */
+  --text-dim: #9ca3af;
 }
 *, *::before, *::after { box-sizing: border-box; }
 [f-hidden] { display: none !important; }
@@ -46,7 +61,7 @@
   color: #e5e7eb;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   pointer-events: auto;
 }
 .hud-dot {
@@ -70,7 +85,7 @@
 }
 .hud-btn {
   flex: none;
-  font: 11px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   padding: 4px 7px;
   border-radius: 5px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -103,11 +118,11 @@
   border: 1px solid rgba(251, 191, 36, 0.5);
   color: #fef3c7;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  font: 12px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   pointer-events: auto;
 }
 .pick-text { flex: 1 1 auto; white-space: pre-wrap; word-break: break-word; }
-.pick-meta { flex: none; color: #fcd34d; font-size: 11px; text-align: right; }
+.pick-meta { flex: none; color: #fcd34d; font-size: var(--text-caption); line-height: var(--text-caption-lh); text-align: right; }
 /* Layer ladder inside the overlay: outlines (1) sit under markers (3) and their
    cards, labels ride above both (4), and the chrome the user is operating
    (composer 9, HUD and pick banner 10, toasts 11) stays on top of everything.
@@ -144,7 +159,7 @@
   border-radius: 4px;
   background: #1d4ed8;
   color: #ffffff;
-  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -170,7 +185,7 @@
   color: #e5e7eb;
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  font: 12px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   pointer-events: auto;
 }
 .composer-head {
@@ -199,7 +214,7 @@
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: #0b1220;
   color: #f3f4f6;
-  font: 12px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-body) / var(--text-body-lh) var(--font-ui);
   outline: none;
 }
 .composer textarea:focus { border-color: #3b82f6; }
@@ -210,7 +225,7 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.06);
   color: #cbd5e1;
-  font: 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   cursor: pointer;
 }
 .chip[aria-pressed="true"] { background: #2563eb; border-color: #3b82f6; color: #ffffff; }
@@ -224,8 +239,9 @@
 /* nowrap keeps the foot one line; ellipsis keeps a longer locale inside the card
    instead of painting past its edge at the 240px minimum width. */
 .composer-hint {
-  color: #6b7280;
-  font-size: 10px;
+  color: var(--text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
   white-space: nowrap;
   min-width: 0;
   overflow: hidden;
@@ -238,14 +254,14 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: transparent;
   color: #e5e7eb;
-  font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   cursor: pointer;
 }
 .btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn-primary { background: #2563eb; border-color: #3b82f6; color: #ffffff; }
 .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
-.composer-error { margin-top: 6px; color: #fca5a5; font-size: 11px; white-space: pre-wrap; }
+.composer-error { margin-top: 6px; color: #fca5a5; font-size: var(--text-caption); line-height: var(--text-caption-lh); white-space: pre-wrap; }
 /* Target row: one line when collapsed, a flat searchable list when open. The
    row detail (workspace + last activity) only exists on the active row, so the
    list stays one line per session until the user actually inspects one. */
@@ -260,12 +276,12 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.04);
   color: #e5e7eb;
-  font: 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   text-align: left;
   cursor: pointer;
 }
 .target-btn:hover { background: rgba(255, 255, 255, 0.1); }
-.target-key { flex: none; color: #6b7280; }
+.target-key { flex: none; color: var(--text-dim); }
 .target-value { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .target-caret { flex: none; color: #9ca3af; }
 .target-panel {
@@ -290,7 +306,7 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
   color: #e5e7eb;
-  font: 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   outline: none;
 }
 .target-list { overflow-y: auto; padding: 0 4px 4px; }
@@ -306,13 +322,13 @@
   border-radius: 6px;
   background: transparent;
   color: #e5e7eb;
-  font: 11px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   text-align: left;
   cursor: pointer;
 }
 .target-row[data-active="1"] { background: rgba(37, 99, 235, 0.28); }
 .target-row-title { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.target-row-time { flex: none; color: #94a3b8; font-size: 10px; }
+.target-row-time { flex: none; color: #94a3b8; font-size: var(--text-caption); line-height: var(--text-caption-lh); font-variant-numeric: tabular-nums; }
 .target-tip {
   position: absolute;
   z-index: 3;
@@ -322,14 +338,14 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: #0b1220;
   color: #cbd5e1;
-  font: 10px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
-.target-empty { padding: 8px 6px; color: #6b7280; font-size: 10px; }
+.target-empty { padding: 8px 6px; color: var(--text-dim); font-size: var(--text-caption); line-height: var(--text-caption-lh); }
 .badge {
   position: fixed;
   width: ${BADGE_PX}px;
@@ -347,7 +363,8 @@
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.55);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  font: 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  font-variant-numeric: tabular-nums;
   pointer-events: auto;
   cursor: pointer;
 }
@@ -366,7 +383,7 @@
   color: #e5e7eb;
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
-  font: 11px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-body) / var(--text-body-lh) var(--font-ui);
   cursor: auto;
 }
 /* The 6 px between the marker and its card used to be a dead zone: leaving the
@@ -389,8 +406,9 @@
   flex: 1 1 auto;
   min-width: 0;
   color: #9ca3af;
-  font-size: 10px;
-  line-height: 18px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   overflow: hidden;
@@ -409,7 +427,7 @@
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: transparent;
   color: #9ca3af;
-  font: 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   cursor: pointer;
 }
 .badge-card-del:hover:not(:disabled) { background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #fecaca; }
@@ -429,7 +447,7 @@
   background: rgba(17, 24, 39, 0.96);
   color: #f9fafb;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
   pointer-events: none;
 }
