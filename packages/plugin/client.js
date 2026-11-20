@@ -691,14 +691,27 @@ window.__ModuleLoader__.load({
      *
      * The overlay's "new session" target creates a conversation the user is not
      * looking at; without this the mention chip waits in the queue until they
-     * find it in the sidebar. Navigation is best-effort: the conversation
-     * service is duck-typed because its selection API is not part of any
-     * stable contract, and a build without one keeps the queued delivery — the
-     * chip lands the moment the user opens the session by hand.
+     * find it in the sidebar. Navigation is best-effort: the primary path is
+     * the `uiWorkspace` service (its `openSession` is what the workspace
+     * browser itself calls); `uiConversation` fallbacks are duck-typed because
+     * their selection APIs are not part of any stable contract, and a build
+     * with none keeps the queued delivery — the chip lands the moment the user
+     * opens the session by hand.
      * @param {string} sessionId
      */
     function navigateToSession(sessionId) {
-      if (typeof sessionId !== 'string' || sessionId === '') return
+      if (typeof sessionId === 'string' && sessionId !== '') {
+        try {
+          const navigation = window.__DSH_ANNO_CONTEXT__?.get?.('uiWorkspace')
+          if (navigation && typeof navigation.openSession === 'function') {
+            navigation.openSession(sessionId)
+            trace('session-nav')
+            return
+          }
+        } catch {
+          // A closed-over service that threw is the same as none.
+        }
+      }
       try {
         const conversation = window.__DSH_ANNO_CONTEXT__?.uiConversation
         const opener =
