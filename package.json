@@ -6,9 +6,9 @@
   "description": "Visual annotation and context bridge between a daily browser (Firefox/Zen) and DeepSeek Harness",
   "scripts": {
     "test": "node --test \"packages/*/test/*.test.js\"",
-    "fmt": "npx --yes @biomejs/biome@2.4.14 format --write .",
-    "fmt:check": "npx --yes @biomejs/biome@2.4.14 format .",
-    "lint": "npx --yes @biomejs/biome@2.4.14 lint .",
+    "fmt": "biome format --write .",
+    "fmt:check": "biome format .",
+    "lint": "biome lint .",
     "check": "npm run fmt:check && npm run lint && node scripts/check-sync.mjs && node scripts/check-syntax.mjs && node scripts/build-icons.mjs --check && npm run test",
     "check:syntax": "node scripts/check-syntax.mjs",
     "check:sync": "node scripts/check-sync.mjs",
@@ -21,5 +21,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.14"
   }
 }

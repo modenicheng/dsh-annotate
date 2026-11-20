@@ -54,7 +54,7 @@ jobs:
         run: node --test "packages/*/test/*.test.js"
 
       - name: Biome format and lint
-        run: npx --yes @biomejs/biome@2.4.14 check .
+        run: pnpm exec biome check .
 
   manifest:
     name: extension manifest

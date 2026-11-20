@@ -37,11 +37,21 @@ node scripts/check-syntax.mjs || {
 }
 
 echo "pre-commit: Biome format and lint (same pinned version as CI)"
-# Same command and version as the CI job, so a green hook means a green check.
-# npx resolves from the npm cache after the first run (~0.6 s for this repo).
-if ! npx --yes @biomejs/biome@2.4.14 check .; then
-  echo "pre-commit: Biome failed. Run 'npx --yes @biomejs/biome@2.4.14 check --write .' and re-stage." >&2
-  exit 1
+# The workspace devDependency, resolved through the local bin link — no
+# network, no npx resolution cost. Falls back to the pinned npx call only
+# when dependencies were never installed on this machine.
+biome="$root/node_modules/.bin/biome"
+if [ -x "$biome" ]; then
+  if ! "$biome" check .; then
+    echo "pre-commit: Biome failed. Run 'pnpm biome check --write .' and re-stage." >&2
+    exit 1
+  fi
+else
+  echo "pre-commit: node_modules/.bin/biome missing; falling back to npx (run 'pnpm install')"
+  if ! npx --yes @biomejs/biome@2.4.14 check .; then
+    echo "pre-commit: Biome failed. Install deps ('pnpm install'), then run 'pnpm biome check --write .'" >&2
+    exit 1
+  fi
 fi
 
 echo "pre-commit: all checks passed (unit tests run in CI, not here)"
