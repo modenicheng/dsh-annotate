@@ -463,6 +463,7 @@ code {
 
 .segmented__option {
   position: relative;
+  display: flex;
   flex: 1 1 0;
   min-width: 0;
   font-size: var(--text-label);
@@ -483,12 +484,27 @@ code {
   cursor: pointer;
 }
 
-.segmented__option span {
-  display: block;
+/* The span is the visible face; the label is a flex row so the face stretches
+   to the full height and its column layout centres a one-line mode (Manual)
+   against a two-line neighbour. */
+.segmented__option > span {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   padding: 5px 6px;
   border-radius: 4px;
   color: var(--text-muted);
   text-align: center;
+}
+
+/* The qualifier drops to a second line, at caption size. */
+.segmented__note {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+  font-weight: 400;
 }
 
 .segmented__option input:checked + span {
