@@ -40,6 +40,7 @@
       mutate: 'anno.mutate',
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
+      createSession: 'anno.session.create',
     },
     TO_CONTENT: {
       records: 'anno.records',
