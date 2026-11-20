@@ -286,7 +286,7 @@ async function buildTarget(target, source) {
   }
 
   const { manifest, notes } = transformManifest(source)
-  await writeFile(join(destination, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
+  await writeFile(join(destination, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   console.log(`build-extension: ${label}: ${files.length} file(s), manifest.json rewritten`)
   for (const note of notes) console.log(`  ${note}`)
 }

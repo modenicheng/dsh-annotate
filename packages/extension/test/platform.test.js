@@ -167,7 +167,11 @@ test('a global without an extension API loads, and registers nothing', async () 
   const platform = sandbox.__DSH_PLATFORM__
   assert.ok(platform !== undefined)
   assert.equal(platform.isChromium, false, 'an unknown engine keeps the tolerant Gecko form')
-  assert.equal(platform.onMessage(async () => ({ ok: true })), false, 'there is nothing to attach to')
+  assert.equal(
+    platform.onMessage(async () => ({ ok: true })),
+    false,
+    'there is nothing to attach to',
+  )
   assert.equal(sandbox.browser, undefined)
 })
 
@@ -175,6 +179,9 @@ test('loading the shim twice registers one listener', async () => {
   const chromium = apiOf('chrome-extension://test/')
   const { sandbox } = await loadPlatform({ chrome: chromium.api }, 2)
   assert.equal(chromium.onMessage.listeners.length, 0, 'the file itself registers nothing')
-  assert.equal(sandbox.__DSH_PLATFORM__.onMessage(async () => undefined), true)
+  assert.equal(
+    sandbox.__DSH_PLATFORM__.onMessage(async () => undefined),
+    true,
+  )
   assert.equal(chromium.onMessage.listeners.length, 1)
 })

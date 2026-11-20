@@ -668,7 +668,11 @@ test('Gecko keeps the 20 s alarm and starts no second timer', async () => {
   const harness = await bootBackground({
     fetch: async () => ({ ok: true, status: 200, json: async () => healthBody() }),
   })
-  assert.deepEqual(harness.timers.filter((timer) => timer.repeat === true), [], 'no interval on Gecko')
+  assert.deepEqual(
+    harness.timers.filter((timer) => timer.repeat === true),
+    [],
+    'no interval on Gecko',
+  )
   assert.equal(harness.alarms[0].periodInMinutes, 20 / 60)
 
   const socket = authenticate(harness)

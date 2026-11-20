@@ -55,7 +55,7 @@
       "matches": ["<all_urls>"],
       "js": [
         "src/shared/platform.js",
-      "src/shared/protocol.global.js",
+        "src/shared/protocol.global.js",
         "src/content/anchor.js",
         "src/content/hydrator.js",
         "src/content/ui/strings.js",

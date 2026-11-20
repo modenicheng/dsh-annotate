@@ -52,15 +52,7 @@
     // The target row is the picker's node; the card only decides where it sits.
     // The alert sits under the textarea so an offline bridge explains itself
     // right where the words would go.
-    composer.append(
-      composerHead,
-      textarea,
-      composerAlert,
-      chips,
-      ctx.target.row,
-      composerFoot,
-      composerError,
-    )
+    composer.append(composerHead, textarea, composerAlert, chips, ctx.target.row, composerFoot, composerError)
 
     function composerTitle(kind) {
       if (kind === 'selection') return t('composerSelection')

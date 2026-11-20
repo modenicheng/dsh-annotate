@@ -469,7 +469,7 @@ async function main() {
   /** @type {string[]} */
   const missing = []
 
-    for (const output of OUTPUTS) {
+  for (const output of OUTPUTS) {
     const bytes = Buffer.from(output.build())
     const label = relative(root, output.path).split('\\').join('/')
     if (check) {

@@ -94,9 +94,7 @@ async function loadCapture({ offscreen = true, bitmap = true } = {}) {
     btoa: (text) => Buffer.from(text, 'binary').toString('base64'),
     // The service worker's decoders: no document, no Image, no FileReader.
     document: undefined,
-    createImageBitmap: bitmap
-      ? async () => ({ width: 1000, height: 800, close() {} })
-      : undefined,
+    createImageBitmap: bitmap ? async () => ({ width: 1000, height: 800, close() {} }) : undefined,
   }
   if (offscreen) sandbox.OffscreenCanvas = FakeOffscreenCanvas
   sandbox.globalThis = sandbox
