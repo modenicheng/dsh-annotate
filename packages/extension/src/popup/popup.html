@@ -35,7 +35,7 @@
                 <span>Automatic (recommended)</span>
               </label>
               <label class="segmented__option">
-                <input id="mode-manual" type="radio" name="connection-mode" value="manual">
+                <input id="mode-manual" type="radio" name="connection-mode" value="manual" checked>
                 <span>Manual</span>
               </label>
             </div>
@@ -50,7 +50,7 @@
           <div id="discovery-actions" class="discovery-actions" hidden>
             <p id="discovery-hint" class="hint" hidden>
               A host on <code>127.0.0.1:3080</code> is tried too, but the locator only runs on a port that is not
-              3080 — if neither answered, import <code>$DSH_HOME/ext-bridge-endpoint.json</code> above.
+              3080 — if neither answered, import <code>$DSH_HOME/ext-bridge-endpoint.json</code> below.
             </p>
             <button id="scan-again" class="button button--secondary" type="button">Scan again</button>
           </div>

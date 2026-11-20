@@ -818,7 +818,7 @@
       }
       if (record === null || typeof record !== 'object' || typeof record.origin !== 'string' || record.origin === '') {
         feedback(
-          `${name} is not a DSH endpoint record: it needs the loopback origin from $DSH_HOME/ext-bridge-endpoint.json.`,
+          `${name} is not a DSH endpoint record: it must be a copy of $DSH_HOME/ext-bridge-endpoint.json (app, version, instance id, loopback origin).`,
           'error',
         )
         return
