@@ -23,6 +23,7 @@ const SCRIPTS = [
   'src/shared/protocol.global.js',
   'src/background/endpoints.js',
   'src/background/discovery.js',
+  'src/background/connection.js',
   'src/background/core.js',
   'src/background/socket.js',
   'src/background/outbox.js',
