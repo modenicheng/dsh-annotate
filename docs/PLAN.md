@@ -125,6 +125,42 @@ model can ask the user where something is.
 - Two tabs of the same URL both show markers; a pick answer from one tab
   settles the request for all of them.
 
+## M3.8 — Push delivery and a snapshot catalog
+
+**Goal:** a local hand-off that feels local. The two waits measured on a live
+host were 0–4 s for the composer (a 4 s poll) and 1.3–2.9 s for the target
+picker (a full title fold per request over a 38 MB corpus); neither was network.
+
+**Deliverables**
+
+- Host: `GET /ext/anno/events`, one server-sent stream per page (same-origin, no
+  token), publishing `{ t: 'mention', sessionId }` after a mention is queued.
+- Client half: an `EventSource` opened on the first mounted dock, delivery on
+  `mention` for its own Session, a catch-up pull on every `open` (including
+  reconnects), and the 4 s poll demoted to a 30 s repair interval.
+- Catalog: titles from `SessionSummary.projections.values.title`, then a memo,
+  then a bounded fold for the rows being drawn; a 1 s summary cache and a
+  warm-up at mount.
+- Focus: `focus.json` is written on change, and at most every 10 minutes when
+  the same Session keeps reporting itself.
+- Tests for the stream (frame shape, same-origin gate, client removal, close)
+  and for the catalog's three title tiers; D24 records the reasoning.
+
+**Acceptance criteria**
+
+- Submitting an annotation for the Session on screen puts the chip in its
+  composer within 250 ms, with the same acknowledgement and the same durable
+  queue entry as before.
+- The catalog answers a warm request (39 Sessions) in under 100 ms; the first
+  request after a host start is covered by the warm-up rather than by the
+  picker.
+- Stopping the host and starting it again leaves the page working without a
+  reload: the stream reconnects, the focus is re-reported, and a mention queued
+  during the outage arrives on the first catch-up pull.
+- A page without `EventSource` still delivers, on the repair interval, and says
+  so through `data-dsh-anno-trace="no-eventsource"`.
+- `PROTOCOL_VERSION` does not move: no frame or record shape changed.
+
 ## M4 — Developer depth and session routing
 
 **Goal:** give the model implementation-grade context and route annotations to

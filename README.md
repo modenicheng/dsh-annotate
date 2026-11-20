@@ -18,7 +18,9 @@ to point at something (`annotate_pick`) when a request is ambiguous.
 > the capture gestures still need a pass in a real browser. An annotation cited
 > from the DSH composer as a `dsh-anno:` mention renders as a chip, is routed to
 > the conversation the window is showing, and shows its content and crop on
-> hover — verified end to end in a live Web Client.
+> hover — verified end to end in a live Web Client. That delivery is pushed, not
+> polled: the host nudges the page's event stream the moment a mention is queued
+> (D24).
 > Not covered yet: the browser-side pass over the discovery flow. A host whose
 > port is not `3080` (DSH Desktop picks its port at launch) is published by the
 > host and found by the extension — the endpoint record, the loopback locator,
@@ -354,6 +356,7 @@ and the generated-file rule.
 | M3.5 | `dsh-anno:` mentions: client chip and pre-step context | implemented and verified in a live Web Client (Firefox 159.0): the mention renders as one chip, survives a reload, and the model answers from the anchor, comment, and crop |
 | M3.6 | Target picker and queued delivery into another Session | delivered and verified in a live Web Client — the mention arrives as one atomic chip the user can read and remove before sending (D17), and an annotation submitted without picking a target is routed to the conversation the window is showing (D18). The overlay's picker rows are still unexercised in a real browser |
 | M3.7 | Chip hover card: the annotation's content and its click-time crop | implemented and verified in a live Web Client — hovering the chip opens the product's `HoverCard` with the page, quote or element, comment, and the stored screenshot, read back over same-origin routes; the record carries the frame frozen at click time (D19) |
+| M3.8 | Push delivery and a snapshot catalog | implemented: a mention queued for the Session on screen is nudged to the page over `/ext/anno/events` instead of waiting for a 4 s poll, and the target picker answers from the Host's own title projections instead of folding every Session log per request (D24). Live verification is pending a host restart |
 | M4 | Developer context, session routing, multi-window | planned |
 | M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered on both sides: the host writes the record on every start, serves the locator on `30810–30812` when its port is not `3080`, and reports `instanceId` in `/ext/anno/health`; the extension resolves, ranks, verifies, and remembers the host, and the popup has the mode switch, the record import, and the discovered-hosts list. The resolution chain was verified end to end against a real `--port 0` host (three locator ports, a stale answer rejected, `instanceId` cross-check, address remembered); the real-browser session, the Windows/Linux matrix, and a Desktop run are M4.5c. Design in [docs/DISCOVERY.md](docs/DISCOVERY.md), decisions D20–D22 |
 | M5 | Signing and distribution | planned |

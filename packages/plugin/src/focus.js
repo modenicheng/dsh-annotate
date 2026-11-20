@@ -22,6 +22,17 @@ import { FOCUS_PATH } from './protocol.js'
 /** How long a focus report stays believable. */
 export const FOCUS_TTL_MS = 6 * 60 * 60 * 1_000
 
+/**
+ * The same Session reported again is a keep-alive, not news.
+ *
+ * The Client reports on mount and on every window focus, which is a file write
+ * per focus change for a value that usually did not change. Re-reporting the
+ * same Session therefore only rewrites the record once per window of this
+ * length — often enough to keep {@link FOCUS_TTL_MS} alive for a long-lived
+ * page, rare enough that alt-tabbing is not I/O.
+ */
+const FOCUS_REFRESH_MS = 10 * 60 * 1_000
+
 /** A focus report carries one id; anything larger is not our Client. */
 const MAX_BODY_BYTES = 1_024
 
@@ -46,11 +57,14 @@ export function createFocusStore({ dir, logger, file = 'focus.json' }) {
   let entry = null
   /** @type {Promise<void> | null} */
   let writing = null
+  /** When the currently stored record was last written. */
+  let persistedAt = 0
 
   async function load() {
     try {
       const parsed = JSON.parse(await readFile(path, 'utf8'))
       entry = isEntry(parsed) ? parsed : null
+      persistedAt = entry?.at ?? 0
     } catch (error) {
       if (error?.code !== 'ENOENT') logger?.warn?.(`annotations: focus report unreadable (${messageOf(error)})`)
       entry = null
@@ -65,21 +79,35 @@ export function createFocusStore({ dir, logger, file = 'focus.json' }) {
 
   /**
    * Record that the Client is showing one Session.
+   *
+   * The in-memory answer changes immediately; the durable copy is written when
+   * the report is news, and otherwise only often enough to keep the record
+   * fresh. Nothing here is a decision — {@link focusedSession} already treats an
+   * old report as no report.
+   *
    * @param {string} sessionId
    * @returns {Promise<FocusEntry>}
    */
   async function set(sessionId) {
     const next = { sessionId: String(sessionId), at: Date.now() }
+    const changed = entry === null || entry.sessionId !== next.sessionId
     entry = next
+    if (!changed && next.at - persistedAt < FOCUS_REFRESH_MS) return next
+    await persist(next)
+    return next
+  }
+
+  /** @param {FocusEntry} next */
+  async function persist(next) {
     // Serialized the same way the queue is: two overlapping renames would
     // interleave and leave one report half-written.
     writing = (writing ?? Promise.resolve()).then(async () => {
       const temporary = `${path}.tmp`
       await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
       await rename(temporary, path)
+      persistedAt = next.at
     })
     await writing
-    return next
   }
 
   return { load, get, set, flush: () => writing ?? Promise.resolve(), path }

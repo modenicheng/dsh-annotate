@@ -665,3 +665,64 @@ unreleased, so no compatibility window is owed; after the first store upload the
 gecko id `dsh-marker@modenic.top` is fixed. The GitHub repository is still named
 `dsh-annotate` and its URLs still resolve, so npm metadata points there until it
 is renamed separately.
+
+## D24 — The Host nudges the page; the queue stays the only delivery path
+
+**Decision.** The Web Client opens one server-sent event stream per page,
+`GET /ext/anno/events` (same-origin, no token). The Host publishes
+`{ t: 'mention', sessionId }` after a mention is queued, and the mounted dock for
+that Session answers by reading `GET /ext/anno/queue?session=…` and
+acknowledging it exactly as before. The 4 s poll becomes a 30 s repair interval
+plus the existing mount, visibility, and stream-reconnect pulls. Separately, the
+catalog answers titles in three tiers — the Session summary's projection hints,
+this module's memo, then a bounded fold for the rows a response will draw — and
+the Host warms that read once at mount instead of folding every Session log per
+request.
+
+**Why.** Two seconds is not a network problem on loopback. The queue endpoint
+answers in 2–5 ms and the catalog took 1.3–2.9 s for 39 rows with a 38 MB corpus,
+because the one lane with a human latency budget was the only pure-pull lane:
+`client.js` asked every 4 s, so a mention that was ready immediately waited
+0–4 s (2 s on average) for the page to look. The Host already knows the moment
+something was queued; it simply had no way to say so. SSE is the smallest
+channel that fixes that: one direction, native `EventSource` reconnection, the
+same `Sec-Fetch-Site: same-origin` gate the queue and focus routes already use,
+and no new handshake, frame protocol, or token exposure. A page websocket would
+have reimplemented all of that for an uplink the page does not need (it posts
+focus and acks over HTTP).
+
+**Why the event carries no payload.** The queue is the authority and the page
+must acknowledge what it consumed; sending the mention inside the event would
+create a second delivery path with its own retry and dedupe rules. A nudge that
+names the Session keeps one path: the frame decides *when*, `GET /queue` decides
+*what*, and a frame lost to a hidden tab, a restart, or a reconnect is repaired
+by the next pull rather than lost. That is also why the repair interval stays:
+it costs nothing while idle and makes a missing event cost up to 30 s instead of
+a delivery.
+
+**Why the catalog changed too.** Delivery was not the only wait: the picker
+folded the title of every Session from its complete log on each request, so the
+first open after the extension's 15 s cache expired blocked on the whole corpus.
+The Host already folds titles into the Session projection and persists the cache
+under `$DSH_HOME/storages/session_projcache`; `SessionSummary.projections.values.title`
+carries it for zero I/O. Reading that first turns the hot path into a memory
+read, and the bounded fold only exists for Sessions whose hint is absent. The
+same reasoning covers the summary list (1 s) and the title memo (5 min): a
+picker needs a snapshot, not a query engine.
+
+**Consequences.** `EVENTS_PATH` joins the protocol constants (copied by
+`scripts/sync-protocol.mjs`); no frame shape changed, so `PROTOCOL_VERSION` does
+not move and an older extension keeps working — the page half is served by the
+Host, so the two halves upgrade together with the bundle. The stream is capped
+(32 pages) and drops a client that stops draining, because a page that will not
+read its own events must not grow the Host. Focus reports now rewrite
+`focus.json` on change and, for the same Session, at most every ten minutes:
+the route is called on every window focus, and refreshing a hint that already
+says the same thing is I/O for no reader. A page without `EventSource` (an older
+embedding, a non-browser harness) keeps the pre-push behaviour through the
+repair poll and records `data-dsh-anno-trace="no-eventsource"`.
+
+**Relationship to D12 and D17.** Their "the Client poll is a 4 s interval"
+sentence describes the delivery *trigger*, which is what this record replaces.
+The queue, the chip write through `setDraft`, the acknowledgement, the
+`Sec-Fetch-Site` gate, and the no-auto-send rule are unchanged.

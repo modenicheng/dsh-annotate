@@ -41,6 +41,15 @@ const QUEUE_PATH = '/ext/anno/queue'
 const QUEUE_ACK_PATH = '/ext/anno/queue/ack'
 
 /**
+ * The page's push channel: one server-sent event stream per Web Client, telling
+ * a mounted Session that something it may own just changed. Same-origin only.
+ *
+ * It carries a *nudge*, never the data — the queue above stays the authority,
+ * so a missed event costs a slower delivery rather than a lost one.
+ */
+const EVENTS_PATH = '/ext/anno/events'
+
+/**
  * The Session the Web Client is showing, reported by that Client so the Host
  * can answer "where does an annotation go by default?". Same-origin only, for
  * the same reason the queue is: the GUI is this Host's own page.
@@ -611,5 +620,5 @@ function sameDocument(record, url) {
   }
 }
 
-globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, QUEUE_PATH, QUEUE_ACK_PATH, FOCUS_PATH, ITEM_PATH, IMAGE_PATH, TOKEN_FILE, DISCOVERY_APP, LOCATE_PATH, LOCATE_PORTS, LOCATE_HOST, ENDPOINT_FILE, isInstanceId, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateSnapshot, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
+globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, QUEUE_PATH, QUEUE_ACK_PATH, EVENTS_PATH, FOCUS_PATH, ITEM_PATH, IMAGE_PATH, TOKEN_FILE, DISCOVERY_APP, LOCATE_PATH, LOCATE_PORTS, LOCATE_HOST, ENDPOINT_FILE, isInstanceId, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateSnapshot, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
 })()
