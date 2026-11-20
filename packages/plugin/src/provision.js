@@ -8,9 +8,10 @@
  *
  *   - `default`  no location, exactly what the Client's own new-session button does;
  *   - `existing` one registered workspace by id, the Session joins it;
- *   - `new`      an absolute path (and optional title), registered first — the
- *                registry creates missing directories recursively and resolves
- *                idempotently when the directory is already registered.
+ *   - `new`      an absolute path (and optional title), registered first — a
+ *                missing directory is created here (the registry itself will
+ *                not), and an already-registered directory resolves
+ *                idempotently.
  *
  * Nothing here is queued. A session that does not exist yet has no outbox
  * entry to replay, so a failure is answered while the composer is still open
@@ -18,6 +19,8 @@
  *
  * @module dsh-marker/provision
  */
+
+import { mkdir } from 'node:fs/promises'
 
 import { LIMITS, SESSION_CREATE_PATH, validateSessionCreateRequest } from './protocol.js'
 
@@ -27,11 +30,14 @@ const WORKSPACES_TTL_MS = 1_000
 /**
  * @param {object} options
  * @param {(name: string) => any} options.get Cordis service lookup for the mounting context.
+ * @param {{ list: (options?: object) => Promise<{ items?: any[] }> } | undefined} [options.catalog]
+ *   Session catalog, when one is mounted; its blank rows are what "reuse the
+ *   workspace's blank Session" is answered from.
  * @param {(body: any) => void | Promise<void>} options.onCreated Side effect after one created session (push, focus hints).
  * @param {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void }} [options.logger]
  * @param {() => number} [options.now] Clock, injected by tests.
  */
-export function createProvisioner({ get, onCreated, logger, now = Date.now }) {
+export function createProvisioner({ get, catalog, onCreated, logger, now = Date.now }) {
   /** @type {{ at: number, items: any[] } | null} */
   let workspaceCache = null
 
@@ -74,10 +80,10 @@ export function createProvisioner({ get, onCreated, logger, now = Date.now }) {
       if (workspace === null) throw new Error('that workspace no longer exists on this host')
       // `workspaceId` joins the Session to the workspace record; `cwd` is the
       // standalone alternative and the two are exclusive by contract.
-      request = { workspaceId: workspace.id }
+      request = await requestFor(workspace)
     } else if (body.mode === 'new') {
       workspace = await registerWorkspace(String(body.path), typeof body.title === 'string' ? body.title : undefined)
-      request = { workspaceId: workspace.id }
+      request = await requestFor(workspace)
     }
     // `default` sends no location: the controller resolves the deployment's
     // default, the same path the Client's own new-session button takes.
@@ -97,7 +103,49 @@ export function createProvisioner({ get, onCreated, logger, now = Date.now }) {
   }
 
   /**
+   * Join the workspace, reusing its blank Session when the catalog can name
+   * one: annotations that target "a new conversation here" must append to the
+   * same conversation, not mint a sibling per send. The controller owns the
+   * final say — it re-checks that the named Session is still blank and still a
+   * workspace member before reusing it, so a stale answer here can only cost a
+   * fresh Session, never a wrong reuse.
+   * @param {{ id: string, title: string, path: string }} workspace
+   */
+  async function requestFor(workspace) {
+    const blank = await findBlankIn(workspace)
+    return { workspaceId: workspace.id, ...(blank === undefined ? {} : { sessionId: blank }) }
+  }
+
+  /**
+   * The workspace's most recently active blank Session, when the catalog can
+   * name one. A failed lookup is a warning, not a failed create.
+   * @param {{ id: string, title: string, path: string }} workspace
+   * @returns {Promise<string | undefined>}
+   */
+  async function findBlankIn(workspace) {
+    if (catalog === undefined) return undefined
+    try {
+      const value = await catalog.list({ query: workspace.title, limit: 50 })
+      const rows = Array.isArray(value?.items) ? value.items : []
+      let best = null
+      for (const row of rows) {
+        if (row?.workspace?.id !== workspace.id || row.blank !== true) continue
+        if (best === null || Number(row.updatedAt ?? 0) > Number(best.updatedAt ?? 0)) best = row
+      }
+      return best !== null && typeof best.id === 'string' ? best.id : undefined
+    } catch (error) {
+      logger?.warn?.(`annotations: blank session lookup failed (${messageOf(error)})`)
+      return undefined
+    }
+  }
+
+  /**
    * Register (or idempotently resolve) one workspace over an absolute path.
+   *
+   * The registry canonicalises through `realpath` and does not create the
+   * directory (verified against DSH 0.2.2), while the browser half cannot make
+   * one at all — so a missing directory is made here and the registration
+   * retried once before the failure is reported.
    * @param {string} path
    * @param {string | undefined} title
    */
@@ -105,12 +153,34 @@ export function createProvisioner({ get, onCreated, logger, now = Date.now }) {
     const registry = get('workspaceRegistry')
     if (registry === undefined) throw new Error('the workspace registry is not mounted in this profile')
     try {
-      const workspace = await registry.create(path, title)
-      workspaceCache = null
-      return { id: workspace.id, title: workspace.title, path: workspace.path }
+      return await register(registry, path, title)
     } catch (error) {
-      throw new Error(`the workspace could not be created (${messageOf(error)})`)
+      const message = messageOf(error)
+      if (!/ENOENT/.test(message)) throw new Error(`the workspace could not be created (${message})`)
+      try {
+        await mkdir(path, { recursive: true })
+      } catch (madeError) {
+        throw new Error(`the workspace directory could not be created (${messageOf(madeError)})`)
+      }
+      try {
+        return await register(registry, path, title)
+      } catch (again) {
+        throw new Error(`the workspace could not be created (${messageOf(again)})`)
+      }
     }
+  }
+
+  /**
+   * One registration attempt, bare: the ENOENT test in {@link registerWorkspace}
+   * must see the registry's own error, not this module's wrapping of it.
+   * @param {any} registry
+   * @param {string} path
+   * @param {string | undefined} title
+   */
+  async function register(registry, path, title) {
+    const workspace = await registry.create(path, title)
+    workspaceCache = null
+    return { id: workspace.id, title: workspace.title, path: workspace.path }
   }
 
   return { listWorkspaces, createSession }

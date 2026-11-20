@@ -76,6 +76,7 @@ export async function apply(ctx, config = {}) {
   const provisioner = createProvisioner({
     get: (service) => ctx.get(service),
     logger,
+    catalog,
     onCreated: ({ sessionId }) => {
       // Same knock as a queued mention: the page that should show this Session
       // learns to look for it now, and a missed event costs latency, not state.

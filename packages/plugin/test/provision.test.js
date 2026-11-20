@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
+import { rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { SESSION_CREATE_PATH } from '../src/protocol.js'
@@ -38,6 +42,16 @@ function provisionerOf(svc, onCreated) {
   return createProvisioner({ get: lookup(svc), onCreated, logger: { warn() {} } })
 }
 
+/** A catalog stub answering from fixed rows, optionally failing. */
+function catalogOf(rows, fail = false) {
+  return {
+    list: async () => {
+      if (fail) throw new Error('catalog down')
+      return { items: rows }
+    },
+  }
+}
+
 test('listWorkspaces reports the registry rows', async () => {
   const svc = services()
   assert.deepEqual(await provisionerOf(svc).listWorkspaces(), [
@@ -63,6 +77,54 @@ test('mode existing joins the named workspace', async () => {
   assert.deepEqual(svc.__created, [{ workspaceId: 'w-beta' }])
 })
 
+test('mode existing reuses the workspace blank session instead of minting one', async () => {
+  const svc = services()
+  const catalog = catalogOf([
+    { id: 'busy-1', blank: false, updatedAt: 30, workspace: { id: 'w-beta' } },
+    { id: 'blank-old', blank: true, updatedAt: 10, workspace: { id: 'w-beta' } },
+    { id: 'blank-fresh', blank: true, updatedAt: 20, workspace: { id: 'w-beta' } },
+    { id: 'blank-elsewhere', blank: true, updatedAt: 40, workspace: { id: 'w-alpha' } },
+  ])
+  await createProvisioner({ get: lookup(svc), catalog, logger: { warn() {} } }).createSession({
+    mode: 'existing',
+    workspaceId: 'w-beta',
+  })
+
+  // The newest blank of that workspace is named for reuse; the controller
+  // re-checks blankness itself, so this is a suggestion, not an assertion.
+  assert.deepEqual(svc.__created, [{ workspaceId: 'w-beta', sessionId: 'blank-fresh' }])
+})
+
+test('no blank in the workspace mints a new session', async () => {
+  const svc = services()
+  const catalog = catalogOf([{ id: 'busy-1', blank: false, updatedAt: 30, workspace: { id: 'w-beta' } }])
+  await createProvisioner({ get: lookup(svc), catalog, logger: { warn() {} } }).createSession({
+    mode: 'existing',
+    workspaceId: 'w-beta',
+  })
+
+  assert.deepEqual(svc.__created, [{ workspaceId: 'w-beta' }])
+})
+
+test('a failed blank lookup still creates the session', async () => {
+  const svc = services()
+  await createProvisioner({
+    get: lookup(svc),
+    catalog: catalogOf([], true),
+    logger: { warn() {} },
+  }).createSession({ mode: 'existing', workspaceId: 'w-beta' })
+
+  assert.deepEqual(svc.__created, [{ workspaceId: 'w-beta' }])
+})
+
+test('mode default does not look for a blank to reuse', async () => {
+  const svc = services()
+  const catalog = catalogOf([{ id: 'blank-1', blank: true, updatedAt: 10, workspace: { id: 'w-alpha' } }])
+  await createProvisioner({ get: lookup(svc), catalog, logger: { warn() {} } }).createSession({ mode: 'default' })
+
+  assert.deepEqual(svc.__created, [{}])
+})
+
 test('mode existing refuses a workspace the registry no longer has', async () => {
   const svc = services()
   await assert.rejects(
@@ -83,6 +145,50 @@ test('mode new registers the directory first and joins it', async () => {
   assert.equal(value.workspace.id, 'w-made')
   assert.equal(value.workspace.path, 'D:/coding/fresh')
   assert.deepEqual(svc.__created, [{ workspaceId: 'w-made' }])
+})
+
+test('a missing workspace directory is created, then registered', async () => {
+  // The real registry canonicalises through realpath and never mkdirs; this
+  // stub reproduces that contract so the retry path stays honest.
+  const dir = join(tmpdir(), `dsh-marker-provision-${randomBytes(4).toString('hex')}`)
+  const attempts = []
+  const svc = services({
+    workspaceRegistry: {
+      list: () => [{ id: 'w-alpha', title: 'alpha', path: 'D:/coding/alpha', sessionIds: [] }],
+      create: async (path, title) => {
+        attempts.push(path)
+        if (attempts.length === 1) {
+          throw Object.assign(new Error(`ENOENT: no such file or directory, realpath '${path}'`), {
+            code: 'ENOENT',
+          })
+        }
+        return { id: 'w-made', title: title ?? 'made', path }
+      },
+    },
+  })
+
+  const value = await provisionerOf(svc).createSession({ mode: 'new', path: dir })
+  assert.equal(value.workspace.id, 'w-made')
+  assert.equal(attempts.length, 2)
+  assert.equal((await stat(dir)).isDirectory(), true)
+  await rm(dir, { recursive: true, force: true })
+})
+
+test('a directory the registry still refuses after mkdir reports the failure', async () => {
+  const dir = join(tmpdir(), `dsh-marker-provision-${randomBytes(4).toString('hex')}`)
+  const svc = services({
+    workspaceRegistry: {
+      list: () => [],
+      create: async (path) => {
+        throw Object.assign(new Error(`ENOENT: no such file or directory, realpath '${path}'`), {
+          code: 'ENOENT',
+        })
+      },
+    },
+  })
+
+  await assert.rejects(provisionerOf(svc).createSession({ mode: 'new', path: dir }), /could not be created/)
+  await rm(dir, { recursive: true, force: true })
 })
 
 test('a created session reports through onCreated', async () => {
