@@ -1,0 +1,265 @@
+name: Release
+
+# Two phases, because a registry version cannot be withdrawn
+# (docs/DISTRIBUTION.md §4.3):
+#
+#   push tag vX.Y.Z     verify the tag, pack the tarball, open a DRAFT release
+#   release published   publish that tarball to npm — this is the human gate
+#   workflow_dispatch   replay phase 2 for a tag whose publish failed, without
+#                       burning a new tag
+#
+# Phase 1 never touches the registry. A human reads the draft notes and clicks
+# Publish, which is the only thing that fires phase 2.
+#
+# Authentication is OIDC trusted publishing: no NPM_TOKEN exists anywhere in
+# this repository. Three details are easy to get wrong and fail as E404 on PUT
+# instead of as an auth error:
+#
+#   * `registry-url` is deliberately absent from setup-node. With it, setup-node
+#     writes an `_authToken` line into .npmrc and npm keeps using a credential
+#     instead of exchanging the OIDC token.
+#   * npm must be 11.5.1 or newer; the Node 22 runner image ships npm 10.
+#   * package.json `repository.url` must name this repository, or the provenance
+#     check rejects the publish with E422.
+#
+# The package has to exist on npm with this workflow registered as its trusted
+# publisher before the first tokenless run; that one-time bootstrap cannot be
+# tokenless itself. See docs/DISTRIBUTION.md §6.
+
+on:
+  push:
+    tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish, for example v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One release at a time, and never cancelled: a half-finished publish has to be
+# resumed, not raced.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    name: verify and draft
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The tag must name the package version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/plugin/package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not name packages/plugin version $version"
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: The tag must already be on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not an ancestor of main; tag the merged commit"
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The same gate the CI job runs. A tag can point at any commit, so the
+      # checks are repeated here rather than assumed from the branch.
+      - name: Check generated protocol copies
+        run: node scripts/check-sync.mjs
+
+      - name: Check JavaScript syntax
+        run: node scripts/check-syntax.mjs
+
+      - name: Run unit tests
+        run: node --test "packages/*/test/*.test.js"
+
+      - name: Validate the extension manifest
+        run: node scripts/check-manifest.mjs
+
+      # Pack once, here. Phase 2 publishes this exact tarball instead of packing
+      # again, so the release asset and the registry entry are provably the same
+      # bytes, and the checksum below means something.
+      - name: Pack the bundle
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          npm pack ./packages/plugin --pack-destination dist
+          (cd dist && sha256sum ./*.tgz > checksums.txt && cat checksums.txt)
+
+      - name: Open a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/*.tgz dist/checksums.txt
+
+  publish:
+    name: publish to npm
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Read the version and refuse a non-release tag
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::$TAG is not a vX.Y.Z tag; refusing to publish it"
+            exit 1
+          fi
+          version="$(node -p "require('./packages/plugin/package.json').version")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not name packages/plugin version $version"
+            exit 1
+          fi
+          # D16: prereleases never reach a registry or a store. They are GitHub
+          # pre-releases that testers install themselves.
+          case "$version" in
+            *-*)
+              echo "::error::dsh-marker@$version is a prerelease (D16); tag the final version instead"
+              exit 1
+              ;;
+          esac
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js 24 and npm 11
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # No registry-url on purpose: see the header comment.
+
+      - name: Require npm 11.5.1 for trusted publishing
+        run: |
+          set -euo pipefail
+          npm install -g npm@^11.5.1
+          npm --version
+
+      - name: Download the released tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --dir dist --pattern '*.tgz' --pattern 'checksums.txt'
+
+      - name: The bytes must be the ones the draft hashed
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check checksums.txt
+
+      # npm records sha512 in dist.integrity; computing it here is what lets the
+      # run prove, after the fact, that the registry holds these exact bytes.
+      - name: Record the expected integrity
+        id: integrity
+        run: |
+          set -euo pipefail
+          tarball="$(ls dist/*.tgz)"
+          integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
+          echo "value=$integrity" >> "$GITHUB_OUTPUT"
+
+      # A rerun after a partial failure must not fail on "version exists"; it
+      # must agree that the registry already holds this tarball, or stop loudly.
+      - name: Skip when this version is already on the registry
+        id: exists
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          EXPECTED: ${{ steps.integrity.outputs.value }}
+        run: |
+          set -euo pipefail
+          published="$(npm view "dsh-marker@$VERSION" dist.integrity 2>/dev/null || true)"
+          if [ -z "$published" ]; then
+            echo "value=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$published" != "$EXPECTED" ]; then
+            echo "::error::dsh-marker@$VERSION is already published with $published, but this release carries $EXPECTED"
+            exit 1
+          fi
+          echo "::notice::dsh-marker@$VERSION is already published with these exact bytes; nothing to do"
+          echo "value=yes" >> "$GITHUB_OUTPUT"
+
+      # Publishing the tarball, not the directory, is what makes the release
+      # asset and the registry entry provably the same artifact. If npm ever
+      # refuses provenance for a tarball, the fallback is to publish the
+      # directory and compare dist.integrity afterwards — but then the bytes
+      # published are the ones npm packed, not the ones this job hashed.
+      - name: Publish with provenance
+        if: steps.exists.outputs.value == 'no'
+        run: |
+          set -euo pipefail
+          npm publish ./dist/*.tgz --provenance --access public
+
+      # `npm view` here is anonymous: the job holds no token, so this is what a
+      # stranger sees. A fresh publish is eventually consistent across replicas,
+      # so the check retries instead of failing on replication lag.
+      - name: Verify the registry holds these bytes
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          EXPECTED: ${{ steps.integrity.outputs.value }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            published="$(npm view "dsh-marker@$VERSION" dist.integrity 2>/dev/null || true)"
+            if [ "$published" = "$EXPECTED" ]; then
+              echo "registry holds dsh-marker@$VERSION ($EXPECTED)"
+              exit 0
+            fi
+            echo "attempt $attempt: registry has '${published:-nothing}' yet"
+            sleep 6
+          done
+          echo "::error::dsh-marker@$VERSION did not appear with $EXPECTED"
+          exit 1

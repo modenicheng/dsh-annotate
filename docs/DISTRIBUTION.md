@@ -370,11 +370,51 @@ pending target.
   `meta.description`, `docs/DETAIL.md`, and `icon.svg` are read from the
   installed copy and from the registry copy before installation, so every one of
   them must stay in `files`.
-- **Publish with provenance (OIDC) once CI owns the release,** and keep versions
-  `saveExact`-friendly; `updateBundle` only offers updates for registry packages
-  installed under their own name. The first publish is manual, from a clean
-  commit, because trusted publishing cannot be configured before a workflow
-  exists.
+- **Publish with provenance (OIDC) from CI** once the package exists, and keep
+  versions `saveExact`-friendly; `updateBundle` only offers updates for registry
+  packages installed under their own name. §6.1 has the workflow and the one-time
+  bootstrap it cannot perform itself.
+
+### 6.1 The release workflow, and the step that cannot be tokenless
+
+`.github/workflows/release.yml` has two phases. A `v*` tag verifies the tag
+(version match, ancestor of `main`, the CI gate), packs the tarball, and opens a
+**draft** release. Publishing that draft fires the second phase, which downloads
+the tarball from the release, checks its checksum, and publishes those bytes with
+`--provenance`. Nothing reaches the registry before a human clicks Publish, and
+`workflow_dispatch` replays phase 2 for a tag whose publish failed without
+burning a new tag. Phase 2 refuses a prerelease version outright (D16): the tag
+pattern accepts `v0.2.0-rc.1`, the version check does not.
+
+Authentication is OIDC trusted publishing; no `NPM_TOKEN` exists in the
+repository. Three details decide whether it works:
+
+- npm must be 11.5.1 or newer. The Node 22 runner image ships npm 10, so the job
+  installs npm before publishing.
+- `actions/setup-node` must not receive `registry-url`. With it, setup-node
+  writes an `_authToken` line into `.npmrc`, npm prefers that credential over the
+  OIDC exchange, and the failure surfaces as `E404` on `PUT`, not as an auth
+  error.
+- `package.json` `repository.url` must name this repository, or the provenance
+  check rejects the publish with `E422`.
+
+**The first publish is the exception.** A trusted publisher is registered on a
+package that already exists, so `0.1.x` needs one credential OIDC cannot supply:
+either publish that version once by hand from the packed tarball, or add a
+granular token as `NPM_TOKEN`, run the workflow once, then delete the secret and
+revoke the token. After that, register the publisher — npmjs.com → `dsh-marker` →
+Settings → Trusted publishing → GitHub Actions, repository
+`modenicheng/dsh-annotate`, workflow `release.yml`, no environment — and delete
+`NPM_TOKEN` for good. Granular tokens that bypass 2FA stop working for direct
+publishing in January 2027, so that migration is a deadline rather than an
+option.
+
+npm's staged publishing (`npm stage publish`, approved with 2FA on npmjs.com) is
+the alternative gate if a review inside npm is preferred over the GitHub draft.
+Staging needs an authenticated session but not a 2FA prompt, and staging a
+package that does not exist yet publishes a `0.0.0-stage` placeholder — so a
+maintainer can stage the first version from a logged-in CLI and approve it with
+2FA, instead of publishing a real version by hand.
 
 ## 7. Compatibility policy: protocol only (D15)
 
