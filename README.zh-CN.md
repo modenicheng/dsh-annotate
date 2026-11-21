@@ -79,8 +79,10 @@ TypeScript、没有依赖。把 `packages/extension/manifest.json` 作为临时�
 组件加载即可（`about:debugging#/runtime/this-firefox`；Zen 为
 `about:debugging`）。
 
-Firefox 是真正跑过的平台；Chromium 已在 Chromium 156 里通过浏览器
-QA——加载、service worker、content script、弹窗（popup）和标注 HUD。
+Firefox 是真正跑过的平台。早期版本曾在 Chromium 156 里通过一轮基础
+bring-up 验证——加载、service worker、content script、弹窗（popup）和
+标注 HUD，表现与 Firefox 基本一致——但最新版本未再做过 Chromium 实机
+验证。
 
 扩展读了什么、发到哪里、本地留了什么，见
 [docs/privacy.md](docs/privacy.md)——商店链接的也是这一页。
@@ -245,6 +247,9 @@ node scripts/smoke-discovery.mjs                    # 验证 --port 0 宿主的�
 `dsh --profile anno --port 0` 启动。带引号的 glob 是有意的：由 Node 自行
 展开，使命令在 Windows、macOS 和 Linux 上完全一致。`pnpm run check` 通过
 `npx` 拉取固定版本的 Biome，首次需要联网；测试和钩子不需要。
+
+扩展的 `_locales/` 目前只本地化 manifest 元数据（商店里的名称与描述）；
+界面文案由 `src/content/ui/strings.js` 内置的双语表提供，不走 `_locales/`。
 
 两个商店目标由同一份源码生成，供本地 QA 和检查——
 `node scripts/build-extension.mjs` 输出 `dist/firefox` 和 `dist/chromium`。
