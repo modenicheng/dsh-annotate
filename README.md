@@ -1,3 +1,5 @@
+![dsh-marker: visual browser annotations as first-class context for DeepSeek Harness](docs/assets/banner.svg)
+
 # dsh-marker
 
 [![CI](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml/badge.svg)](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml)
@@ -66,7 +68,13 @@ by CI; nothing is built on your machine.
    `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
    and select the unzipped folder. The extension stays installed across
    restarts. Two costs: the browser shows a developer-mode notice, and updates
-   are manual — download the next release and replace the folder.
+   are manual — download the next release and replace the folder. **On
+   Chromium, also set the keyboard shortcut by hand**: open
+   `chrome://extensions/shortcuts`, find **Annotate the current page**, and
+   assign `Alt+Shift+A` (or your preferred combination). Chromium does not let
+   extensions register or change their own commands, so without this step the
+   in-page fallback still enters annotate mode, but the browser never grants
+   `activeTab` — and without that grant the screenshot is skipped.
 3. **Firefox / Zen**: release Firefox installs add-ons signed by AMO only. The
    release zip is unsigned, so load it as a temporary add-on —
    `about:debugging#/runtime/this-firefox` (Zen: `about:debugging`), **Load
@@ -100,14 +108,36 @@ What the extension reads, where it sends it and what it keeps locally is
    Windows). Leave **Connection** on *Automatic* and the address at the default
    `127.0.0.1` / `3080`; the extension then finds a host whose port moved by
    itself.
-2. Press `Alt+Shift+A` on a page: select text, click an element, or drag a
-   region, then press Enter. The comment is optional — with an empty one the
-   mark is sent on its own (the button reads **Send mark** / **只发标记**).
+2. On a page press `Alt+Shift+A` (the default; change it in the popup's
+   **Annotate** section): select text, click an element, or drag a region, then
+   press Enter. While an element is outlined, `Tab` widens it one ancestor at a time
+   and `Shift+Tab` steps back down; the click locks whatever level is outlined.
+   The comment is optional — with an empty one the mark is sent on its own (the
+   button reads **Send mark** / **只发标记**). A right-click on the page leaves
+   annotation mode (this can be turned off in the popup); inside the composer
+   the browser's own text menu wins.
 3. If the host cannot be found: switch to *Manual* and type the address — a
    full URL such as `wss://anno.example.com` works, and with no scheme the
    extension asks the host which one to use — or use **Import endpoint file…**
    to read the address from `$DSH_HOME/ext-bridge-endpoint.json`. Details:
    [docs/DISCOVERY.md](docs/DISCOVERY.md).
+
+The popup's **Annotate** section can also make a successful send leave the mode
+(off by default) and turn the right-click exit off. Recording a shortcut
+updates the browser command on Firefox, which is what keeps the screenshot's
+`activeTab` grant working. Chromium does not let extensions write commands, so
+there are two paths to the same mode: the browser command (set once in
+`chrome://extensions/shortcuts` — see the install step above) and the in-page
+matcher that the popup records for the page. Only the browser command carries
+the `activeTab` grant, so on Chromium the browser command is the path that
+produces screenshots; if you record a key that differs from the one registered
+in the browser, the in-page matcher still fires, but the mark goes out without
+its screenshot. Keep both on the same combination, or use **Annotate this
+page** in the popup, which always grants `activeTab`. The popup follows the
+browser UI language (English and
+Simplified Chinese ship today). If **Annotate this page** reports that the
+extension did not answer, the popup is newer than the extension loaded in this
+browser session: click **Reload** in `about:debugging` and refresh the page.
 
 ## Tools
 
@@ -143,6 +173,13 @@ The bridge is local-only by design:
   only anonymous endpoint is `/ext/anno/health`, which reports the protocol
   version, counts, and the scheme/URL a browser should use — never annotation
   content.
+- **The GUI routes sit behind the host's own fence.** The routes the Web Client
+  page reads (`/ext/anno/queue`, `/queue/ack`, `/focus`, `/events`, `/item`,
+  `/image`) are gated by DSH's Connection fence — Host/Origin checks that stop
+  DNS rebinding, plus the browser session the page already holds — and fall
+  back to the `sec-fetch-site: same-origin` header check on hosts without the
+  Connection service. The token is never in them: the page is a different trust
+  anchor from the extension.
 - **Discovery publishes an address, not a secret.** The loopback locator answers
   one `GET` with the host's origin and a per-process id; it returns no token and
   no annotation data, and refuses a `Host` that is not loopback.

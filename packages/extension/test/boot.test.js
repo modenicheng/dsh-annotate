@@ -158,7 +158,17 @@ function createBrowserStub({ extensionUrl = 'moz-extension://test/' } = {}) {
 
   return {
     browser,
-    events: { onMessage, onInstalled, onStartup, onAlarm, onCommand, onTabRemoved, onTabUpdated, onTabActivated },
+    events: {
+      onMessage,
+      onInstalled,
+      onStartup,
+      onAlarm,
+      onCommand,
+      onTabRemoved,
+      onTabUpdated,
+      onTabActivated,
+      storageChanged,
+    },
     stored,
     badge,
     alarms,
@@ -605,6 +615,52 @@ test('auto mode with a typed address keeps reporting auto and honors the address
     stub.calls.filter((url) => url.includes('/locate')),
     [],
   )
+})
+
+/**
+ * Choosing a host from the discovered list stores only `preferredInstanceId`.
+ * The preference is a connection input, so the storage listener reconnects —
+ * this is the one annotation-adjacent write that must keep doing that.
+ */
+test('an annotation-only preference change never drops the connection', async () => {
+  const stub = discoveryStub({ health: { 3080: healthFor('http://127.0.0.1:3080', 'aaaaaaaaaaaaaaaa') } })
+  const { ns, events, sockets } = await bootBackground({ fetch: stub.fetch })
+  assert.equal(sockets.length, 1, 'the pre-change connection is up')
+
+  const before = { host: '127.0.0.1', port: 3080, secure: null, connection: 'manual' }
+  await events.storageChanged.fire(
+    {
+      'anno.prefs': {
+        oldValue: before,
+        newValue: { ...before, exitAfterSend: true, exitOnRightClick: false, shortcut: 'Alt+Shift+D' },
+      },
+    },
+    'local',
+  )
+  // A reconnect would construct a second socket; give one time to appear if
+  // the guard is wrong, then assert none did.
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(sockets.length, 1, 'the exits and the shortcut are not connection settings')
+  assert.equal(ns.netState.connection, 'connecting', 'the original socket keeps the status it had')
+})
+
+test('an address change still reconnects through the storage listener', async () => {
+  const stub = discoveryStub({
+    health: {
+      3080: healthFor('http://127.0.0.1:3080', 'aaaaaaaaaaaaaaaa'),
+      3099: healthFor('http://127.0.0.1:3099', 'bbbbbbbbbbbbbbbb'),
+    },
+  })
+  const { sandbox, sockets } = await bootBackground({ fetch: stub.fetch })
+  assert.equal(sockets.length, 1)
+
+  // The popup writes first and the storage event follows, exactly as a save
+  // does; the listener reconnects to the address it then reads back.
+  await sandbox.browser.storage.local.set({
+    'anno.prefs': { host: '127.0.0.1', port: 3099, secure: null, connection: 'manual' },
+  })
+  await waitUntil(() => sockets.length === 2)
+  assert.equal(sockets[1].url, 'ws://127.0.0.1:3099/ext/anno', 'the new address is what connects')
 })
 
 test('importing an endpoint record reconnects without demoting auto mode', async () => {

@@ -30,6 +30,9 @@
     console.error('dsh-marker: src/background/endpoints.js must load before src/background/connection.js')
     return
   }
+  // Loads before core.js, so the protocol bundle is read off the global the
+  // same way `discovery.js` and `endpoints.js` do, not through `ns`.
+  const PROTOCOL = globalThis.__DSH_PROTOCOL__
 
   /**
    * Budget for one health probe. The probe runs before the socket opens, so it
@@ -132,6 +135,26 @@
       const body = await response.json()
       const health = ns.endpoints.parseHealth(body)
       if (health === null) throw new Error('the response is not the bridge health JSON')
+      // D15: a host that names its protocol window is checked before a socket
+      // is opened, so a mismatch is explained with both numbers instead of
+      // surfacing as a bare close 4400 after the fact. The fields come from the
+      // raw body for the same reason as `instanceId` below: `parseHealth`'s
+      // shape is a settled contract with the popup. A host without `version`
+      // is pre-window and says nothing about compatibility, so it is probed
+      // the way it always was.
+      const version = Number.isInteger(body?.version) ? body.version : null
+      const floor = version === null ? null : Number.isInteger(body?.minProtocol) ? body.minProtocol : version
+      if (version !== null && !PROTOCOL.protocolCompatibleWith(version, floor)) {
+        const authority = new URL(url).host
+        if (floor > PROTOCOL.PROTOCOL_VERSION) {
+          throw new Error(
+            `the host at ${authority} needs protocol ${floor} or newer (it speaks ${floor}..${version}); this extension speaks ${PROTOCOL.PROTOCOL_VERSION}. Update the dsh-marker extension.`,
+          )
+        }
+        throw new Error(
+          `the host at ${authority} speaks protocol ${version} and cannot receive this extension's protocol ${PROTOCOL.PROTOCOL_VERSION}. Update the dsh-marker plugin in DSH.`,
+        )
+      }
       // Read the id from the raw body rather than widening `parseHealth`: the
       // parser is shared with the popup and its shape is a settled contract.
       return { ...health, instanceId: ns.discovery === undefined ? null : ns.discovery.healthInstanceId(body) }

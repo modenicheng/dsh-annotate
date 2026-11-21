@@ -22,7 +22,7 @@ import {
   shouldLocate,
   writeJsonAtomically,
 } from '../src/discovery.js'
-import { DISCOVERY_APP, ENDPOINT_FILE, PROTOCOL_VERSION, WS_PATH } from '../src/protocol.js'
+import { DISCOVERY_APP, ENDPOINT_FILE, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, WS_PATH } from '../src/protocol.js'
 
 const ORIGIN = 'http://127.0.0.1:51234'
 const WS_URL = `ws://127.0.0.1:51234${WS_PATH}`
@@ -77,6 +77,7 @@ test('the record is written whole, in the documented order, and holds no secret'
   const text = await readFile(join(home, ENDPOINT_FILE), 'utf8')
   assert.deepEqual(Object.keys(JSON.parse(text)), [
     'version',
+    'minProtocol',
     'app',
     'instanceId',
     'pid',
@@ -87,6 +88,7 @@ test('the record is written whole, in the documented order, and holds no secret'
   ])
   assert.deepEqual(JSON.parse(text), {
     version: PROTOCOL_VERSION,
+    minProtocol: MIN_PROTOCOL_VERSION,
     app: DISCOVERY_APP,
     instanceId: INSTANCE_ID,
     pid: 23144,
@@ -251,6 +253,7 @@ test('card() reads focus on every call and record() never carries it', async (t)
   assert.deepEqual(discovery.card(), {
     app: DISCOVERY_APP,
     version: PROTOCOL_VERSION,
+    minProtocol: MIN_PROTOCOL_VERSION,
     instanceId: INSTANCE_ID,
     origin: ORIGIN,
     wsUrl: WS_URL,

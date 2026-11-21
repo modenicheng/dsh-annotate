@@ -63,13 +63,15 @@
    * documents.
    */
   const platform = global.__DSH_PLATFORM__
+  const SHORTCUT_API = global.__DSH_SHORTCUT__
+  /** Used only when `src/shared/shortcut.js` did not load (older inject list). */
+  const SHORTCUT_DEFAULT = SHORTCUT_API && SHORTCUT_API.DEFAULT ? SHORTCUT_API.DEFAULT : 'Alt+Shift+A'
   const document = global.document
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
   // Route changes share the hydrator's coalescing budget: an SPA router can
   // push several history entries while settling on a view, and each refresh
   // clears the page's marks before re-querying.
   const ROUTE_REFRESH_DEBOUNCE_MS = 250
-  const HOOK_KEY = '__DSH_ANNO_HOOK__'
   /** Parallel host mutations for a bulk clear; the host acks one id at a time. */
   const DELETE_CONCURRENCY = 3
 
@@ -98,11 +100,19 @@
     /** Shift is held, so the next drag selects text instead of an element. */
     shiftArmed: false,
     selectionGesture: false,
+    /** Leave annotation mode after a successful send (pref, default off). */
+    exitAfterSend: false,
+    /** Leave annotation mode on a page right-click (pref, default on). */
+    exitOnRightClick: true,
     consoleErrors: [],
     observer: null,
     scheduler: null,
     hoverFrame: 0,
     hoverPoint: null,
+    /** Deepest meaningful element under the pointer; the chain Tab expands from. */
+    hoverBase: null,
+    /** How many ancestor steps above `hoverBase` the outline sits (Tab widens). */
+    hoverLevel: 0,
     scrollFrame: 0,
     prefs: {},
     restricted: '',
@@ -115,7 +125,6 @@
     targetLabels: new Map(),
     /** True once the catalog was asked for those labels, so boot asks once. */
     targetLabelsRequested: false,
-    hookInstalled: false,
     booted: false,
     counts: { total: 0, resolved: 0 },
     countsSignature: '',
@@ -185,6 +194,31 @@
     )
   }
 
+  /**
+   * The stored shortcut, normalized; the default when the preference is absent.
+   * Read lazily from `state.prefs` so a popup write applies on the next keydown
+   * without a second mirrored field to keep in step.
+   */
+  function shortcutSpec() {
+    if (!SHORTCUT_API || typeof SHORTCUT_API.normalize !== 'function') return SHORTCUT_DEFAULT
+    return SHORTCUT_API.normalize(state.prefs && state.prefs.shortcut) || SHORTCUT_DEFAULT
+  }
+
+  /**
+   * Firefox consumes a command's key before the page sees it, so this matcher is
+   * the fallback that makes a custom shortcut work on engines that cannot update
+   * a command (Chromium) and the door that stays open if the browser rejected a
+   * combination. With no parser loaded it reproduces the original Alt+Shift+A.
+   * @param {KeyboardEvent} event
+   */
+  function isShortcutEvent(event) {
+    if (SHORTCUT_API && typeof SHORTCUT_API.matches === 'function') {
+      return SHORTCUT_API.matches(event, shortcutSpec())
+    }
+    const key = String(event.key || '').toLowerCase()
+    return event.altKey === true && event.shiftKey === true && (event.code === 'KeyA' || key === 'a')
+  }
+
   // ── restricted documents ───────────────────────────────────────────────────
 
   /**
@@ -218,64 +252,13 @@
   // ── page-world console capture ─────────────────────────────────────────────
 
   /**
-   * Runs in the page compartment (never in our isolated world): it only turns
-   * uncaught errors into `postMessage` strings. Kept as a string because the
-   * point is to execute it outside the content-script sandbox.
+   * Page errors are only visible to listeners in the page compartment. That
+   * listener is `src/content/console-hook.js`, declared as a `"world": "MAIN"`
+   * content_scripts group in the manifest: the engine injects it directly into
+   * the page, which both engines support since Firefox 128 (the minimum here)
+   * and which no page CSP can block or complain about. It posts
+   * `{ __dshAnno: 'console', item }` messages that `onPageMessage` consumes.
    */
-  const HOOK_SOURCE = `(function () {
-  if (window.${HOOK_KEY}) return
-  window.${HOOK_KEY} = 1
-  var post = function (item) {
-    try { window.postMessage({ __dshAnno: 'console', item: item }, '*') } catch (error) {}
-  }
-  window.addEventListener('error', function (event) {
-    try {
-      if (event.target && event.target !== window && event.target.nodeType === 1) return
-      post({
-        kind: 'error',
-        message: event.message ? String(event.message) : 'page error',
-        source: event.filename ? String(event.filename) : '',
-        line: event.lineno || 0
-      })
-    } catch (error) {}
-  }, true)
-  window.addEventListener('unhandledrejection', function (event) {
-    var text = 'unhandled rejection'
-    try {
-      var reason = event.reason
-      if (reason && (reason.stack || reason.message)) text = String(reason.stack || reason.message)
-      else if (reason !== undefined) text = String(reason)
-    } catch (error) {}
-    post({ kind: 'unhandledrejection', message: text })
-  })
-})()`
-
-  function installConsoleHook() {
-    if (state.hookInstalled) return
-    state.hookInstalled = true
-    // Firefox content scripts are isolated; page errors are only visible to a
-    // listener installed in the page compartment. Calling the page window's own
-    // `eval` does that with no extra permission. The inline <script> fallback
-    // covers anything that refuses the cross-compartment call and is silently
-    // dropped by a strict page CSP — console capture is best-effort either way.
-    try {
-      const page = global.wrappedJSObject
-      if (page && typeof page.eval === 'function') {
-        page.eval(HOOK_SOURCE)
-        return
-      }
-    } catch {
-      // Fall through to the script element.
-    }
-    try {
-      const script = document.createElement('script')
-      script.textContent = HOOK_SOURCE
-      ;(document.head || document.documentElement).appendChild(script)
-      if (script.parentNode) script.parentNode.removeChild(script)
-    } catch {
-      // A page that forbids script injection simply has no console context.
-    }
-  }
 
   function onPageMessage(event) {
     if (!event || event.source !== global) return
@@ -757,6 +740,7 @@
     // button down must still leave the page without a leftover highlight.
     resetPointer()
     state.shiftArmed = false
+    resetHoverChain()
     clearAnchor()
     if (ui) {
       if (ui.isComposerOpen()) ui.closeComposer()
@@ -857,6 +841,9 @@
     ui.setMarquee(null)
     ui.setCursor(null)
     ui.setShiftDrop(null)
+    // The gesture is over: the next mark starts from the deepest element
+    // again, not from whatever level this one was widened to.
+    resetHoverChain()
     // Keep the target outlined while the comment is written: the outline is the
     // subject of the sentence, and losing it forces the user to remember which
     // of five similar buttons they clicked. A marked text is drawn as its line
@@ -1150,6 +1137,10 @@
       // An annotation without a comment is the mark alone; say which one was
       // sent instead of implying words the user never wrote.
       ui.toast(draft.comment === '' ? t('savedMark') : t('saved'), 'ok')
+      // "Exit after sending" is opt-in: most people mark several things in a
+      // row, and leaving the mode after the first one would break that flow.
+      // It runs only here, after the host acknowledged the annotation.
+      if (state.exitAfterSend) leaveMode('sent')
     })
   }
 
@@ -1291,29 +1282,111 @@
     syncPointerGuide()
   }
 
+  /**
+   * Drop the Tab-expansion chain. Called wherever the hover outline stops
+   * being painted from it, so a stale level can never outlive its subject.
+   */
+  function resetHoverChain() {
+    state.hoverBase = null
+    state.hoverLevel = 0
+  }
+
+  /**
+   * The element the pointer means, with any Tab expansion applied. The chain
+   * is anchored to the deepest element under the pointer: moving to a
+   * different one keeps the expanded outline while the pointer stays inside
+   * it (the level rebases onto the new chain, so the outline itself never
+   * flickers to a sibling), and collapses back to level 0 the moment the
+   * pointer leaves the subject.
+   * @param {Element|null} base deepest meaningful element under the pointer
+   * @returns {Element|null}
+   */
+  function subjectFor(base) {
+    if (!base) {
+      resetHoverChain()
+      return null
+    }
+    if (state.hoverBase === base) return ns.anchor.ancestorAt(base, state.hoverLevel)
+    if (state.hoverBase && state.hoverLevel > 0) {
+      const subject = ns.anchor.ancestorAt(state.hoverBase, state.hoverLevel)
+      const steps = ns.anchor.stepsTo(base, subject)
+      if (steps >= 0) {
+        state.hoverBase = base
+        state.hoverLevel = steps
+        return subject
+      }
+    }
+    state.hoverBase = base
+    state.hoverLevel = 0
+    return base
+  }
+
+  /**
+   * The chip text for the current outline. The level marker is a glyph, so it
+   * needs no translation and stays short next to the tag chip.
+   */
+  function hoverLabelOf(subject, rect) {
+    const label = ns.anchor.chipLabel(subject, rect)
+    return state.hoverLevel > 0 ? `${label} · ↑${state.hoverLevel}` : label
+  }
+
   function updateHover(x, y) {
     if (!ui) return
     // While the composer is open its amber outline already answers "what am I
     // writing about?". A second box under the pointer competes with it, and the
     // user has to work out which of the two the annotation refers to.
     if (ui.isComposerOpen()) {
+      resetHoverChain()
       ui.setHover(null)
       ui.setCursor(null)
       return
     }
     if (activeMode() === 'selection') {
+      resetHoverChain()
       ui.setHover(null)
       ui.setCursor({ x, y })
       return
     }
     ui.setCursor({ x, y })
-    const element = ns.anchor.meaningfulAt(x, y)
-    if (!element) {
+    const subject = subjectFor(ns.anchor.meaningfulAt(x, y))
+    if (!subject) {
       ui.setHover(null)
       return
     }
-    const rect = ns.geom.rectOf(element.getBoundingClientRect())
-    ui.setHover({ rect, label: ns.anchor.chipLabel(element, rect) })
+    const rect = ns.geom.rectOf(subject.getBoundingClientRect())
+    ui.setHover({ rect, label: hoverLabelOf(subject, rect) })
+  }
+
+  /**
+   * Tab widens the outlined element one ancestor; Shift+Tab narrows it back
+   * down. Both only mean this while a hover subject exists and nothing else
+   * owns the keyboard: an open composer needs Tab for its own focus cycle, a
+   * selection-mode pick has no element subject, and a press in flight owns
+   * the gesture. The key is swallowed whenever a subject exists — even where
+   * the level cannot move (top of the chain, or already back at the deepest
+   * element) — because letting Tab fall through would hand the browser's
+   * focus ring to the page mid-pick, and the next Esc or Tab would land
+   * somewhere the gesture layer cannot see.
+   */
+  function handleHierarchyKey(event) {
+    if (!state.active || state.hidden) return
+    if (ns.text.isOurs(event.target)) return
+    if (!ui || ui.isComposerOpen()) return
+    if (state.pointer.down || state.pointer.dragging || state.selectionGesture) return
+    if (activeMode() === 'selection') return
+    if (!state.hoverBase) return
+    // Tab means element picking, so a Shift that armed text selection stands
+    // down: otherwise the selection drop and the outline would both claim the
+    // pointer.
+    if (state.shiftArmed) setShiftArmed(false)
+    const target = event.shiftKey ? state.hoverLevel - 1 : state.hoverLevel + 1
+    // `stepsTo` turns the clamped result back into the level that produced it,
+    // so Tabbing past the outermost wrapper just stays there.
+    state.hoverLevel = Math.max(0, ns.anchor.stepsTo(state.hoverBase, ns.anchor.ancestorAt(state.hoverBase, target)))
+    const point = state.hoverPoint
+    if (point) updateHover(point.x, point.y)
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   function onPointerDown(event) {
@@ -1447,9 +1520,11 @@
       if (mode === 'region') return
     }
     if (mode === 'auto' || mode === 'element') {
-      const element = ns.anchor.meaningfulAt(event.clientX, event.clientY)
-      if (!element) return
-      const captured = ns.anchor.element(element)
+      // The click captures what the outline shows: a Tab-widened level locks
+      // the expanded element, not the deepest one under the crosshair.
+      const subject = subjectFor(ns.anchor.meaningfulAt(event.clientX, event.clientY))
+      if (!subject) return
+      const captured = ns.anchor.element(subject)
       if (captured) openComposerFor(captured)
     }
   }
@@ -1485,6 +1560,21 @@
     event.preventDefault()
   }
 
+  /**
+   * A right click on the page is a way out of annotation mode. It is disabled
+   * while the composer is open, where the context menu belongs to the textarea
+   * (paste, spellcheck), and inside our own chrome.
+   */
+  function onContextMenu(event) {
+    if (!state.active || !ui) return
+    if (!state.exitOnRightClick) return
+    if (ns.text.isOurs(event.target)) return
+    if (ui.isComposerOpen()) return
+    event.preventDefault()
+    event.stopPropagation()
+    leaveMode('contextmenu')
+  }
+
   /** Shift means "select text", so it gets a pointer guide of its own. */
   function isShiftKey(event) {
     return event.key === 'Shift' || event.code === 'ShiftLeft' || event.code === 'ShiftRight'
@@ -1501,8 +1591,7 @@
 
   function onKeyDown(event) {
     if (!event || event.repeat) return
-    const key = String(event.key || '').toLowerCase()
-    if (event.altKey && event.shiftKey && (event.code === 'KeyA' || key === 'a')) {
+    if (isShortcutEvent(event)) {
       event.preventDefault()
       event.stopPropagation()
       toggleMode()
@@ -1514,6 +1603,10 @@
       if (!state.active || ns.text.isOurs(event.target)) return
       if (ui && ui.isComposerOpen()) return
       setShiftArmed(true)
+      return
+    }
+    if (event.key === 'Tab') {
+      handleHierarchyKey(event)
       return
     }
     if (event.key !== 'Escape') return
@@ -1629,6 +1722,7 @@
         const prefs = stored && stored[MSG.prefs]
         if (!prefs || typeof prefs !== 'object') return
         state.prefs = prefs
+        applyPrefs(prefs)
         if (prefs.hidden === true) {
           // The single path that hides the layer also drops the page's marks:
           // setting `state.hidden` here would short-circuit applyHidden and leave
@@ -1644,7 +1738,21 @@
     const next = changes[MSG.prefs].newValue
     if (!next || typeof next !== 'object') return
     state.prefs = next
+    applyPrefs(next)
     applyHidden(next.hidden === true, false)
+  }
+
+  /**
+   * Mirror the popup-owned prefs into the gesture layer: the exit choices apply
+   * immediately, and the HUD tooltip must not advertise a gesture that is off.
+   * @param {any} prefs
+   */
+  function applyPrefs(prefs) {
+    state.exitAfterSend = prefs?.exitAfterSend === true
+    state.exitOnRightClick = prefs?.exitOnRightClick !== false
+    if (ui && typeof ui.setExitGestures === 'function') {
+      ui.setExitGestures({ rightClickExit: state.exitOnRightClick })
+    }
   }
 
   // ── background → content ───────────────────────────────────────────────────
@@ -1752,6 +1860,12 @@
       focusRecord(recordId)
       return
     }
+    // The keyboard command toggles; the popup's button enters. A button that
+    // reads "Annotate this page" must never leave the mode it names.
+    if (message.mode === 'enter') {
+      if (!state.active) enterMode('user')
+      return
+    }
     toggleMode()
   }
 
@@ -1852,7 +1966,6 @@
     })
     ui.mount()
     ui.setHidden(state.hidden)
-    installConsoleHook()
     global.addEventListener('message', onPageMessage, false)
     global.addEventListener('keydown', onKeyDown, true)
     global.addEventListener('keyup', onKeyUp, true)
@@ -1863,6 +1976,7 @@
     global.addEventListener('mousedown', onMouseDownCapture, true)
     global.addEventListener('click', onClickCapture, true)
     global.addEventListener('dragstart', onDragStart, true)
+    global.addEventListener('contextmenu', onContextMenu, true)
     global.addEventListener('scroll', onViewportChange, true)
     global.addEventListener('resize', onViewportChange, true)
     if (api && api.runtime && api.runtime.onMessage) {

@@ -295,6 +295,22 @@
   }
 
   /**
+   * The element the range's own common ancestor lives in — the smallest tree
+   * that can contain every block the range touches, and cheap to compute.
+   * @param {any} range
+   */
+  function scopeRootFor(range) {
+    let node = null
+    try {
+      node = range.commonAncestorContainer
+    } catch {
+      node = null
+    }
+    const element = node ? (node.nodeType === 1 ? node : node.parentElement) : null
+    return element || document.body || null
+  }
+
+  /**
    * Flatten a subtree into one string plus the offsets of every text node, so
    * quote/offset maths is a substring search instead of a DOM walk per probe.
    */
@@ -806,6 +822,58 @@
     return node
   }
 
+  /** Elements that end the Tab walk: the page shell is never a subject. */
+  function isShellElement(element) {
+    const name = element.nodeName
+    return name === 'BODY' || name === 'HTML'
+  }
+
+  /**
+   * The element `level` parentElement steps above `element`, without ever
+   * landing on the page shell. `0` is the element itself; a level that would
+   * step onto `body`/`html` clamps at the last real ancestor, so Tabbing up a
+   * deeply nested node simply stops growing at the outermost wrapper.
+   * @param {Element|null} element
+   * @param {number} level
+   * @returns {Element|null}
+   */
+  function ancestorAt(element, level) {
+    let node = element
+    let remaining = Math.max(0, Math.trunc(Number(level) || 0))
+    let guard = 0
+    while (node && remaining > 0 && guard < 64) {
+      guard += 1
+      const parent = node.parentElement
+      if (!parent || isShellElement(parent)) break
+      node = parent
+      remaining -= 1
+    }
+    return node
+  }
+
+  /**
+   * How many parentElement steps `node` sits below `ancestor`; `-1` when the
+   * two are not on one chain. The Tab expansion uses it to keep an expanded
+   * outline stable while the pointer wanders inside it, and to find where a
+   * new chain rejoins the old subject.
+   * @param {Node|null} node
+   * @param {Element|null} ancestor
+   * @returns {number}
+   */
+  function stepsTo(node, ancestor) {
+    if (!node || !ancestor) return -1
+    let current = node
+    let steps = 0
+    let guard = 0
+    while (current && guard < 64) {
+      guard += 1
+      if (current === ancestor) return steps
+      current = current.parentElement
+      steps += 1
+    }
+    return -1
+  }
+
   /** Deepest meaningful element under a viewport point, overlay excluded. */
   function meaningfulAt(x, y) {
     if (!document) return null
@@ -891,6 +959,29 @@
     return element || document.body || null
   }
 
+  /**
+   * The scope a multi-block selection is anchored to: the nearest non-inline
+   * element that contains both of its endpoint text nodes. A selection that
+   * spans paragraphs is one gesture over all of them, so its quote, paths,
+   * text position and geometry must cover the same whole span — anchoring it to
+   * the start block alone would silently drop every later paragraph.
+   * @param {any} first @param {any} last
+   */
+  function commonBlockFor(first, last) {
+    const ancestors = new Set()
+    for (let node = first; node; node = node.parentNode) {
+      if (node.nodeType === 1) ancestors.add(node)
+    }
+    let shared = null
+    for (let node = last; node; node = node.parentNode) {
+      if (node.nodeType === 1 && ancestors.has(node)) {
+        shared = node
+        break
+      }
+    }
+    return blockFor(shared)
+  }
+
   function clampOffset(offset, node) {
     const length = node && node.nodeValue ? node.nodeValue.length : 0
     const value = Number(offset)
@@ -901,6 +992,10 @@
   /**
    * Selection anchor. `rect` is in document coordinates (the validator requires
    * it), while the composer's crop rect is kept in viewport pixels separately.
+   * The anchor is scoped to the nearest non-inline container that holds the
+   * whole selection: one gesture over several paragraphs is one annotation that
+   * carries all of them, and the quote, the paths, the text position and the
+   * geometry all describe the same span.
    */
   function selectionState(selection) {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
@@ -914,12 +1009,14 @@
     }
     if (text.trim() === '') return null
 
-    const block = blockFor(range.startContainer)
-    if (!block) return null
-    const nodes = nodesInRange(range, block)
+    // The walk must see every block the range touches, so it is rooted at the
+    // range's common ancestor — the start block alone would hide the rest.
+    const nodes = nodesInRange(range, scopeRootFor(range))
     if (nodes.length === 0) return null
     const first = nodes[0]
     const last = nodes[nodes.length - 1]
+    const block = commonBlockFor(first, last)
+    if (!block) return null
     // A range endpoint that sits on an element boundary is not inside a text
     // node, so the first/last text node it touches is fully selected.
     const startOffset = first === range.startContainer ? clampOffset(range.startOffset, first) : 0
@@ -939,12 +1036,29 @@
     const exact = quoteText.slice(0, LIMITS.quoteChars)
     if (exact.trim() === '') return null
 
-    let viewportRect = unionRangeRects(range)
+    // The quote, the dom paths and the text position all describe the same
+    // span as the geometry: the clamped range runs from the first to the last
+    // covered text node, which for a cross-block selection is the whole
+    // gesture, and never text the quote does not mention.
+    let geometryRange = range
+    try {
+      const owner = block.ownerDocument || global.document
+      if (owner && typeof owner.createRange === 'function') {
+        const clamped = owner.createRange()
+        clamped.setStart(first, startOffset)
+        clamped.setEnd(last, endOffset)
+        geometryRange = clamped
+      }
+    } catch {
+      // Without a usable range constructor the raw range stands in: the
+      // geometry may overhang the block, the anchor still holds.
+    }
+    let viewportRect = unionRangeRects(geometryRange)
     if (viewportRect.w === 0 && viewportRect.h === 0) viewportRect = rectOf(block.getBoundingClientRect())
     // The line boxes are what the overlay paints over the marked words: the
     // composer takes focus, and with it the browser's own selection highlight,
     // so without them the user could not see what the annotation is about.
-    const lineRects = markLineRects(range)
+    const lineRects = markLineRects(geometryRange)
 
     const anchor = {
       kind: 'selection',
@@ -963,7 +1077,7 @@
       textPosition: { start: startPosition, end: endPosition },
       rect: roundRect(viewportToPage(viewportRect)),
     }
-    return { anchor, viewportRect, lineRects, live: { kind: 'range', range } }
+    return { anchor, viewportRect, lineRects, live: { kind: 'range', range: geometryRange } }
   }
 
   /** Element anchor: selectors, a fingerprint for re-finding it, diagnostics. */
@@ -1169,6 +1283,8 @@
     element: elementState,
     region: regionState,
     meaningfulAt,
+    ancestorAt,
+    stepsTo,
     caretPosition,
     chipLabel,
     liveViewportRect,

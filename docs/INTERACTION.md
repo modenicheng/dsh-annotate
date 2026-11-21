@@ -5,13 +5,33 @@ DSH client half) can be built against one description instead of drifting.
 
 ## The gesture
 
-1. On any page, `Alt+Shift+A` (or the toolbar button) enters annotate mode.
+1. On any page, the shortcut (default `Alt+Shift+A`, configurable in the
+   popup) enters annotate mode. The toolbar popup's **Annotate this page** button
+   enters it as well, and is the path that also grants `activeTab` on a tab that
+   predates the install. On Firefox the popup recording also updates the
+   browser command, so the two doors stay in step. On Chromium the extension
+   cannot write commands: the browser command must be assigned once by hand in
+   `chrome://extensions/shortcuts`, and only that command grants `activeTab`
+   (screenshots). The in-page matcher works everywhere but never grants
+   `activeTab`, so on Chromium a mark entered through it ships without its
+   screenshot unless the tab was granted another way.
 2. The user marks a text selection, an element, or a region, and may write a
    comment. The mark alone is a complete annotation: an empty comment sends the
    pointer by itself.
-3. The composer shows a **target**: the Session the annotation will join.
+3. While an element is outlined, `Tab` widens the outline one ancestor at a
+   time and `Shift+Tab` steps back down (the chip counts the level, `↑2`).
+   The walk stops at the outermost wrapper before `body`. The level belongs to
+   the chain under the pointer: moving inside the widened element keeps the
+   outline on it, moving out restarts at the deepest element, and the click
+   locks whatever level is outlined. An open composer keeps `Tab` for its own
+   focus cycle, so the keys only act while picking. A right-click on the page
+   leaves the mode by default (a preference can turn that off, and the composer
+   keeps the browser's text menu); another preference can make a successful send
+   leave it as well — that one runs only after the annotation was acknowledged,
+   so a failed send never discards a draft.
+4. The composer shows a **target**: the Session the annotation will join.
    Default is the Session the user is currently looking at in the DSH window.
-4. Submitting stores the annotation and leaves a **reference** in that Session's
+5. Submitting stores the annotation and leaves a **reference** in that Session's
    composer — the same atomic chip `@file` and `@session` already use.
 
 The reference is the point. It is visible, it is part of the message the user is

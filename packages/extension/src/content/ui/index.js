@@ -48,11 +48,17 @@
       return Object.hasOwn(table, key) ? table[key] : strings.STRINGS.en[key] || key
     }
 
-    const host = document.getElementById(HOST_ID) || document.createElement('div')
+    // A closed shadow root cannot be read back from its host, so a host left
+    // behind by a previous instance cannot be adopted: `attachShadow` on it
+    // would throw, and the page would lose the overlay for good. Reloading a
+    // temporary add-on re-injects these files into open pages, so the stale
+    // host is replaced — removing it also detaches the old instance's nodes,
+    // which is the cleanup its own listeners can no longer perform.
+    let host = document.getElementById(HOST_ID)
+    if (host !== null) host.remove()
+    host = document.createElement('div')
     host.id = HOST_ID
-    const shadow = host.shadowRoot || host.attachShadow({ mode: 'closed' })
-    // A previous instance (hot reload, double injection) may have left nodes.
-    while (shadow.firstChild) shadow.removeChild(shadow.firstChild)
+    const shadow = host.attachShadow({ mode: 'closed' })
 
     const style = dom.createElement('style')
     style.textContent = styles.CSS
@@ -224,6 +230,7 @@
       setClearBusy: ctx.hud.setClearBusy,
       setClearProgress: ctx.hud.setClearProgress,
       setPickBanner: ctx.hud.setPickBanner,
+      setExitGestures: ctx.hud.setExitGestures,
       toast: ctx.hud.showToast,
       openComposer: ctx.composer.openComposer,
       closeComposer: ctx.composer.closeComposer,

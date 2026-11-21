@@ -32,6 +32,9 @@
    * declare a second time.
    */
 
+  const I18N = globalThis.__DSH_I18N__
+  const LANGUAGE = I18N ? I18N.pickLanguage(I18N.browserLanguage(globalThis)) : 'en'
+  const t = I18N ? I18N.make(LANGUAGE) : (key) => key
   const MODE_AUTO = 'auto'
   const MODE_MANUAL = 'manual'
   /**
@@ -39,8 +42,8 @@
    * to the fields, because those fields are the same in both modes.
    */
   const MODE_HINTS = {
-    auto: 'The extension finds a host whose port is not 3080. Leave the fields at 127.0.0.1 / 3080; anything else is treated as an override.',
-    manual: 'The extension uses the address below, exactly as typed.',
+    auto: t('modeAutoHint'),
+    manual: t('modeManualHint'),
   }
   const BUSY_ATTRIBUTE = 'aria-busy'
 
@@ -198,7 +201,7 @@
         // blocks are mode-dependent, and the background's next broadcast may
         // still describe the previous mode.
         if (lastStatus !== null) applyShellStatus(lastStatus)
-        feedback(mode === MODE_AUTO ? 'Automatic discovery on.' : 'Manual address on.', 'ok')
+        feedback(t('saved'), 'ok')
         // The background reconnects on the storage change; give it a moment.
         setTimeout(() => {
           void refreshShellState()
@@ -208,7 +211,7 @@
         state.modeKnown = previousKnown
         renderConnectionMode()
         if (lastStatus !== null) applyShellStatus(lastStatus)
-        feedback(`Could not save the connection mode: ${describeError(error)}`, 'error')
+        feedback(t('saveFailed', { reason: describeError(error) }), 'error')
       }
     }
 
@@ -269,48 +272,32 @@
     }
 
     /**
-     * The detail line: the discovery source first, then the address, the number
-     * of hosts found, and the token state. Every field is read defensively,
-     * because an older background sends none of the discovery fields.
+     * The detail line: the address the extension talks to, and nothing else.
+     * A connected user needs the address and no commentary; the failure states
+     * say what went wrong in the shortest words that still point at a fix.
+     * Every field is read defensively, because an older background sends none
+     * of the discovery fields.
      */
     function connectionDetail(status) {
       const mode = modeOf(status)
       const connection = typeof status.connection === 'string' ? status.connection : 'idle'
-      const tokenState = status.tokenPresent === true ? 'token saved' : 'no token saved'
-      const advertised = status.wsUrlSource === 'health' ? ' · advertised by the host' : ''
-      const parts = [mode === MODE_AUTO ? 'Automatic' : 'Manual']
-      if (mode !== MODE_AUTO) {
-        parts.push(wsUrlOf(status), tokenState)
-        return `${parts.join(' · ')}${advertised}`
-      }
+      if (mode !== MODE_AUTO) return configuredAuthority(status) || hostAuthority(wsUrlOf(status))
       const hosts = state.discovered
       if (hosts.length > 0) {
         const row = currentHost(status) ?? hosts[0]
-        parts.push(withProfile(hostAuthority(row.origin), row.profile))
-        if (hosts.length > 1) parts.push(`${hosts.length} hosts found`)
-        parts.push(tokenState)
-        return `${parts.join(' · ')}${advertised}`
+        const address = withProfile(hostAuthority(row.origin), row.profile)
+        return hosts.length > 1 ? `${address} · ${t('hostsFound', { n: hosts.length })}` : address
       }
-      if (connection === 'connected' || connection === 'open' || connection === 'no-token') {
+      const live = connection === 'connected' || connection === 'open' || connection === 'no-token'
+      if (live) {
         const address = configuredAuthority(status) || hostAuthority(wsUrlOf(status))
-        if (address !== '') {
-          parts.push(address, tokenState)
-          return `${parts.join(' · ')}${advertised}`
-        }
+        if (address !== '') return address
       }
       if (state.failures.length > 0 || connection === 'offline' || connection === 'error') {
-        parts.push('no host found')
-        // In auto mode with an explicit address, this is the one place the
-        // address can be shown: no host was discovered to name instead.
         const explicit = configuredAuthority(status)
-        if (explicit !== '') parts.push(explicit)
-        const tried = state.failures.length
-        if (tried > 0) parts.push(`${tried} port${tried === 1 ? '' : 's'} tried`)
-        parts.push(tokenState)
-        return parts.join(' · ')
+        return explicit !== '' ? `${t('noHostFound')} · ${explicit}` : t('noHostFound')
       }
-      parts.push('searching…', tokenState)
-      return parts.join(' · ')
+      return t('searchingHost')
     }
 
     /**
@@ -417,7 +404,7 @@
       head.className = 'host__head'
       const profile = document.createElement('span')
       profile.className = 'host__profile'
-      profile.textContent = host.profile === '' ? 'unnamed profile' : host.profile
+      profile.textContent = host.profile === '' ? t('unnamedProfile') : host.profile
       head.append(profile)
       const origin = document.createElement('span')
       origin.className = 'host__origin'
@@ -427,7 +414,7 @@
       if (connected) {
         const chip = document.createElement('span')
         chip.className = 'chip chip--resolved'
-        chip.textContent = 'connected'
+        chip.textContent = t('connectedChip')
         head.append(chip)
         item.setAttribute('aria-current', 'true')
       }
@@ -438,7 +425,7 @@
       const focus = document.createElement('span')
       focus.className = 'host__focus'
       const when = relativeTime(host.focusAt)
-      focus.textContent = when === '' ? 'no focus reported' : `focused ${when}`
+      focus.textContent = when === '' ? t('noFocus') : t('focusedAt', { when })
       foot.append(focus)
       if (!connected) {
         const choose = document.createElement('button')
@@ -446,9 +433,9 @@
         choose.className = 'button button--secondary host__choose'
         choose.dataset.chooseHost = host.instanceId
         choose.disabled = state.pendingHost !== '' || host.instanceId === ''
-        choose.textContent = state.pendingHost === host.instanceId ? 'Switching…' : 'Use this host'
-        const name = host.profile === '' ? 'this host' : host.profile
-        choose.setAttribute('aria-label', `Use ${name} at ${hostAuthority(host.origin)}`)
+        choose.textContent = state.pendingHost === host.instanceId ? t('switchingHost') : t('useHost')
+        const name = host.profile === '' ? t('thisHost') : host.profile
+        choose.setAttribute('aria-label', t('chooseHostAria', { name, origin: hostAuthority(host.origin) }))
         foot.append(choose)
       }
       item.append(foot)
@@ -481,12 +468,12 @@
       try {
         const response = await send(MESSAGES.TO_BACKGROUND_POPUP.chooseHost, { instanceId })
         if (response === null || typeof response !== 'object' || response.ok !== true) {
-          feedback(response?.error ?? 'The background did not switch to that host.', 'error')
+          feedback(response?.error ?? t('switchFailed'), 'error')
           return
         }
         if (response.status !== undefined) applyShellStatus(response.status)
-        const name = host === undefined || host.profile === '' ? 'the chosen host' : host.profile
-        feedback(`Switching to ${name}.`, 'ok')
+        const name = host === undefined || host.profile === '' ? t('chosenHost') : host.profile
+        feedback(t('switchingTo', { name }), 'ok')
       } finally {
         state.pendingHost = ''
         renderDiscovered()
@@ -499,28 +486,26 @@
       state.scanning = true
       if (el['scan-again'] !== undefined) {
         el['scan-again'].disabled = true
-        el['scan-again'].textContent = 'Scanning…'
+        el['scan-again'].textContent = t('scanning')
       }
-      feedback('Scanning for a host on loopback…', 'info')
+      feedback(t('scanStarted'), 'info')
       try {
         const response = await send(MESSAGES.TO_BACKGROUND_POPUP.scan)
         if (response === null || typeof response !== 'object' || response.ok !== true) {
-          feedback(response?.error ?? 'The scan did not run.', 'error')
+          feedback(response?.error ?? t('scanFailed'), 'error')
           return
         }
         if (response.status !== undefined) applyShellStatus(response.status)
         const hosts = Array.isArray(response.hosts) ? response.hosts : []
         feedback(
-          hosts.length === 0
-            ? 'No host answered the scan.'
-            : `${hosts.length} ${hosts.length === 1 ? 'host' : 'hosts'} answered the scan.`,
+          hosts.length === 0 ? t('noHostAnswered') : t('hostsAnswered', { n: hosts.length }),
           hosts.length === 0 ? 'warn' : 'ok',
         )
       } finally {
         state.scanning = false
         if (el['scan-again'] !== undefined) {
           el['scan-again'].disabled = false
-          el['scan-again'].textContent = 'Scan again'
+          el['scan-again'].textContent = t('scanAgain')
         }
       }
     }
@@ -595,31 +580,31 @@
       state.importing = true
       setDropActive(false)
       if (el['drop-zone'] !== undefined) el['drop-zone'].setAttribute(BUSY_ATTRIBUTE, 'true')
-      const name = typeof file.name === 'string' && file.name !== '' ? file.name : 'That file'
+      const name = typeof file.name === 'string' && file.name !== '' ? file.name : t('thisFile')
       try {
         let raw = ''
         try {
           raw = await file.text()
         } catch (error) {
-          feedback(`Could not read ${name}: ${describeError(error)}`, 'error')
+          feedback(t('readFileFailed', { name, reason: describeError(error) }), 'error')
           return
         }
         let body
         try {
           body = JSON.parse(raw)
         } catch {
-          feedback(`${name} is not valid JSON.`, 'error')
+          feedback(t('invalidJson', { name }), 'error')
           return
         }
         if (typeof DISCOVERY?.parseEndpointRecord !== 'function') {
-          feedback('The discovery parser did not load; reopen the popup.', 'error')
+          feedback(t('discoveryParserMissing'), 'error')
           return
         }
         let record
         try {
           record = DISCOVERY.parseEndpointRecord(body)
         } catch (error) {
-          feedback(`${name} could not be validated: ${describeError(error)}`, 'error')
+          feedback(t('validationFailed', { name, reason: describeError(error) }), 'error')
           return
         }
         if (
@@ -628,10 +613,7 @@
           typeof record.origin !== 'string' ||
           record.origin === ''
         ) {
-          feedback(
-            `${name} is not a DSH endpoint record: it must be a copy of $DSH_HOME/ext-bridge-endpoint.json (app, version, instance id, loopback origin).`,
-            'error',
-          )
+          feedback(t('notEndpointRecord', { name }), 'error')
           return
         }
         const profile = typeof record.profile === 'string' ? record.profile : ''
@@ -643,14 +625,17 @@
           startedAt: typeof record.startedAt === 'string' ? record.startedAt : '',
         })
         if (response === null || typeof response !== 'object' || response.ok !== true) {
-          feedback(response?.error ?? 'The background did not accept the imported address.', 'error')
+          feedback(response?.error ?? t('importRejected'), 'error')
           return
         }
         state.imported = { origin: record.origin, instanceId, profile }
         fillAddressFromOrigin(record.origin)
         renderImportState()
         if (response.status !== undefined) applyShellStatus(response.status)
-        feedback(`Imported ${record.origin} (${profile === '' ? 'unnamed profile' : profile})`, 'ok')
+        feedback(
+          t('imported', { origin: record.origin, profile: profile === '' ? t('unnamedProfile') : profile }),
+          'ok',
+        )
       } finally {
         state.importing = false
         if (el['drop-zone'] !== undefined) el['drop-zone'].removeAttribute(BUSY_ATTRIBUTE)
@@ -666,7 +651,7 @@
         return
       }
       const profile = typeof imported.profile === 'string' && imported.profile !== '' ? ` (${imported.profile})` : ''
-      el['drop-zone'].title = `Last imported: ${imported.origin}${profile}`
+      el['drop-zone'].title = t('lastImported', { origin: imported.origin, profile })
     }
 
     /**
@@ -723,7 +708,14 @@
       if (!state.modeKnown && (status.discoveryMode === MODE_AUTO || status.discoveryMode === MODE_MANUAL)) {
         state.mode = status.discoveryMode
       }
-      if (el['connection-detail'] !== undefined) el['connection-detail'].textContent = connectionDetail(status)
+      if (el['connection-detail'] !== undefined) {
+        const detail = connectionDetail(status)
+        // The line is clamped to one CSS line, so a long address is truncated
+        // on screen; the title carries the whole value for hover and screen
+        // readers.
+        el['connection-detail'].textContent = detail
+        el['connection-detail'].title = detail
+      }
       renderConnectionMode()
       renderDiscovered()
     }

@@ -111,9 +111,33 @@ test('the Chromium manifest drops what Chromium rejects and keeps the bridge add
   assert.deepEqual(plain(manifest.content_security_policy), plain(source.content_security_policy))
   assert.doesNotMatch(manifest.content_security_policy.extension_pages, /upgrade-insecure-requests/i)
 
-  // Every context loads the shim before anything else, and the transform says so.
-  for (const group of manifest.content_scripts) assert.equal(group.js[0], PLATFORM_SCRIPT)
+  // Every isolated-world context loads the shim before anything else, the
+  // transform says so, and the page-world console hook stays untouched (its
+  // shim globals must not leak into the page compartment).
+  for (const group of manifest.content_scripts) {
+    if (group.world === 'MAIN') continue
+    assert.equal(group.js[0], PLATFORM_SCRIPT)
+  }
+  const hookGroup = manifest.content_scripts.find((group) => group.world === 'MAIN')
+  assert.ok(hookGroup, 'the MAIN-world console-hook group survives the transform')
+  assert.deepEqual(plain(hookGroup), plain(source.content_scripts.find((group) => group.world === 'MAIN')))
   assert.ok(notes.some((note) => note.startsWith('background: service_worker')))
+})
+
+test('the console hook is a MAIN-world group the page CSP cannot touch', async () => {
+  const source = await readManifest()
+  const group = source.content_scripts.find((entry) => entry.world === 'MAIN')
+
+  // An inline <script> injected from the isolated world is blocked (and logged
+  // as a CSP violation) by strict-CSP sites; an extension-declared MAIN-world
+  // script is not subject to the page policy at all.
+  assert.ok(group, 'manifest.json declares the console-hook content_scripts group')
+  assert.deepEqual(group.js, ['src/content/console-hook.js'])
+  assert.equal(group.run_at, 'document_start', 'early enough to see page-load errors')
+
+  const hook = await readFile(join(extensionRoot, group.js[0]), 'utf8')
+  assert.doesNotMatch(hook, /\bimport\b|\bchrome\.|\bbrowser\./, 'page-world script uses no extension APIs')
+  assert.match(hook, /__dshAnno:\s*'console'/, 'posts the shape onPageMessage consumes')
 })
 
 test('a manifest that already lists the shim keeps a single copy of it', async () => {

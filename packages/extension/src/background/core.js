@@ -60,6 +60,7 @@
       scan: 'anno.popup.scan',
       chooseHost: 'anno.popup.choose',
       importRecord: 'anno.popup.import',
+      activate: 'anno.popup.activate',
     },
     STORAGE_KEYS: {
       token: 'anno.token',
@@ -356,6 +357,7 @@
       tokenPresent: state.tokenPresent,
       clientId: typeof ns.clientId === 'string' ? ns.clientId : '',
       protocolVersion: PROTOCOL === undefined ? null : PROTOCOL.PROTOCOL_VERSION,
+      minProtocolVersion: PROTOCOL === undefined ? null : PROTOCOL.MIN_PROTOCOL_VERSION,
       attempts: state.attempts,
       nextRetryAt: state.nextRetryAt,
       connectedAt: state.connectedAt,

@@ -61,6 +61,12 @@
 }
 
 body {
+  /* Column layout so the status footer can own the bottom edge: the content
+     area flexes to fill a short popup, and a tall popup scrolls above the
+     pinned footer. */
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   width: 380px;
   margin: 0;
   background: var(--surface);
@@ -68,39 +74,51 @@ body {
   font: var(--text-label) / var(--text-label-lh) var(--font-ui);
 }
 
+/* The popup's status bar owns the bottom edge: sticky bottom keeps it
+   visible while a tall popup scrolls, and the flex column pins it down in
+   a short one. One row - state on the left, address on the right - whose
+   height is fixed by the label's line, so status rewrites never resize
+   the popup. */
 .status-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
   background: var(--surface-raised);
-  border-bottom: 1px solid var(--border);
-}
-
-.status-bar__text {
-  flex: 1 1 auto;
-  min-width: 0;
+  border-top: 1px solid var(--border);
 }
 
 .status-bar__label {
+  flex: none;
   margin: 0;
   font-weight: 600;
   font-size: var(--text-label);
+  line-height: var(--text-label-lh);
 }
 
 .status-bar__detail {
-  margin: 2px 0 0;
+  /* One line, always: a reconnect cycle rewrites this text several times, and
+     a rewrap between one and two lines would make the whole popup jump. The
+     full value is on the element's title. */
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   color: var(--text-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
-  overflow-wrap: anywhere;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dot {
   flex: 0 0 auto;
   width: 10px;
   height: 10px;
-  margin-top: 4px;
   border-radius: 50%;
   background: var(--idle);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--idle) 22%, transparent);
@@ -135,6 +153,7 @@ body {
 }
 
 .content {
+  flex: 1 1 auto;
   display: grid;
   gap: var(--gap);
   padding: 12px 14px;
@@ -152,8 +171,6 @@ body {
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 
@@ -188,7 +205,8 @@ body {
   gap: 8px;
 }
 
-label {
+label,
+.field__label {
   font-weight: 600;
   font-size: var(--text-label);
   line-height: var(--text-label-lh);
@@ -382,7 +400,6 @@ code {
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
   font-weight: 600;
-  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
@@ -403,14 +420,27 @@ code {
   line-height: var(--text-caption-lh);
 }
 
+/* Action and error feedback at the top edge, opposite the status footer. It
+   collapses away when there is nothing to say, so the empty state costs no
+   space; appearing is a deliberate event (a user action or a failure),
+   which may grow the popup by its own line. Sticky keeps a late error
+   readable even when the popup is scrolled. */
 .feedback {
-  min-height: 32px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   margin: 0;
-  padding: 8px 14px 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
   color: var(--text-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
   overflow-wrap: anywhere;
+}
+
+.feedback:empty {
+  display: none;
 }
 
 .feedback--ok {
@@ -501,12 +531,6 @@ code {
 }
 
 /* The qualifier drops to a second line, at caption size. */
-.segmented__note {
-  font-size: var(--text-caption);
-  line-height: var(--text-caption-lh);
-  font-weight: 400;
-}
-
 .segmented__option input:checked + span {
   background: var(--accent);
   color: var(--accent-text);
@@ -528,8 +552,6 @@ code {
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .hosts {
@@ -664,4 +686,114 @@ code {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* ── annotation settings ───────────────────────────────────────────────────
+   Same skin as the rest of the popup (tokens, radii, ramp); the section only
+   adds its own vertical rhythm, because its fields stack directly on the
+   panel instead of inside a `.form` grid. */
+.panel--annotate {
+  display: grid;
+  gap: 12px;
+}
+
+.panel--annotate .panel__title {
+  margin: 0;
+}
+
+.panel--annotate .field {
+  gap: 6px;
+}
+
+/* One row: the name on the left, the way back to the default on the right. */
+.panel--annotate .field__label-row button {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
+
+.shortcut-key {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--text);
+  font: 600 var(--text-body) / var(--text-body-lh) var(--font-mono);
+  text-align: center;
+  cursor: pointer;
+}
+
+.shortcut-key--recording {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* A switch instead of a bare 15 px checkbox: the state reads at a glance and
+   the label stays the click target. The input is kept focusable so keyboard
+   users get the ring on the track. */
+.switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  font-size: var(--text-label);
+  line-height: var(--text-label-lh);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.switch__track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background-color 120ms ease;
+}
+
+.switch__track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  transition: translate 120ms ease;
+}
+
+.switch input:checked + .switch__track {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch__track::before {
+  translate: 13px 0;
+}
+
+.switch input:focus-visible + .switch__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch__track,
+  .switch__track::before {
+    transition: none;
+  }
+}
+
+.button--block {
+  flex: 1 1 auto;
 }

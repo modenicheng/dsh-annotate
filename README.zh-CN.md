@@ -1,3 +1,5 @@
+![dsh-marker：把日常浏览器里的页面标注变成 DeepSeek Harness 的一等上下文](docs/assets/banner.zh-CN.svg)
+
 # dsh-marker
 
 [![CI](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml/badge.svg)](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml)
@@ -61,7 +63,11 @@ dsh plugin add dsh-marker
    `chrome://extensions`，开启**开发者模式**，选择**加载已解压的扩展程序**
    （Load unpacked），选中解压后的文件夹。扩展会跨浏览器重启保留。代价有
    二：浏览器会显示开发者模式提示；更新是手动的——下载下一个 Release，
-   替换文件夹即可。
+   替换文件夹即可。**Chromium 上还需手动设置快捷键**：打开
+   `chrome://extensions/shortcuts`，找到 **Annotate the current page**，手动
+   指定 `Alt+Shift+A`（或你偏好的组合键）。Chromium 不允许扩展自行注册或
+   修改命令，缺了这一步时，页面内的兜底匹配仍能进入批注模式，但浏览器不会
+   授予 `activeTab`——没有该授权，截图会被跳过。
 3. **Firefox / Zen**：正式版 Firefox 只安装 AMO 签名的附加组件。Release
    里的 zip 未签名，因此要作为临时附加组件加载——
    `about:debugging#/runtime/this-firefox`（Zen 为 `about:debugging`）→
@@ -93,14 +99,29 @@ bring-up 验证——加载、service worker、content script、弹窗（popup�
    `%USERPROFILE%\.dsh\ext-bridge-token`）里的桥接 token。**Connection**
    保持 *Automatic*、地址保持默认 `127.0.0.1` / `3080`；即使宿主端口变
    了，扩展也会自己找到。
-2. 在页面上按 `Alt+Shift+A`：选择文字、点击元素或框选区域，然后按
-   Enter。备注可选——留空时只发送标记本身（按钮显示 **Send mark** /
-   **只发标记**）。
+2. 在页面上按 `Alt+Shift+A`（默认键；可在弹窗 **标注** 区修改）：选择
+   文字、点击元素或框选区域，然后按 Enter。悬停元素时 `Tab` 逐层扩大到父元素、`Shift+Tab` 逐层
+   收回，点击锁定当前层。备注可选——留空时只发送标记本身（按钮显示
+   **Send mark** / **只发标记**）。在页面上点右键即可退出批注模式（可在
+   弹窗里关闭）；在输入框内右键仍交给浏览器的文字菜单。
 3. 如果找不到宿主：切到 *Manual* 手输地址——完整 URL（如
    `wss://anno.example.com`）两种模式都支持，不写 scheme 时扩展会询问宿
    主——或用 **Import endpoint file…** 从
    `$DSH_HOME/ext-bridge-endpoint.json` 读入地址。细节见
    [docs/DISCOVERY.md](docs/DISCOVERY.md)（英文）。
+
+弹窗的 **标注** 区还可以让发送成功后自动退出批注模式（默认关闭），或关闭
+右键退出。录制快捷键在 Firefox 上会同步更新浏览器命令，截图所需的
+`activeTab` 授权因此不会丢。Chromium 不允许扩展改写命令，因此进入批注模式
+有两条路：浏览器命令（在 `chrome://extensions/shortcuts` 里一次性设置——见
+上文安装步骤）和弹窗录制给页面用的页内匹配器。只有浏览器命令携带
+`activeTab` 授权，所以在 Chromium 上，能出截图的是浏览器命令这条路；如果
+录制的键与浏览器里注册的不一致，页内匹配器仍会触发，但标记发送时会缺
+截图。请保持两者是同一个组合键，或改用弹窗里的 **标注当前页面**——那条路
+始终会授予 `activeTab`。弹窗跟随浏览器界面语言（目前随包
+提供英文和简体中文）。如果 **标注当前页面** 提示“扩展没有响应”，说明弹窗
+文件比当前浏览器会话里加载的扩展新：在 `about:debugging` 里点 **重新加
+载**，再刷新页面。
 
 ## 工具
 

@@ -12,6 +12,45 @@
 /** Bumped whenever a frame or record shape changes incompatibly. */
 export const PROTOCOL_VERSION = 1
 
+/**
+ * The oldest protocol version this build still speaks (D15).
+ *
+ * A host accepts a client whose `hello.version` lies in
+ * `MIN_PROTOCOL_VERSION..PROTOCOL_VERSION`; a client accepts a host whose
+ * advertised window can receive the version the client offers. The window
+ * spans at least the previous protocol version, and shrinking it is an
+ * announced decision, never a side effect of a release — a store review that
+ * takes days must not turn into an outage for every installed half.
+ */
+export const MIN_PROTOCOL_VERSION = 1
+
+/**
+ * Whether `version` is a protocol this build can put on the wire, checked
+ * against the window a peer advertised (`min..max`). Called with defaults it
+ * is the host-side check on a client's `hello.version`.
+ * @param {unknown} version
+ * @param {number} [min]
+ * @param {number} [max]
+ */
+export function protocolInRange(version, min = MIN_PROTOCOL_VERSION, max = PROTOCOL_VERSION) {
+  if (!Number.isInteger(version) || !Number.isInteger(min) || !Number.isInteger(max)) return false
+  return version >= min && version <= max
+}
+
+/**
+ * Whether a peer that advertises `version` (its newest) with `minProtocol`
+ * (its oldest) can receive this build's own `PROTOCOL_VERSION` — the offer
+ * every client actually sends, so no version is picked inside the window.
+ * A peer that does not advertise a floor is a pre-window build and speaks
+ * exactly its version.
+ * @param {unknown} version
+ * @param {unknown} [minProtocol]
+ */
+export function protocolCompatibleWith(version, minProtocol = version) {
+  if (!Number.isInteger(version) || !Number.isInteger(minProtocol)) return false
+  return minProtocol <= PROTOCOL_VERSION && PROTOCOL_VERSION <= version
+}
+
 /** Exact websocket path registered on the DSH host webserver. */
 export const WS_PATH = '/ext/anno'
 

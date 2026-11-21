@@ -52,6 +52,7 @@ function objectAfter(text, anchor, label) {
 const shared = read('shared/messages.js')
 const core = read('background/core.js')
 const content = read('content/main.js')
+const popup = read('popup/popup.js')
 
 const contract = {
   TO_BACKGROUND: objectAfter(shared, 'export const TO_BACKGROUND', 'shared/messages.js'),
@@ -72,4 +73,11 @@ test('content/main.js mirrors the shared message contract', () => {
   const mirror = objectAfter(content, 'const MSG =', 'content/main.js')
   assert.deepEqual(mirror.background, contract.TO_BACKGROUND, 'TO_BACKGROUND drifted')
   assert.deepEqual(mirror.content, contract.TO_CONTENT, 'TO_CONTENT drifted')
+})
+
+test('popup/popup.js mirrors the shared message contract', () => {
+  const mirror = objectAfter(popup, 'const MSG =', 'popup/popup.js')
+  assert.deepEqual(mirror.TO_BACKGROUND_POPUP, contract.TO_BACKGROUND_POPUP, 'TO_BACKGROUND_POPUP drifted')
+  assert.deepEqual(mirror.TO_CONTENT, contract.TO_CONTENT, 'TO_CONTENT drifted')
+  assert.deepEqual(mirror.STORAGE_KEYS, contract.STORAGE_KEYS, 'STORAGE_KEYS drifted')
 })

@@ -59,6 +59,7 @@
         "src/shared/protocol.global.js",
         "src/content/anchor.js",
         "src/content/hydrator.js",
+        "src/shared/shortcut.js",
         "src/content/ui/strings.js",
         "src/content/ui/styles.js",
         "src/content/ui/dom.js",
@@ -71,6 +72,12 @@
         "src/content/main.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/console-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {

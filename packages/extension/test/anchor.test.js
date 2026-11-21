@@ -24,13 +24,15 @@ function storyDocument() {
   return { document, p }
 }
 
-/** A selection over `brown` (node 1, offsets 0–5), measured at 100,40 120×20. */
+/** A selection over `brown` (node 1, offsets 0–5), laid out at 100,40 as 120×20. */
 function brownSelection(document) {
   const p = document.querySelector('#story')
   const range = document.createRange()
   range.setStart(p.childNodes[1], 0)
   range.setEnd(p.childNodes[1], 5)
-  range.rects = [{ left: 100, top: 40, width: 120, height: 20 }]
+  // The measurement belongs to the layout, which is why it lives on the text
+  // node: a range the script builds over the same span measures the same box.
+  p.childNodes[1].rect = { left: 100, top: 40, width: 120, height: 20 }
   return { range, selection: { rangeCount: 1, isCollapsed: false, getRangeAt: () => range } }
 }
 
@@ -99,14 +101,85 @@ test('a selection without a usable range degrades to null at each gate', async (
 test('a range the page unmeasured falls back to its block box', async () => {
   const { document } = storyDocument()
   const { ns } = await bootContent({ document })
-  const { range, selection } = brownSelection(document)
-  // The page re-rendered between drag and read: the range reports no geometry.
-  range.rects = []
+  const { selection } = brownSelection(document)
+  // The page re-rendered between drag and read: measuring the range now
+  // reports no boxes at all.
+  document.measureRange = () => []
 
   const state = ns.anchor.selection(selection)
   assert.ok(state)
   assert.deepEqual(plain(state.anchor.rect), { x: 0, y: 600, w: 300, h: 40 }, 'the owning block stands in')
   assert.equal(state.lineRects.length, 0, 'no line boxes survive an unmeasured range')
+})
+
+/** Two sibling blocks whose text nodes are measured like a real page measures its lines. */
+function twoBlockDocument() {
+  const { document, body } = createDocument()
+  const first = new FakeElement('p', { id: 'first' })
+  const second = new FakeElement('p', { id: 'second' })
+  first.append(new FakeText('alpha '), new FakeText('beta'))
+  second.append(new FakeText('gamma '), new FakeText('delta'))
+  body.append(first, second)
+  first.childNodes[0].rect = { left: 0, top: 100, width: 120, height: 20 }
+  first.childNodes[1].rect = { left: 120, top: 100, width: 80, height: 20 }
+  second.childNodes[0].rect = { left: 0, top: 200, width: 140, height: 20 }
+  second.childNodes[1].rect = { left: 140, top: 200, width: 100, height: 20 }
+  return { document, first, second }
+}
+
+test('a selection that spans two blocks marks both of them', async () => {
+  const { document, first, second } = twoBlockDocument()
+  const { ns } = await bootContent({ document, scrollY: 500 })
+
+  // The drag starts mid-word in the first block and ends mid-word in the
+  // second one: one deliberate gesture over two paragraphs, and the annotation
+  // must carry the whole of it — the quote, the geometry and the live range.
+  const range = document.createRange()
+  range.setStart(first.childNodes[0], 2)
+  range.setEnd(second.childNodes[1], 3)
+  range.rects = [
+    { left: 0, top: 100, width: 200, height: 20 },
+    { left: 0, top: 200, width: 240, height: 20 },
+  ]
+  const selection = { rangeCount: 1, isCollapsed: false, getRangeAt: () => range }
+
+  const state = ns.anchor.selection(selection)
+  assert.ok(state, 'a cross-block drag is still one annotation')
+  // The quote covers both blocks, from the start of the drag to its end.
+  assert.equal(state.anchor.quote.exact, 'pha betagamma del')
+  // The anchor block widens to the scope that holds the whole selection.
+  assert.equal(state.anchor.domRange.blockSelector, 'body:nth-of-type(1)')
+  assert.equal(state.anchor.textPosition.start, 2)
+  assert.equal(state.anchor.textPosition.end, 19)
+  // The geometry describes the same span as the quote: both rows, nothing more.
+  assert.deepEqual(plain(state.viewportRect), { x: 0, y: 100, w: 240, h: 120 })
+  assert.deepEqual(plain(state.anchor.rect), { x: 0, y: 600, w: 240, h: 120 })
+  // The live range rides along covering the whole drag, so the crop re-measured
+  // at submit time shows every marked word.
+  assert.equal(String(state.live.range), state.anchor.quote.exact)
+})
+
+test('a cross-block selection re-anchors after a reload with both blocks', async () => {
+  const { document, first, second } = twoBlockDocument()
+  const { ns } = await bootContent({ document, scrollY: 500 })
+
+  const range = document.createRange()
+  range.setStart(first.childNodes[0], 2)
+  range.setEnd(second.childNodes[1], 3)
+  const selection = { rangeCount: 1, isCollapsed: false, getRangeAt: () => range }
+  const captured = ns.anchor.selection(selection)
+  assert.ok(captured, 'the cross-block capture holds')
+
+  // A reload sees only the stored anchor; the hydrator must rebuild a range
+  // that spans the same two blocks, not the first one alone.
+  const placement = ns.hydrate.resolve({ id: 'an-20261122-cc0001', anchor: captured.anchor }, document, {})
+  assert.ok(placement, 'the anchor re-resolves')
+  assert.equal(placement.method, 'dom-range', 'the recorded paths verify against the quote')
+  assert.equal(
+    String(placement.range),
+    'pha betagamma del',
+    'the rebuilt range covers both paragraphs of the original gesture',
+  )
 })
 
 /** Boot with one element alone in a document, so uniqueness checks are honest. */
@@ -263,4 +336,33 @@ test('whitespace is normalised and our own marks stay invisible to extraction', 
   assert.equal(ns.text.isOurs(inner), true, 'text inside a painted highlight is not page content')
   assert.equal(ns.text.isMark(mark), true)
   assert.equal(ns.text.isOurs(new FakeText('plain')), false)
+})
+
+test('ancestorAt walks the parent chain and stops before the page shell', async () => {
+  const { document, body } = createDocument()
+  const { ns } = await bootContent({ document })
+  const main = new FakeElement('main')
+  const section = new FakeElement('section')
+  const paragraph = new FakeElement('p')
+  body.append(main)
+  main.append(section)
+  section.append(paragraph)
+
+  assert.equal(ns.anchor.ancestorAt(paragraph, 0), paragraph, 'level zero is the element itself')
+  assert.equal(ns.anchor.ancestorAt(paragraph, 1), section)
+  assert.equal(ns.anchor.ancestorAt(paragraph, 2), main)
+  assert.equal(ns.anchor.ancestorAt(paragraph, 3), main, 'the walk stops at the outermost wrapper')
+  assert.equal(ns.anchor.ancestorAt(paragraph, 99), main, 'and however far it is asked to go')
+  assert.equal(ns.anchor.ancestorAt(main, 1), main, 'a top-level element has nowhere to go')
+  assert.equal(ns.anchor.ancestorAt(paragraph, -3), paragraph, 'a negative level is the element itself')
+  assert.equal(ns.anchor.ancestorAt(null, 2), null, 'no element, no walk')
+
+  assert.equal(ns.anchor.stepsTo(paragraph, paragraph), 0, 'an element is zero steps from itself')
+  assert.equal(ns.anchor.stepsTo(paragraph, section), 1)
+  assert.equal(ns.anchor.stepsTo(paragraph, main), 2)
+  const stranger = new FakeElement('p')
+  body.append(stranger)
+  assert.equal(ns.anchor.stepsTo(paragraph, stranger), -1, 'a sibling chain never arrives')
+  assert.equal(ns.anchor.stepsTo(paragraph, null), -1)
+  assert.equal(ns.anchor.stepsTo(null, section), -1)
 })

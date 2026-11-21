@@ -51,6 +51,13 @@
   let inFlight = null
   /** Bumped by `reconnectNow` so an attempt started under old settings bails. */
   let generation = 0
+  /**
+   * The host's own explanation of a failure it is about to close on (D15: the
+   * `protocol-version` error frame carries both numbers). It outlives the
+   * socket only until the close handler has shown it, so a later close on a
+   * fresh attempt still describes itself.
+   */
+  let lastHostError = null
 
   function isOpen() {
     return socket !== null && socket.readyState === WebSocket.OPEN
@@ -386,6 +393,9 @@
     switch (frame.t) {
       case 'hello.ok':
         clearHelloTimer()
+        // The handshake succeeded; any earlier host error belongs to a dead
+        // attempt and must not shadow a future close reason.
+        lastHostError = null
         if (socket === current) {
           ns.setNetState({
             connection: 'connected',
@@ -402,7 +412,8 @@
         ns.setNetState({ lastPongAt: Date.now() })
         return
       case 'error':
-        ns.setNetState({ lastError: describeHostError(frame) })
+        lastHostError = describeHostError(frame)
+        ns.setNetState({ lastError: lastHostError })
         ns.log.warn(`host reported ${String(frame.code ?? 'error')}: ${String(frame.message ?? '')}`)
         void ns.publishStatus('host-error')
         break
@@ -431,10 +442,17 @@
     clearHelloTimer()
     const wasConnected = ns.netState.connection === 'connected'
     const detail = describeClose(event)
+    // A host that explained a failed handshake (the `protocol-version` frame,
+    // D15) said more than the close code can, so its wording is kept — but
+    // only when the attempt never connected: a mid-session error frame (a
+    // rejected mutation) must not shadow the reason an established connection
+    // later dropped.
+    const shownError = !wasConnected && lastHostError !== null ? lastHostError : detail
+    lastHostError = null
     ns.setNetState({
       connection: 'offline',
       connectedAt: 0,
-      lastError: detail,
+      lastError: shownError,
       // A bad token never succeeds on a retry either: start from a longer
       // delay so the host log stays readable until the user pastes a new one.
       attempts:

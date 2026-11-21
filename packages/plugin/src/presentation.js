@@ -148,18 +148,24 @@ function rectOf(value) {
 /**
  * Serve one annotation, and its crop, to the page this Host serves.
  *
- * Same-origin only, like the queue and the focus report: the GUI is the page the
- * Host serves, and what the user marked is not a cross-site resource.
+ * The shared page gate, like the queue and the focus report — `ctx.connection.
+ * requestRejection` where the host provides it, the same-origin header
+ * otherwise: the GUI is the page the Host serves, and what the user marked is
+ * not a cross-site resource.
  *
  * @param {any} webServer
  * @param {object} options
  * @param {{ get: (id: string) => any, image: (id: string) => any }} options.store
  * @param {(ref: any) => Promise<{ data: Uint8Array }>} [options.readImage] attachment reader
+ * @param {(request: any) => 401 | 403 | undefined} [options.gate] page gate; defaults to the same-origin header check
  * @param {string} [options.path]
  * @param {string} [options.imagePath]
  * @returns {() => void} disposer
  */
-export function registerPresentationRoutes(webServer, { store, readImage, path = ITEM_PATH, imagePath = IMAGE_PATH }) {
+export function registerPresentationRoutes(
+  webServer,
+  { store, readImage, gate = headerGate, path = ITEM_PATH, imagePath = IMAGE_PATH },
+) {
   const jsonHeaders = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -176,8 +182,9 @@ export function registerPresentationRoutes(webServer, { store, readImage, path =
         response.writeHead(status, jsonHeaders)
         response.end(request.method === 'HEAD' ? undefined : JSON.stringify(payload))
       }
-      if (!sameOrigin(request)) {
-        send(403, { ok: false, error: 'origin' })
+      const rejection = gate(request)
+      if (rejection !== undefined) {
+        send(rejection, { ok: false, error: rejection === 401 ? 'auth' : 'origin' })
         return
       }
       if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -204,8 +211,9 @@ export function registerPresentationRoutes(webServer, { store, readImage, path =
         response.writeHead(status, jsonHeaders)
         response.end(JSON.stringify(payload))
       }
-      if (!sameOrigin(request)) {
-        send(403, { ok: false, error: 'origin' })
+      const rejection = gate(request)
+      if (rejection !== undefined) {
+        send(rejection, { ok: false, error: rejection === 401 ? 'auth' : 'origin' })
         return
       }
       if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -252,4 +260,13 @@ export function registerPresentationRoutes(webServer, { store, readImage, path =
  */
 function sameOrigin(request) {
   return request.headers?.['sec-fetch-site'] === 'same-origin'
+}
+/**
+ * The shipped gate when no other is provided: the same-origin header, in the
+ * admission contract the routes speak (undefined admits, a status refuses).
+ * @param {any} request
+ * @returns {403 | undefined}
+ */
+function headerGate(request) {
+  return sameOrigin(request) ? undefined : 403
 }

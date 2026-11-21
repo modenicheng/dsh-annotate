@@ -192,6 +192,10 @@ export function transformManifest(source) {
   // it is left alone, and a mid-list entry is moved instead of duplicated.
   if (Array.isArray(manifest.content_scripts)) {
     for (const group of manifest.content_scripts) {
+      // A `"world": "MAIN"` group runs in the page compartment; the shim's
+      // globals would leak into the page and its engine work is meaningless
+      // there, so those groups are copied untouched.
+      if (group.world === 'MAIN') continue
       if (!Array.isArray(group.js) || group.js[0] === PLATFORM_SCRIPT) continue
       const rest = group.js.filter((path) => path !== PLATFORM_SCRIPT)
       group.js = [PLATFORM_SCRIPT, ...rest]
@@ -231,7 +235,8 @@ export function sourceManifestNotes(source) {
     )
   }
   const groups = Array.isArray(source.content_scripts) ? source.content_scripts : []
-  if (groups.some((group) => Array.isArray(group.js) && group.js[0] !== PLATFORM_SCRIPT)) {
+  const isolatedGroups = groups.filter((group) => group.world !== 'MAIN')
+  if (isolatedGroups.some((group) => Array.isArray(group.js) && group.js[0] !== PLATFORM_SCRIPT)) {
     notes.push(
       `manifest.json content_scripts does not start with ${PLATFORM_SCRIPT}: the Chromium target prepends it, the Firefox target runs without it`,
     )

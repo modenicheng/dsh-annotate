@@ -231,8 +231,10 @@
    * of a silent no-op.
    */
   async function runAnnotateCommand() {
+    ns.log.info('command: annotate-page')
     try {
       const result = await ns.routing.activateCurrentPage('auto')
+      ns.log.info(`command activate result: ${JSON.stringify(result)}`)
       if (result.ok === true) return
       ns.log.info(`annotate command: ${result.error}`)
       await flashBadge('!')
@@ -256,9 +258,30 @@
   }
 
   /**
+   * The `anno.prefs` keys that decide where the socket connects. A popup write
+   * that touches none of them — a shortcut, an exit gesture — must not drop a
+   * working connection: the popup flips such switches in place and a needless
+   * reconnect here is what makes the popup flicker.
+   */
+  const CONNECTION_PREF_KEYS = ['host', 'port', 'secure', 'connection', 'preferredInstanceId']
+
+  /**
+   * @param {any} [oldPrefs] the stored object before the write (`undefined`
+   *   when the key did not exist, which means every connection key is new)
+   * @param {any} [newPrefs]
+   */
+  function connectionPrefsChanged(oldPrefs, newPrefs) {
+    const before = oldPrefs !== null && typeof oldPrefs === 'object' ? oldPrefs : {}
+    const after = newPrefs !== null && typeof newPrefs === 'object' ? newPrefs : {}
+    return CONNECTION_PREF_KEYS.some((key) => before[key] !== after[key])
+  }
+
+  /**
    * React to settings edited in the popup: a new token or address is only
    * meaningful after a fresh handshake, so reconnect immediately instead of
-   * waiting for the backoff timer.
+   * waiting for the backoff timer. A write that cannot change the connection
+   * (annotation exits, the shortcut) changes nothing the socket reads, so it
+   * only leaves a log line behind.
    * @param {Record<string, { oldValue?: any, newValue?: any }>} changes
    */
   async function onSettingsChanged(changes) {
@@ -268,7 +291,12 @@
         await ns.net.reconnectNow('token-changed')
         return
       }
-      if (changes[ns.msg.STORAGE_KEYS.prefs] !== undefined) {
+      const prefsChange = changes[ns.msg.STORAGE_KEYS.prefs]
+      if (prefsChange !== undefined) {
+        if (!connectionPrefsChanged(prefsChange.oldValue, prefsChange.newValue)) {
+          ns.log.info('annotation settings changed; the connection stays up')
+          return
+        }
         await ns.readPrefs()
         ns.log.info(`bridge address changed; reconnecting to ${ns.netState.wsUrl}`)
         await ns.net.reconnectNow('address-changed')
