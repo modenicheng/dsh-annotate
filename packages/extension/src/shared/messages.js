@@ -33,8 +33,6 @@ export const TO_BACKGROUND = {
   sessions: 'anno.sessions',
   /** Create a Session on the host for the "new session" target. */
   createSession: 'anno.session.create',
-  /** One lifecycle line for the popup's diagnostics panel. */
-  debug: 'anno.content.debug',
 }
 
 /** background → content */

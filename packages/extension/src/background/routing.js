@@ -213,11 +213,10 @@
     } catch (error) {
       const reason = ns.describeError(error)
       ns.log.debug(`message ${type} to tab ${tabId} failed: ${reason}`)
-      ns.diag(`send ${type} tab=${tabId} failed: ${reason.slice(0, 160)}`)
       if (!ns.isMissingReceiverError(error)) return false
       if (options.allowInject !== true) return false
       const injected = await injectContentScripts(tabId)
-      ns.diag(`inject after missing receiver tab=${tabId} result=${injected}`)
+      ns.log.info(`inject after missing receiver tab=${tabId} result=${injected}`)
       if (!injected) return false
       try {
         await browser.tabs.sendMessage(tabId, message)
@@ -457,7 +456,7 @@
     rememberTab(tab)
     const restricted = field(message, 'restricted') === true
     const url = String(field(message, 'url') ?? tab?.url ?? '')
-    ns.diag(`content ready tab=${tab?.id} restricted=${restricted} url=${url.slice(0, 120)}`)
+    ns.log.info(`content ready tab=${tab?.id} restricted=${restricted} url=${url.slice(0, 120)}`)
     if (!restricted && tab !== undefined && activePick !== null && activePick.tabId === tab.id) {
       // The pick arrived before this page finished booting; show it now.
       void deliverPick(tab.id)
@@ -639,7 +638,6 @@
               restricted: !ns.isHttpUrl(tab.url),
             },
       outbox: ns.outbox.summary(),
-      diagnostics: Array.isArray(ns.diagnostics) ? ns.diagnostics.slice() : [],
     }
   }
 
@@ -741,7 +739,7 @@
       case MSG.TO_BACKGROUND_POPUP.activate:
         // The button names an action, not a state: it enters the mode rather
         // than toggling it, so pressing it twice never leaves the mode.
-        ns.diag('popup: activate requested')
+        ns.log.info('popup: activate requested')
         return activateCurrentPage('enter')
       default:
         return undefined
@@ -769,9 +767,6 @@
         return onSessions(message)
       case MSG.TO_BACKGROUND.createSession:
         return onCreateSession(message)
-      case MSG.TO_BACKGROUND.debug:
-        ns.diag(`content: ${String(field(message, 'message')).slice(0, 300)}`)
-        return { ok: true }
       default:
         return undefined
     }
@@ -1079,11 +1074,11 @@
    */
   async function activateCurrentPage(mode = 'auto') {
     const tab = await activeTab()
-    ns.diag(`activate(${mode}) tab=${tab?.id} url=${String(tab?.url ?? '').slice(0, 120)}`)
+    ns.log.info(`activate(${mode}) tab=${tab?.id} url=${String(tab?.url ?? '').slice(0, 120)}`)
     if (tab === null || typeof tab.id !== 'number') return failure('no active tab')
     if (!ns.isHttpUrl(tab.url)) return failure('restricted-page: this page cannot host annotations')
     const delivered = await sendToContent(tab.id, MSG.TO_CONTENT.activate, { mode }, { allowInject: true })
-    ns.diag(`activate(${mode}) delivered=${delivered}`)
+    ns.log.info(`activate(${mode}) delivered=${delivered}`)
     if (!delivered) return failure('restricted-page: the annotation overlay is not available in this tab')
     return { ok: true }
   }
