@@ -40,16 +40,23 @@ echo "pre-commit: Biome format and lint (same pinned version as CI)"
 # The workspace devDependency, resolved through the local bin link — no
 # network, no npx resolution cost. Falls back to the pinned npx call only
 # when dependencies were never installed on this machine.
+#
+# The two explicit roots are biome.json's files.includes. `check .` cannot
+# be used here: inside a DSH-managed worktree (.agents/worktrees/*, whose
+# .gitignore is `*` so the main checkout stays clean) biome's
+# vcs.useIgnoreFile honors that ancestor ignore and reports every path as
+# ignored, so the hook would fail in every worktree. Explicit roots are the
+# declared scope and behave identically in checkouts and worktrees.
 biome="$root/node_modules/.bin/biome"
 if [ -x "$biome" ]; then
-  if ! "$biome" check .; then
-    echo "pre-commit: Biome failed. Run 'pnpm biome check --write .' and re-stage." >&2
+  if ! "$biome" check packages scripts; then
+    echo "pre-commit: Biome failed. Run 'pnpm biome check --write packages scripts' and re-stage." >&2
     exit 1
   fi
 else
   echo "pre-commit: node_modules/.bin/biome missing; falling back to npx (run 'pnpm install')"
-  if ! npx --yes @biomejs/biome@2.4.14 check .; then
-    echo "pre-commit: Biome failed. Install deps ('pnpm install'), then run 'pnpm biome check --write .'" >&2
+  if ! npx --yes @biomejs/biome@2.4.14 check packages scripts; then
+    echo "pre-commit: Biome failed. Install deps ('pnpm install'), then run 'pnpm biome check --write packages scripts'" >&2
     exit 1
   fi
 fi
