@@ -96,7 +96,6 @@ async function bootContentScript() {
     devicePixelRatio: 1,
     scrollX: 0,
     scrollY: 0,
-    wrappedJSObject: { eval() {} },
     browser: {
       runtime: {
         sendMessage: (message) => {

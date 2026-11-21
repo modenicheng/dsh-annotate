@@ -245,8 +245,6 @@ async function bootContentScript() {
     devicePixelRatio: 1,
     scrollX: 0,
     scrollY: 0,
-    // Stops `installConsoleHook` from reaching for a real page compartment.
-    wrappedJSObject: { eval() {} },
     browser: {
       runtime: {
         sendMessage: (message) => (sendMessageImpl ? sendMessageImpl(message) : Promise.resolve(undefined)),

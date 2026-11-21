@@ -72,7 +72,6 @@
   // push several history entries while settling on a view, and each refresh
   // clears the page's marks before re-querying.
   const ROUTE_REFRESH_DEBOUNCE_MS = 250
-  const HOOK_KEY = '__DSH_ANNO_HOOK__'
   /** Parallel host mutations for a bulk clear; the host acks one id at a time. */
   const DELETE_CONCURRENCY = 3
 
@@ -126,7 +125,6 @@
     targetLabels: new Map(),
     /** True once the catalog was asked for those labels, so boot asks once. */
     targetLabelsRequested: false,
-    hookInstalled: false,
     booted: false,
     counts: { total: 0, resolved: 0 },
     countsSignature: '',
@@ -254,64 +252,13 @@
   // ── page-world console capture ─────────────────────────────────────────────
 
   /**
-   * Runs in the page compartment (never in our isolated world): it only turns
-   * uncaught errors into `postMessage` strings. Kept as a string because the
-   * point is to execute it outside the content-script sandbox.
+   * Page errors are only visible to listeners in the page compartment. That
+   * listener is `src/content/console-hook.js`, declared as a `"world": "MAIN"`
+   * content_scripts group in the manifest: the engine injects it directly into
+   * the page, which both engines support since Firefox 128 (the minimum here)
+   * and which no page CSP can block or complain about. It posts
+   * `{ __dshAnno: 'console', item }` messages that `onPageMessage` consumes.
    */
-  const HOOK_SOURCE = `(function () {
-  if (window.${HOOK_KEY}) return
-  window.${HOOK_KEY} = 1
-  var post = function (item) {
-    try { window.postMessage({ __dshAnno: 'console', item: item }, '*') } catch (error) {}
-  }
-  window.addEventListener('error', function (event) {
-    try {
-      if (event.target && event.target !== window && event.target.nodeType === 1) return
-      post({
-        kind: 'error',
-        message: event.message ? String(event.message) : 'page error',
-        source: event.filename ? String(event.filename) : '',
-        line: event.lineno || 0
-      })
-    } catch (error) {}
-  }, true)
-  window.addEventListener('unhandledrejection', function (event) {
-    var text = 'unhandled rejection'
-    try {
-      var reason = event.reason
-      if (reason && (reason.stack || reason.message)) text = String(reason.stack || reason.message)
-      else if (reason !== undefined) text = String(reason)
-    } catch (error) {}
-    post({ kind: 'unhandledrejection', message: text })
-  })
-})()`
-
-  function installConsoleHook() {
-    if (state.hookInstalled) return
-    state.hookInstalled = true
-    // Firefox content scripts are isolated; page errors are only visible to a
-    // listener installed in the page compartment. Calling the page window's own
-    // `eval` does that with no extra permission. The inline <script> fallback
-    // covers anything that refuses the cross-compartment call and is silently
-    // dropped by a strict page CSP — console capture is best-effort either way.
-    try {
-      const page = global.wrappedJSObject
-      if (page && typeof page.eval === 'function') {
-        page.eval(HOOK_SOURCE)
-        return
-      }
-    } catch {
-      // Fall through to the script element.
-    }
-    try {
-      const script = document.createElement('script')
-      script.textContent = HOOK_SOURCE
-      ;(document.head || document.documentElement).appendChild(script)
-      if (script.parentNode) script.parentNode.removeChild(script)
-    } catch {
-      // A page that forbids script injection simply has no console context.
-    }
-  }
 
   function onPageMessage(event) {
     if (!event || event.source !== global) return
@@ -2019,7 +1966,6 @@
     })
     ui.mount()
     ui.setHidden(state.hidden)
-    installConsoleHook()
     global.addEventListener('message', onPageMessage, false)
     global.addEventListener('keydown', onKeyDown, true)
     global.addEventListener('keyup', onKeyUp, true)

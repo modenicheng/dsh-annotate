@@ -72,6 +72,12 @@
         "src/content/main.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/console-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {
