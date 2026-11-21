@@ -25,6 +25,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # The called release.yml declares id-token: write on its publish job (npm
+  # OIDC). GitHub validates every job's declared permissions against the
+  # caller's grant when the reusable workflow starts — even for jobs this
+  # invocation would skip — so the caller must carry it too. The build path
+  # below never uses it.
+  id-token: write
 
 jobs:
   release-please:
