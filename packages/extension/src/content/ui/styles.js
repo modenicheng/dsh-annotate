@@ -151,10 +151,11 @@
   pointer-events: none;
 }
 .hover-chip[data-locked="1"] { background: #b45309; }
-/* A marked text is drawn as one band per line box, in the same blue the
-   persisted mark highlight uses, so the words stay identifiable while the
-   composer owns the selection highlight. The alpha is low enough that the text
-   under it is still readable. */
+/* A marked text is drawn as one band per line box, in the amber the rest of the
+   annotation chrome uses, so the words stay identifiable while the composer
+   owns the selection highlight. The underline is the band's own edge: a text
+   mark never gets an outline around its paragraph. The alpha is low enough that
+   the text under it is still readable. */
 .mark-band-layer {
   position: fixed;
   top: 0;
@@ -166,8 +167,8 @@
 }
 .mark-band {
   position: absolute;
-  background: rgba(56, 139, 253, 0.22);
-  box-shadow: inset 0 -2px 0 rgba(56, 139, 253, 0.6);
+  background: rgba(245, 158, 11, 0.22);
+  box-shadow: inset 0 -2px 0 rgba(245, 158, 11, 0.65);
   pointer-events: none;
 }
 .hover-chip {
@@ -582,7 +583,7 @@
 .badge[data-pending="1"] { opacity: 0.6; }
 .badge-card-text { white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: auto; }
 .badge-card-note { margin-top: 6px; color: #86efac; white-space: pre-wrap; word-break: break-word; }
-.toast {
+toast {
   position: fixed;
   z-index: 11;
   bottom: 20px;

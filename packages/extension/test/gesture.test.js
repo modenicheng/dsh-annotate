@@ -52,7 +52,7 @@ function createSelection() {
 
 /** The `ns.ui` surface `main.js` calls, recording what reached the overlay. */
 function createUi() {
-  const calls = { hover: [], marquee: [], cursor: [], shiftDrop: [], locked: [], composer: [] }
+  const calls = { hover: [], marquee: [], cursor: [], shiftDrop: [], markBands: [], locked: [], composer: [] }
   const ui = {
     calls,
     composerOpen: false,
@@ -77,6 +77,16 @@ function createUi() {
     },
     setShiftDrop(value) {
       calls.shiftDrop.push(value === null ? null : { ...value })
+    },
+    setMarkBands(items) {
+      // `Array.from` because `items` arrives from the sandbox realm, and a
+      // foreign-realm array never deep-equals one of ours.
+      calls.markBands.push(
+        Array.from(items || [], (item) => ({
+          id: item.id,
+          lines: Array.from(item.lines || [], (line) => ({ ...line })),
+        })),
+      )
     },
     setLocked(rect, label, holder, pageRect, lines) {
       calls.locked.push({ rect, label, holder, pageRect, lines })
@@ -127,6 +137,10 @@ async function bootContentScript() {
   const frames = []
   const selection = createSelection()
   const ui = createUi()
+  /** Marks applied to the page itself, counted by the hydrator stub. */
+  const marks = { clear: 0, apply: 0 }
+  /** The `runtime.onMessage` listener the content script registered. */
+  let onContentMessage = null
   const caret = { node: { nodeType: 3, nodeValue: 'caret text' }, offset: 4 }
   const seeked = []
   const viewportRect = { x: 100, y: 40, w: 120, h: 20 }
@@ -146,11 +160,13 @@ async function bootContentScript() {
     nodeName: 'P',
     getBoundingClientRect: () => ({ left: 100, top: 40, width: 120, height: 20 }),
   }
-  // Two line boxes, the shape a two-line selection reports.
+  // Two line boxes, the shape a two-line selection reports. A test can blank
+  // them to model a range the page re-rendered before it could be measured.
   const lineRects = [
     { x: 100, y: 40, w: 120, h: 20 },
     { x: 100, y: 64, w: 80, h: 20 },
   ]
+  let captureLineRects = null
   const capture = (viewport) => ({
     anchor: {
       kind: 'selection',
@@ -158,7 +174,7 @@ async function bootContentScript() {
       rect: { x: 100, y: 40, w: 120, h: 20 },
     },
     viewportRect: viewport,
-    lineRects: lineRects.map((line) => ({ ...line })),
+    lineRects: (captureLineRects || lineRects).map((line) => ({ ...line })),
     live: null,
   })
 
@@ -195,7 +211,11 @@ async function bootContentScript() {
     browser: {
       runtime: {
         sendMessage: () => Promise.resolve(undefined),
-        onMessage: { addListener() {} },
+        onMessage: {
+          addListener(listener) {
+            onContentMessage = listener
+          },
+        },
       },
       storage: {
         local: { get: () => Promise.resolve({}), set: () => Promise.resolve(undefined) },
@@ -247,13 +267,31 @@ async function bootContentScript() {
         },
         pageToViewport: (rect) => ({ ...rect }),
         viewportToPage: (rect) => ({ ...rect }),
+        // One line box per marked placement, already in document coordinates.
+        markLineRects: () => [{ x: 100, y: 40, w: 120, h: 20 }],
       },
       hydrate: {
         createScheduler: () => ({ request() {} }),
-        clearMarks() {},
-        applyMarks() {},
+        clearMarks() {
+          marks.clear += 1
+        },
+        applyMarks() {
+          marks.apply += 1
+        },
+        // No `<mark>` painted in this harness, so the handler falls back to the
+        // placement range the way it does while annotating.
+        markLineBoxes: () => [],
         isFresh: () => true,
-        resolveAll: () => [],
+        resolveAll: (pending) =>
+          pending.map((record) => ({
+            record,
+            placement: {
+              method: 'dom-range',
+              pageRect: { x: 100, y: 40, w: 120, h: 20 },
+              target: { isConnected: true },
+              range: {},
+            },
+          })),
       },
       ui,
     },
@@ -305,9 +343,40 @@ async function bootContentScript() {
     }
   }
 
+  /** Deliver a `anno.records` message, the way the background would. */
+  function records(list) {
+    if (!onContentMessage) throw new Error('the content script registered no message listener')
+    return onContentMessage({ type: 'anno.records', records: list }, {})
+  }
+
+  /** Deliver a `anno.event` message (created | updated | deleted). */
+  function event(payload) {
+    if (!onContentMessage) throw new Error('the content script registered no message listener')
+    return onContentMessage({ type: 'anno.event', ...payload }, {})
+  }
+
+  /** Make the next capture report these line boxes; `[]` models a lost range. */
+  function captureLines(list) {
+    captureLineRects = list
+  }
+
   fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
 
-  return { fire, flushTimers, flushFrames, selection, ui, caret, seeked, listeners, lineRects }
+  return {
+    fire,
+    flushTimers,
+    flushFrames,
+    records,
+    event,
+    captureLines,
+    marks,
+    selection,
+    ui,
+    caret,
+    seeked,
+    listeners,
+    lineRects,
+  }
 }
 
 test('a Shift-drag is left to the browser: no rubber band, no default prevention', async () => {
@@ -362,6 +431,22 @@ test('a marked element is outlined as one box, with no bands', async () => {
   const locked = harness.ui.calls.locked.at(-1)
   assert.equal(locked.holder, 'composer')
   assert.equal(locked.lines, null, 'an element has no text lines to band')
+})
+
+test('a text mark is never outlined, even when its range could not be measured', async () => {
+  const harness = await bootContentScript()
+  // The page re-rendered between the drag and the read: no line boxes.
+  harness.captureLines([])
+  harness.fire('pointerdown', { clientX: 120, clientY: 50, shiftKey: true })
+  harness.selection.isCollapsed = false
+  harness.selection.rangeCount = 1
+  harness.fire('pointerup', { clientX: 220, clientY: 50, buttons: 0, shiftKey: true })
+  harness.flushTimers()
+
+  const locked = harness.ui.calls.locked.at(-1)
+  assert.equal(locked.holder, 'composer')
+  assert.equal(locked.lines.length, 1, 'the mark falls back to one band, never to a box')
+  assert.equal(locked.lines[0].y, 40, 'covering the anchor rect it did capture')
 })
 
 test('a press whose release never arrives cannot keep drawing', async () => {
@@ -453,6 +538,99 @@ test('the drop carries a text-selection drag from press to release', async () =>
     null,
     'the captured mark takes the drop with it: the bands say what is selected now',
   )
+})
+
+test('a marked text is visible in both states: page elements at rest, bands while annotating', async () => {
+  const harness = await bootContentScript()
+  // The harness boots into annotation mode; a rest state is what this test needs
+  // first, and the marks counters restart with it.
+  harness.fire('keydown', { key: 'Escape' })
+  harness.marks.apply = 0
+  harness.marks.clear = 0
+  const record = {
+    id: 'an-20261120-ab12cd',
+    createdAt: '2026-11-20T00:00:00.000Z',
+    state: 'open',
+    comment: '看看这条',
+    anchor: { kind: 'selection', quote: { exact: 'marked words' }, rect: { x: 100, y: 40, w: 120, h: 20 } },
+  }
+
+  // At rest the mark is a `<mark>` in the text itself, at its quiet strength.
+  harness.records([record])
+  assert.deepEqual(harness.ui.calls.markBands.at(-1), [], 'no overlay bands while the page is at rest')
+  assert.equal(harness.marks.apply, 1, 'the rest state paints the mark into the page')
+
+  // Annotating: the page may not carry our nodes, so the overlay draws it.
+  harness.fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
+  assert.deepEqual(
+    harness.ui.calls.markBands.at(-1),
+    [{ id: record.id, lines: [{ x: 100, y: 40, w: 120, h: 20 }] }],
+    'annotation mode paints the existing mark in the overlay, line by line',
+  )
+  assert.equal(harness.marks.apply, 1, 'and the page mark is gone: nothing wrapped in the text')
+
+  // Back to rest: the overlay lets go and the page mark returns.
+  harness.fire('keydown', { key: 'Escape' })
+  assert.deepEqual(harness.ui.calls.markBands.at(-1), [], 'the overlay bands leave with the mode')
+  assert.equal(harness.marks.apply, 2, 'and the page mark comes back')
+})
+
+test('a hovered text mark asks for its line boxes, so the card bands instead of boxing', async () => {
+  const harness = await bootContentScript()
+  const text = {
+    id: 'an-20261120-aa11bb',
+    state: 'open',
+    comment: '看看这条',
+    anchor: { kind: 'selection', quote: { exact: 'marked words' }, rect: { x: 100, y: 40, w: 120, h: 20 } },
+  }
+  const element = {
+    id: 'an-20261120-cc22dd',
+    state: 'open',
+    comment: '这个按钮',
+    anchor: { kind: 'element', selector: '#go', rect: { x: 10, y: 10, w: 40, h: 20 } },
+  }
+  harness.records([text, element])
+
+  // The badge layer asks for line boxes only for the mark it is about to draw.
+  assert.deepEqual(
+    harness.ui.handlers.onBadgeLines({ id: text.id, kind: 'selection' }),
+    [{ x: 100, y: 40, w: 120, h: 20 }],
+    'a text mark reports its lines, in document coordinates',
+  )
+  assert.equal(harness.ui.handlers.onBadgeLines({ id: element.id, kind: 'element' }), null, 'an element has no lines')
+  assert.equal(
+    harness.ui.handlers.onBadgeLines({ id: 'an-gone', kind: 'selection' }),
+    null,
+    'an unresolved mark has none either',
+  )
+})
+
+test('a stale refresh keeps the marks it painted instead of re-wrapping dead ranges', async () => {
+  const harness = await bootContentScript()
+  harness.fire('keydown', { key: 'Escape' }) // rest state: the page carries the marks
+  const record = {
+    id: 'an-20261120-ee33ff',
+    state: 'open',
+    comment: '留着',
+    anchor: { kind: 'selection', quote: { exact: 'marked words' }, rect: { x: 100, y: 40, w: 120, h: 20 } },
+  }
+  harness.records([record])
+  const painted = { apply: harness.marks.apply, clear: harness.marks.clear }
+  assert.equal(painted.apply, 1, 'the record is painted once')
+
+  // A page mutation re-anchors on the next tick. Wrapping the text destroyed the
+  // placement's range, so repainting from it would paint nothing — the refresh
+  // has to leave the existing marks alone.
+  harness.event({ event: 'updated', record: { ...record, comment: '改过' } })
+  assert.equal(harness.marks.apply, painted.apply, 'a record update does not re-wrap the text')
+  assert.equal(harness.marks.clear, painted.clear, 'and nothing is unwrapped')
+
+  harness.event({ event: 'updated', record })
+  assert.equal(harness.marks.apply, painted.apply, 'repeat refreshes keep the mark on the page')
+
+  // A deleted record is a real change: the remaining marks are rebuilt.
+  harness.event({ event: 'deleted', record })
+  assert.equal(harness.marks.apply, painted.apply + 1, 'the record set changed, so the marks are rewritten')
 })
 
 test('ending a mark drops the selection it left on the page', async () => {

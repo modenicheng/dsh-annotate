@@ -29,8 +29,14 @@
   const MAX_INDEX_CHARS = 400_000
   const MAX_INDEX_NODES = 10_000
   const MAX_ATTRIBUTES = 8
-  /** Line boxes one text mark may be painted with; a longer mark keeps the box. */
-  const MAX_MARK_LINES = 120
+  /**
+   * Upper bound on the line boxes `markLineRects` reports for one text mark, so
+   * a paragraph-sized mark cannot grow the line-box list the capture object
+   * carries in memory (it is never written to the record) without limit. This is
+   * a payload cap, not a paint budget: the overlay culls the lines outside the
+   * viewport before it draws them.
+   */
+  const MAX_MARK_LINES = 240
 
   /** Elements whose text never belongs to an anchor or a highlight. */
   const SKIP_TEXT_PARENTS = new Set([
@@ -196,8 +202,20 @@
     return unionRects(rects)
   }
 
+  /**
+   * Line boxes a text mark is drawn with, in document coordinates.
+   * `MAX_MARK_LINES` bounds the list this returns, which is the payload a
+   * capture carries; the overlay's band painter culls the lines outside the
+   * viewport when it paints, so the cap is not what keeps the overlay cheap. A
+   * mark past the cap loses only its tail lines.
+   */
+  function markLineRects(range) {
+    return rangeClientRects(range, MAX_MARK_LINES).map((line) => roundRect(viewportToPage(line)))
+  }
+
   ns_geom.rectOf = rectOf
   ns_geom.rectOfRange = unionRangeRects
+  ns_geom.markLineRects = markLineRects
   ns_geom.roundRect = roundRect
   ns_geom.areaOf = areaOf
   ns_geom.unionRects = unionRects
@@ -924,7 +942,7 @@
     // The line boxes are what the overlay paints over the marked words: the
     // composer takes focus, and with it the browser's own selection highlight,
     // so without them the user could not see what the annotation is about.
-    const lineRects = rangeClientRects(range, MAX_MARK_LINES)
+    const lineRects = markLineRects(range)
 
     const anchor = {
       kind: 'selection',

@@ -54,12 +54,18 @@
     function applyBadgeLock(item) {
       if (state.lockHolder === 'composer' || state.hidden) return
       const pageRect = item.pageRect || { x: 0, y: 0, w: 0, h: 0 }
+      // A marked text is banded, never boxed, exactly as while its composer is
+      // open. The lines are measured for the hovered marker only, so a page full
+      // of marks costs nothing extra; an element or a region has no band lines.
+      let lines = null
+      if (item.kind === 'selection' && typeof handlers.onBadgeLines === 'function') lines = handlers.onBadgeLines(item)
       const scroll = scrollOffset()
       ctx.overlay.setLocked(
         { x: pageRect.x - scroll.x, y: pageRect.y - scroll.y, w: pageRect.w, h: pageRect.h },
         kindLabel(item.kind),
         'badge',
         pageRect,
+        lines,
       )
     }
 

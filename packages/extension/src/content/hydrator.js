@@ -483,9 +483,10 @@
   }
 
   const MARK_STYLE = {
-    background: 'rgba(56, 139, 253, 0.32)',
-    'box-shadow': '0 0 0 1px rgba(56, 139, 253, 0.5)',
-    'border-radius': '2px',
+    // The resting highlight: a faint tint behind the words and nothing else, so
+    // a marked page still reads as a page. While it is being annotated the same
+    // mark is drawn by the overlay instead, at full strength and underlined.
+    background: 'rgba(245, 158, 11, 0.1)',
     color: 'inherit',
     padding: '0',
     margin: '0',
@@ -568,6 +569,41 @@
     return markNodes.size
   }
 
+  /**
+   * Line boxes of the highlight currently painted for one record, in document
+   * coordinates. The `<mark>` elements are the truth at rest: the `Range` a
+   * placement carries dies the moment the text it points at is wrapped (a live
+   * Range whose node is reparented into the mark is reset), so geometry read
+   * back from that Range after painting is empty. Returns `[]` when the record
+   * is not painted right now — during annotation mode the marks are removed on
+   * purpose and callers fall back to the placement's range.
+   * @param {string} id
+   * @param {number} [limit] cap on returned line boxes, 240 by default
+   */
+  function markLineBoxes(id, limit) {
+    const nodes = markNodes.get(String(id))
+    if (!nodes || nodes.length === 0) return []
+    const max = Number(limit) > 0 ? Math.trunc(Number(limit)) : 240
+    const lines = []
+    for (const node of nodes) {
+      if (!node || typeof node.getClientRects !== 'function') continue
+      let rects
+      try {
+        rects = node.getClientRects()
+      } catch {
+        continue
+      }
+      for (const rect of rects) {
+        if (!rect || !(rect.width > 0 || rect.height > 0)) continue
+        // `rectOf` first: a DOMRect says `width`/`height`, the geometry helpers
+        // below speak `w`/`h`.
+        lines.push(geom.roundRect(geom.viewportToPage(geom.rectOf(rect))))
+        if (lines.length >= max) return lines
+      }
+    }
+    return lines
+  }
+
   // ── throttle ───────────────────────────────────────────────────────────────
 
   /**
@@ -616,6 +652,7 @@
     isFresh,
     applyMarks,
     clearMarks,
+    markLineBoxes,
     createScheduler,
     MIN_ELEMENT_SCORE,
   }

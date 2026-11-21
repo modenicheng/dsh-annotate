@@ -93,6 +93,8 @@
       lockedPageRect: null,
       /** Line boxes of the marked text, in document coordinates; null for a box. */
       lockedLines: null,
+      /** Line boxes of the annotations on the page, painted while annotating. */
+      markLines: [],
       lockedLabel: '',
       badgeItems: [],
       badgeSignature: '',
@@ -147,9 +149,10 @@
       ctx.overlay.hoverBox,
       ctx.overlay.hoverChip,
       ctx.overlay.marquee,
-      ctx.overlay.markBands,
+      ctx.overlay.markBandLayer,
       ctx.overlay.lockedBox,
       ctx.overlay.lockedChip,
+      ctx.overlay.pendingBandLayer,
       ctx.overlay.cursorRing,
       ctx.overlay.shiftDrop,
       ctx.composer.node,
@@ -163,6 +166,7 @@
       ctx.badges.positionAll()
       if (state.composerOpen) ctx.composer.position(size)
       ctx.overlay.positionLocked()
+      ctx.overlay.positionMarks()
       void scroll
     }
 
@@ -189,6 +193,7 @@
       setMarquee: ctx.overlay.setMarquee,
       setCursor: ctx.overlay.setCursor,
       setShiftDrop: ctx.overlay.setShiftDrop,
+      setMarkBands: ctx.overlay.setMarkBands,
       setBadges: ctx.badges.setBadges,
       setBadgePending: ctx.badges.setBadgePending,
       setClearBusy: ctx.hud.setClearBusy,
@@ -213,6 +218,7 @@
           ctx.overlay.clearLocked()
           ctx.overlay.setCursor(null)
           ctx.overlay.setShiftDrop(null)
+          ctx.overlay.setMarkBands([])
           ctx.badges.closeAllBadgeCards()
           ctx.hud.disarmClear()
         }

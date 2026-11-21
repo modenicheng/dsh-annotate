@@ -109,6 +109,8 @@
     booted: false,
     counts: { total: 0, resolved: 0 },
     countsSignature: '',
+    /** Record ids whose highlights are painted on the page right now; '' when none. */
+    markedSignature: '',
     clearing: false,
   }
   ns.booted = true
@@ -338,7 +340,14 @@
    * Re-resolve anchors and repaint badges. Highlighting is a page mutation, so
    * it runs inside a paused observer and only when annotation mode is off —
    * while the user is annotating, marks are removed so captured paths describe
-   * the page's real text structure.
+   * the page's real text structure, and the same highlights are painted by the
+   * overlay instead.
+   *
+   * Painting destroys the ranges it was given: wrapping text reparents the text
+   * nodes, and a live Range inside a reparented node is reset by the browser (it
+   * measures back empty, see `markLineBoxes`). So a placement is only reusable
+   * while its text is *not* wrapped; whenever the marks have to be rewritten the
+   * whole set is re-resolved rather than reusing those dead ranges.
    */
   function refreshRecords(options) {
     if (!ui) return
@@ -347,35 +356,59 @@
     if (state.hidden) {
       withObserverPaused(() => ns.hydrate.clearMarks())
       state.placements.clear()
+      state.markedSignature = ''
       ui.setBadges([])
+      ui.setMarkBands([])
       return
     }
-    withObserverPaused(() => ns.hydrate.clearMarks())
     const records = orderedRecords()
-    let pending = records
-    if (mode !== 'all') {
-      pending = records.filter((record) => {
+    const signature = records.map((record) => record.id).join('|')
+    // Re-resolve when the page or the record set changed, when a placement went
+    // stale, or when the marks on the page are not the ones these records want.
+    const repaint =
+      mode === 'all' ||
+      signature !== state.markedSignature ||
+      state.placements.size !== records.length ||
+      records.some((record) => {
         const placement = state.placements.get(record.id)
         return !placement || !ns.hydrate.isFresh(placement)
       })
-    }
-    if (mode === 'all') state.placements.clear()
-    if (pending.length > 0) {
-      for (const item of ns.hydrate.resolveAll(pending, document)) {
+    if (repaint) {
+      withObserverPaused(() => ns.hydrate.clearMarks())
+      state.placements.clear()
+      for (const item of ns.hydrate.resolveAll(records, document)) {
         state.placements.set(item.record.id, item.placement)
       }
+      for (const id of [...state.placements.keys()]) {
+        if (!state.records.has(id)) state.placements.delete(id)
+      }
     }
-    for (const id of [...state.placements.keys()]) {
-      if (!state.records.has(id)) state.placements.delete(id)
+    const items = badgeItems()
+    ui.setBadges(items)
+    if (state.active) {
+      // Annotating: the page may not carry our `<mark>` elements, so the overlay
+      // draws the marks it already knows about. Re-measured every pass because a
+      // reflow moves the words, and nothing is wrapped while the mode is on.
+      state.markedSignature = ''
+      ui.setMarkBands(bandItems(placementsOf(items)))
+    } else if (repaint) {
+      ui.setMarkBands([])
+      withObserverPaused(() => ns.hydrate.applyMarks(placementsOf(items)))
+      state.markedSignature = signature
     }
+  }
+
+  /**
+   * The badge layer's view of the current records, in display order. A record
+   * whose anchor could not be resolved has no place on the page and no badge.
+   */
+  function badgeItems() {
     const items = []
-    const placements = []
     const ordered = orderedRecords()
     for (let index = 0; index < ordered.length; index += 1) {
       const record = ordered[index]
       const placement = state.placements.get(record.id)
       if (!placement) continue
-      placements.push({ record, placement })
       items.push({
         id: record.id,
         index: index + 1,
@@ -387,8 +420,69 @@
         kind: record.anchor && record.anchor.kind ? record.anchor.kind : '',
       })
     }
-    ui.setBadges(items)
-    if (!state.active) withObserverPaused(() => ns.hydrate.applyMarks(placements))
+    return items
+  }
+
+  /** The placements behind `badgeItems()`, in the same order. */
+  function placementsOf(items) {
+    const placements = []
+    for (const item of items) {
+      const placement = state.placements.get(item.id)
+      if (placement) placements.push({ record: state.records.get(item.id), placement })
+    }
+    return placements
+  }
+
+  /**
+   * Line boxes for the marks already on the page, in document coordinates.
+   * Only the marks on screen are measured: a page can carry hundreds of them and
+   * this runs on the re-anchor tick.
+   */
+  function bandItems(placements) {
+    const items = []
+    const view = viewportSize()
+    const scroll = { x: Number(global.scrollX) || 0, y: Number(global.scrollY) || 0 }
+    const above = scroll.y - view.height
+    const below = scroll.y + view.height * 2
+    for (const item of placements) {
+      const record = item.record
+      const placement = item.placement
+      if (!placement || !placement.range) continue
+      if (!record.anchor || record.anchor.kind !== 'selection') continue
+      const pageRect = placement.pageRect || { x: 0, y: 0, w: 0, h: 0 }
+      if (pageRect.y + pageRect.h < above || pageRect.y > below) continue
+      const lines = ns.geom.markLineRects(placement.range)
+      if (lines.length > 0) items.push({ id: record.id, lines })
+    }
+    return items
+  }
+
+  /**
+   * Line boxes of one marked text whose badge is hovered, in document
+   * coordinates, so the overlay bands the words instead of boxing the whole
+   * paragraph. `null` keeps the box: the record is an element or a region, its
+   * placement is gone (a stale anchor), or its range no longer measures. Hover
+   * must never throw, so every failure is just "no lines".
+   * @param {any} item the badge item `ui.setBadges` was given
+   * @returns {{x:number,y:number,w:number,h:number}[]|null}
+   */
+  function badgeLines(item) {
+    try {
+      if (!item || item.kind !== 'selection') return null
+      // At rest the highlight is a real `<mark>`, and the placement's range died
+      // when that mark was painted; read the geometry back from the mark. While
+      // annotating there is no mark on purpose, so the placement's range is the
+      // live one.
+      let lines = ns.hydrate.markLineBoxes(item.id)
+      if (lines.length === 0) {
+        const placement = state.placements.get(item.id)
+        if (placement && placement.range) lines = ns.geom.markLineRects(placement.range)
+      }
+      return Array.isArray(lines) && lines.length > 0 ? lines : null
+    } catch {
+      // A range the page replaced under us: the marker falls back to its box.
+      return null
+    }
   }
 
   function upsertRecord(record) {
@@ -545,6 +639,12 @@
     if (!state.active) {
       state.active = true
       ui.setHud({ visible: true, mode: activeMode(), connected: state.connected })
+      // The marks already on the page move from the text itself to the overlay:
+      // the page may not carry our nodes while a capture is reading it. They are
+      // re-resolved from scratch because unwrapping the page marks normalizes
+      // the text under them, which leaves the cached ranges pointing at nodes
+      // that no longer exist.
+      refreshRecords({ mode: 'all' })
       // A selection made before activation goes straight to the composer.
       if (!config.skipSelection) captureExistingSelection()
     } else {
@@ -629,6 +729,19 @@
     return `${Math.round(pageRect.w)}×${Math.round(pageRect.h)}`
   }
 
+  /**
+   * The bands a text mark is drawn with. `lines` is empty when the range could
+   * not be measured (a page that re-rendered between the drag and the read), and
+   * then the mark's whole box is banded rather than outlined: a text mark is
+   * underlined, never boxed.
+   * @param {{x:number,y:number,w:number,h:number}[]|undefined} lines page rects
+   * @param {{x:number,y:number,w:number,h:number}} viewportRect fallback, viewport pixels
+   */
+  function selectionLines(lines, viewportRect) {
+    if (Array.isArray(lines) && lines.length > 0) return lines
+    return [ns.geom.roundRect(ns.geom.viewportToPage(viewportRect))]
+  }
+
   function openComposerFor(anchorState) {
     if (!anchorState || !anchorState.anchor) {
       if (ui) ui.toast(t('anchorFailed'), 'error')
@@ -659,13 +772,10 @@
     // Keep the target outlined while the comment is written: the outline is the
     // subject of the sentence, and losing it forces the user to remember which
     // of five similar buttons they clicked. A marked text is drawn as its line
-    // boxes instead, because one rectangle around a paragraph says nothing
-    // about which words were picked — and the composer's own focus takes the
-    // browser's selection highlight away the moment it opens.
-    const lines =
-      anchorState.anchor.kind === 'selection' && Array.isArray(anchorState.lineRects)
-        ? anchorState.lineRects.map((line) => ns.geom.roundRect(ns.geom.viewportToPage(line)))
-        : null
+    // boxes instead — underlined bands, never a box around the paragraph, which
+    // says nothing about which words were picked — and the composer's own focus
+    // takes the browser's selection highlight away the moment it opens.
+    const lines = anchorState.anchor.kind === 'selection' ? selectionLines(anchorState.lineRects, rect) : null
     ui.setLocked(ns.geom.roundRect(rect), summaryOf(anchorState.anchor), 'composer', null, lines)
     ui.openComposer({
       kind: anchorState.anchor.kind,
@@ -1334,7 +1444,10 @@
     if (ui) ui.setHidden(value)
     if (value) {
       withObserverPaused(() => ns.hydrate.clearMarks())
-      if (ui) ui.setBadges([])
+      if (ui) {
+        ui.setBadges([])
+        ui.setMarkBands([])
+      }
     } else {
       refreshRecords({ mode: 'all' })
     }
@@ -1505,6 +1618,7 @@
         state.newSessionChoice = choice
         if (choice) state.targetId = ''
       },
+      onBadgeLines: badgeLines,
     })
     ui.mount()
     ui.setHidden(state.hidden)
