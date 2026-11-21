@@ -12,13 +12,15 @@ name: Release
 #                       This is the only way a tag enters the pipeline: a
 #                       hand-pushed tag triggers nothing, so a version that
 #                       skipped the Release PR cannot ship.
-#   release published  channels ∥ verify — which stores have credentials,
-#                       and that the release's artifacts are the checksummed
-#                       bytes (never a rebuild, §4.9); a dry run may validate
-#                       a draft
-#   then, in parallel the four lanes npm ∥ AMO ∥ CWS ∥ Edge — each gated on
-#                       its own credentials, each idempotent (§4.7), each red
-#                       on its own failure; the summary job turns any lane
+#   release published  channels — which stores have credentials; then, in
+#                       parallel, the four lanes npm ∥ AMO ∥ CWS ∥ Edge.
+#                       There is no shared verify job on purpose: every lane
+#                       verifies itself (the release is published, its own
+#                       assets are the checksummed bytes — never a rebuild,
+#                       §4.9 — and the artifact's version names the tag,
+#                       §4.1), so one lane's red never blocks another's
+#                       submission; each stays idempotent (§4.7) and red on
+#                       its own failure; the summary job turns any lane
 #                       failure into a red run after every lane has had a turn
 #
 # Invariants kept from §4.3–§4.10:
@@ -185,221 +187,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "store channels: AMO=$amo CWS=$cws Edge=$edge dry_run=$DRY_RUN"
 
-  # The shared pre-flight every lane trusts (§4.7): a published release (a
-  # dry run may validate a draft), the tag gates, the CI gate on the tag, and
-  # the release's zips verified against checksums.txt. The verification runs
-  # inline on purpose: a job-local `uses: ./...` action is read from the tree
-  # the job has checked out - here the tag, frozen at cut time - so a fix on
-  # main could never reach an already-cut tag. The v1.0.0 publish died
-  # exactly there (the tag carried a broken pattern split). This file always
-  # comes from the run's ref.
-  verify:
-    name: verify the released artifacts
-    if: >-
-      (github.event_name == 'release' ||
-       (github.event_name == 'workflow_dispatch' && inputs.tag != '')) &&
-      inputs.build_draft != true
-    needs: channels
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    outputs:
-      version: ${{ steps.version.outputs.value }}
-      tag: ${{ github.event.release.tag_name || inputs.tag }}
-      firefox_version: ${{ steps.artifacts.outputs.firefox_version }}
-      chromium_version: ${{ steps.artifacts.outputs.chromium_version }}
-      addon_id: ${{ steps.artifacts.outputs.addon_id }}
-    steps:
-      - name: Checkout the released tag
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
-
-      - name: Install the toolchain
-        uses: ./.github/actions/toolchain
-
-      - name: Require a published release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-          DRY_RUN: ${{ needs.channels.outputs.dry_run }}
-        run: |
-          set -euo pipefail
-          if ! gh release view "$TAG" --json isDraft,tagName > "$RUNNER_TEMP/release.json" 2>/dev/null; then
-            echo "::error::no GitHub Release exists for $TAG. Publish the draft release first; a store submission must never happen before the human gate (§4.3)."
-            exit 1
-          fi
-          if [ "$(jq -r '.isDraft' "$RUNNER_TEMP/release.json")" != "false" ]; then
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "::notice::release $TAG is still a draft. A dry run uploads nothing, so validating it is safe; the real submissions require the published release."
-            else
-              echo "::error::release $TAG is still a draft. Publishing the release is the human gate (§4.3); publish it, then rerun this workflow with the same tag."
-              exit 1
-            fi
-          fi
-          jq -r '.tagName + " exists (draft=" + (.isDraft | tostring) + ")"' "$RUNNER_TEMP/release.json"
-
-      # Deliberately the same gate the npm lane and the draft job run: the tag
-      # names the plugin version, vX.Y.Z only, and D16 keeps prereleases off
-      # every registry and store.
-      - name: Read the version and refuse a non-release tag
-        id: version
-        shell: bash
-        env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          set -euo pipefail
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error::$TAG is not a vX.Y.Z tag; refusing to publish it"
-            exit 1
-          fi
-          version="$(node -p "require('./packages/plugin/package.json').version")"
-          if [ "$TAG" != "v$version" ]; then
-            echo "::error::tag $TAG does not name packages/plugin version $version"
-            exit 1
-          fi
-          # D16: prereleases never reach a registry or a store. They are GitHub
-          # pre-releases that testers install themselves.
-          case "$version" in
-            *-*)
-              echo "::error::dsh-marker@$version is a prerelease (D16); tag the final version instead"
-              exit 1
-              ;;
-          esac
-          echo "value=$version" >> "$GITHUB_OUTPUT"
-
-      # Pre-flight (§4.7): the same cheap gate CI runs, before anything is
-      # uploaded or submitted. The workspace is the tag's tree (§4.10).
-      - name: Check generated protocol copies
-        shell: bash
-        run: node scripts/check-sync.mjs
-
-      - name: Check JavaScript syntax
-        shell: bash
-        run: node scripts/check-syntax.mjs
-
-      - name: Run unit tests
-        shell: bash
-        run: node --test "packages/*/test/*.test.js"
-
-      - name: Check the icons match their geometry
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f scripts/build-icons.mjs ]; then
-            echo "::error::scripts/build-icons.mjs is missing from this tag; the icons in the store artifact cannot be verified"
-            exit 1
-          fi
-          node scripts/build-icons.mjs --check
-
-      # Phase 1 built the zips and attached them to the release. The lanes
-      # download and submit these exact bytes; nothing ever rebuilds them
-      # (§4.9). read assigns the remainder of the line, separators included,
-      # to its last variable, so the list must be split with read -a before it
-      # becomes --pattern flags (the v1.0.0 tag shipped the unsplit form).
-      - name: Download the released store artifacts
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-          PATTERNS: '*.zip,checksums.txt'
-        run: |
-          set -euo pipefail
-          assets="$GITHUB_WORKSPACE/dist/release-assets"
-          rm -rf "$assets"
-          mkdir -p "$assets"
-
-          args=()
-          IFS=',' read -r -a patterns <<< "$PATTERNS"
-          for pattern in "${patterns[@]}"; do
-            [ -n "$pattern" ] && args+=(--pattern "$pattern")
-          done
-          gh release download "$TAG" --dir "$assets" "${args[@]}" --clobber
-
-          cd "$assets"
-          if [ ! -f checksums.txt ]; then
-            echo "::error::checksums.txt was not among the downloaded assets for $TAG"
-            exit 1
-          fi
-          # Only the lines for files that are actually here are checked, but a
-          # downloaded artifact that checksums.txt does not name at all is a
-          # hard error: the point is proving these are the hashed bytes.
-          verify="$RUNNER_TEMP/verify-checksums.txt"
-          : > "$verify"
-          for file in *; do
-            [ "$file" = "checksums.txt" ] && continue
-            line="$(grep -F "  $file" checksums.txt || true)"
-            if [ -z "$line" ]; then
-              echo "::error::checksums.txt for $TAG does not name $file; refusing to trust unchecksummed bytes"
-              exit 1
-            fi
-            printf '%s\n' "$line" >> "$verify"
-          done
-          if [ ! -s "$verify" ]; then
-            echo "::error::nothing to verify: no non-checksum assets matched $PATTERNS"
-            exit 1
-          fi
-          sha256sum --check "$verify"
-          ls -l "$assets"
-
-      - name: Unzip the verified artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          assets="$GITHUB_WORKSPACE/dist/release-assets"
-          for target in firefox chromium; do
-            rm -rf "dist/$target"
-            unzip -q "$assets/dsh-marker-$target-"*.zip -d "dist/$target"
-            # §4.10: validate the artifact, not the source tree.
-            node scripts/check-manifest.mjs "dist/$target"
-          done
-          ls -l "$assets"
-
-      - name: Read the artifact versions
-        id: artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          ff_version="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
-          cr_version="$(node -p "String(require('./dist/chromium/manifest.json').version ?? '')")"
-          addon_id="$(node -p "String(require('./dist/firefox/manifest.json').browser_specific_settings?.gecko?.id ?? '')")"
-          product_version="${{ steps.version.outputs.value }}"
-          if [ -z "$ff_version" ] || [ -z "$cr_version" ]; then
-            echo "::error::a built manifest declares no version"
-            exit 1
-          fi
-          # D16/§4.2: a store receives finals only. Chrome accepts one to four
-          # dot-separated integers and nothing else; AMO keeps a monotonic
-          # sequence per add-on ID, so a prerelease number would outrank the
-          # final forever.
-          if ! printf '%s' "$ff_version" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
-            echo "::error::dist/firefox/manifest.json version '$ff_version' is not numeric; D16 keeps prereleases off the stores"
-            exit 1
-          fi
-          if ! printf '%s' "$cr_version" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
-            echo "::error::dist/chromium/manifest.json version '$cr_version' is not 1-4 dot-separated integers; CWS rejects it (D16/§4.2)"
-            exit 1
-          fi
-          # §4.1: one product version. The draft warned and attached the
-          # artifacts so a human could inspect them; with the release published
-          # this is now a hard refusal for every lane at once — npm included —
-          # because a store version cannot be withdrawn and a mismatch means
-          # the bump was not atomic. Fix is always: bump everything, tag a new
-          # version.
-          if [ "$ff_version" != "$product_version" ] || [ "$cr_version" != "$product_version" ]; then
-            echo "::error::the released artifacts carry version $ff_version/$cr_version but the release is v$product_version (§4.1). Bump packages/extension/manifest.json and packages/plugin/package.json together and tag a new version; a store version cannot be withdrawn."
-            exit 1
-          fi
-          {
-            echo "firefox_version=$ff_version"
-            echo "chromium_version=$cr_version"
-            echo "addon_id=$addon_id"
-          } >> "$GITHUB_OUTPUT"
-
   npm:
     name: publish to npm
-    needs: [channels, verify]
+    needs: [channels]
     # A dry run must upload nothing, so npm skips too. github.event.inputs
     # keeps the raw string for a dispatch, reduced once by the channels job.
     if: needs.channels.outputs.dry_run != 'true'
@@ -411,15 +201,19 @@ jobs:
       # OIDC trusted publishing exchanges this for the npm token.
       id-token: write
     steps:
+      # No checkout on purpose: with an empty workspace the runner
+      # materializes the local action from this file's ref, so the lane
+      # always runs the current npm-publish and never the tag's frozen copy.
+      # npm-publish verifies itself: published gate, checksummed tarball,
+      # tarball version names the tag.
       - name: Publish the released tarball
         uses: ./.github/actions/npm-publish
         with:
-          tag: ${{ needs.verify.outputs.tag }}
-          version: ${{ needs.verify.outputs.version }}
+          tag: ${{ github.event.release.tag_name || inputs.tag }}
 
   amo:
     name: submit to AMO
-    needs: [channels, verify]
+    needs: [channels]
     if: >-
       needs.channels.outputs.dry_run != 'true' &&
       needs.channels.outputs.amo == 'true'
@@ -438,14 +232,14 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # amo-metadata.json is read from the tag being released.
-          ref: ${{ needs.verify.outputs.tag }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       # The tag's tree is where amo-metadata.json must come from, but a
       # job-local `uses: ./...` action is read from the checked-out tree,
-      # frozen at cut time (the reason verify runs inline). Overlay the run
-      # ref's copy of the release actions so a fix on the branch reaches an
-      # already-cut tag; a release event always runs the default branch's
-      # workflow file, so 'main' is its run ref.
+      # frozen at cut time. Overlay the run ref's copy of the release
+      # actions so a fix on the branch reaches an already-cut tag; a
+      # release event always runs the default branch's workflow file, so
+      # 'main' is its run ref.
       - name: Refresh the release actions from the run ref
         shell: bash
         run: |
@@ -454,17 +248,16 @@ jobs:
           git fetch --no-tags origin "$ref"
           git checkout FETCH_HEAD -- .github/actions
 
+      # amo-submit verifies itself: published gate, checksummed zip, zip
+      # version and gecko id, tag-vs-artifact version guard (§4.1).
       - name: Submit the released Firefox zip
         uses: ./.github/actions/amo-submit
         with:
-          tag: ${{ needs.verify.outputs.tag }}
-          version: ${{ needs.verify.outputs.version }}
-          firefox_version: ${{ needs.verify.outputs.firefox_version }}
-          addon_id: ${{ needs.verify.outputs.addon_id }}
+          tag: ${{ github.event.release.tag_name || inputs.tag }}
 
   cws:
     name: submit to CWS
-    needs: [channels, verify]
+    needs: [channels]
     if: >-
       needs.channels.outputs.dry_run != 'true' &&
       needs.channels.outputs.cws == 'true'
@@ -480,12 +273,26 @@ jobs:
       CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
       CWS_PUBLISH_TYPE: ${{ vars.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH' }}
     steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      # Same overlay as the AMO lane: verify-era fixes must reach the tag.
+      - name: Refresh the release actions from the run ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${{ github.event_name == 'release' && 'main' || github.ref_name }}"
+          git fetch --no-tags origin "$ref"
+          git checkout FETCH_HEAD -- .github/actions
+
+      # cws-submit verifies itself: published gate, checksummed zip, zip
+      # version names the tag (§4.1).
       - name: Submit the released Chromium zip
         uses: ./.github/actions/cws-submit
         with:
-          tag: ${{ needs.verify.outputs.tag }}
-          version: ${{ needs.verify.outputs.version }}
-          chromium_version: ${{ needs.verify.outputs.chromium_version }}
+          tag: ${{ github.event.release.tag_name || inputs.tag }}
 
   # Edge Add-ons is optional (§4.6: Edge installs CWS items) and off by
   # default: vars.EDGE_PUBLISH opts the lane in, and it also needs the
@@ -496,7 +303,7 @@ jobs:
   # same checksummed bytes the CWS lane submits, never a rebuild.
   edge:
     name: submit to Edge
-    needs: [channels, verify]
+    needs: [channels]
     if: >-
       needs.channels.outputs.dry_run != 'true' &&
       needs.channels.outputs.edge == 'true' &&
@@ -506,14 +313,35 @@ jobs:
     environment:
       name: release
     steps:
-      - name: Refuse a version mismatch
-        env:
-          CR_VERSION: ${{ needs.verify.outputs.chromium_version }}
-          PRODUCT_VERSION: ${{ needs.verify.outputs.version }}
+      - name: Checkout the released tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      # Same overlay as the AMO lane: verify-era fixes must reach the tag.
+      - name: Refresh the release actions from the run ref
+        shell: bash
         run: |
           set -euo pipefail
-          if [ "$CR_VERSION" != "$PRODUCT_VERSION" ]; then
-            echo "::error::refusing to submit to Edge: the Chromium artifact is version $CR_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+          ref="${{ github.event_name == 'release' && 'main' || github.ref_name }}"
+          git fetch --no-tags origin "$ref"
+          git checkout FETCH_HEAD -- .github/actions
+
+      # The human gate (§4.3), same as every other lane.
+      - name: Require a published release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+            echo "::error::no GitHub Release exists for $TAG. Publish the draft release first; a store submission must never happen before the human gate (§4.3)."
+            exit 1
+          fi
+          if [ "$(jq -r '.isDraft' "$RUNNER_TEMP/release.json")" = "true" ]; then
+            echo "::error::release $TAG is still a draft. Publishing the release is the human gate (§4.3)."
             exit 1
           fi
 
@@ -521,8 +349,34 @@ jobs:
       - name: Download the released Chromium zip and prove its checksum
         uses: ./.github/actions/fetch-verified-asset
         with:
-          tag: ${{ needs.verify.outputs.tag }}
+          tag: ${{ github.event.release.tag_name || inputs.tag }}
           patterns: 'dsh-marker-chromium-*.zip,checksums.txt'
+
+      # §4.1: the artifact version must equal the tag's tree version.
+      - name: Read the versions and refuse a mismatch
+        id: version
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          rm -rf dist/chromium
+          unzip -q "$assets"/dsh-marker-chromium-*.zip -d dist/chromium
+          product_version="$(node -p "String(require('./packages/plugin/package.json').version ?? '')")"
+          cr_version="$(node -p "String(require('./dist/chromium/manifest.json').version ?? '')")"
+          if [ -z "$product_version" ] || [ -z "$cr_version" ]; then
+            echo "::error::the tag or the released zip declares no version"
+            exit 1
+          fi
+          if [ "v$product_version" != "$TAG" ] || [ "$cr_version" != "$product_version" ]; then
+            echo "::error::refusing to submit to Edge: the Chromium artifact is version $cr_version but the release is v$product_version (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+            exit 1
+          fi
+          {
+            echo "product=$product_version"
+            echo "chromium=$cr_version"
+          } >> "$GITHUB_OUTPUT"
 
       # The Edge Add-ons API v1.1 (Client ID + API key headers, no OAuth):
       # upload the zip to the draft submission, then submit it for
@@ -534,7 +388,7 @@ jobs:
         uses: wdzeng/edge-addon@9881f57720358040d079eaa06a4596dc9c273eb6 # v2
         with:
           product-id: ${{ vars.EDGE_PRODUCT_ID }}
-          zip-path: dist/release-assets/dsh-marker-chromium-${{ needs.verify.outputs.version }}.zip
+          zip-path: dist/release-assets/dsh-marker-chromium-${{ steps.version.outputs.product }}.zip
           api-key: ${{ secrets.EDGE_API_KEY }}
           client-id: ${{ secrets.EDGE_CLIENT_ID }}
           # The point that decides the review (§8.8): the overlay is testable
@@ -549,7 +403,9 @@ jobs:
   # §4.7: the lanes are independent; this is where any failure becomes a red
   # run, after every lane has had its turn — with parallel lanes each failure
   # is already visible on its own job, this job exists to state the verdict
-  # for the whole phase and to fail the run on purpose.
+  # for the whole phase and to fail the run on purpose. There is no shared
+  # verify job on purpose: each lane verifies itself, so one lane's red never
+  # blocks another lane's submission.
   summary:
     name: release summary
     # always(): this job states the verdict after every lane has had its
@@ -560,14 +416,13 @@ jobs:
       (github.event_name == 'release' ||
        (github.event_name == 'workflow_dispatch' && inputs.tag != '')) &&
       inputs.build_draft != true
-    needs: [channels, verify, npm, amo, cws, edge]
+    needs: [channels, npm, amo, cws, edge]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Report every lane, then fail the run if any failed
         env:
           RESULT_CHANNELS: ${{ needs.channels.result }}
-          RESULT_VERIFY: ${{ needs.verify.result }}
           RESULT_NPM: ${{ needs.npm.result }}
           RESULT_AMO: ${{ needs.amo.result }}
           RESULT_CWS: ${{ needs.cws.result }}
@@ -578,14 +433,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "channels : $RESULT_CHANNELS"
-          echo "verify   : $RESULT_VERIFY"
           echo "npm      : $RESULT_NPM"
           echo "amo      : $RESULT_AMO (credentials detected: $AMO_READY)"
           echo "cws      : $RESULT_CWS (credentials detected: $CWS_READY)"
           echo "edge     : $RESULT_EDGE (gated on vars.EDGE_PUBLISH)"
           failed=""
           if [ "$RESULT_CHANNELS" = "failure" ]; then failed="$failed channels"; fi
-          if [ "$RESULT_VERIFY" = "failure" ]; then failed="$failed verify"; fi
           if [ "$RESULT_NPM" = "failure" ]; then failed="$failed npm"; fi
           if [ "$RESULT_AMO" = "failure" ]; then failed="$failed amo"; fi
           if [ "$RESULT_CWS" = "failure" ]; then failed="$failed cws"; fi
@@ -595,7 +448,7 @@ jobs:
             exit 1
           fi
           if [ "$DRY_RUN" = "true" ]; then
-            echo "::notice::dry run complete: the release's artifacts were downloaded and verified and nothing was uploaded. Detected channels: AMO=$AMO_READY CWS=$CWS_READY Edge=vars.EDGE_PUBLISH."
+            echo "::notice::dry run complete: nothing was uploaded (every lane skips on a dry run; use build_draft to validate a tag's artifacts). Detected channels: AMO=$AMO_READY CWS=$CWS_READY Edge=vars.EDGE_PUBLISH."
           else
             echo "::notice::release phase finished without a hard failure. Submitted lanes are pending their store's review, not live; skipped lanes were not submitted."
           fi

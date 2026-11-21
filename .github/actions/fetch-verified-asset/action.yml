@@ -52,6 +52,12 @@ runs:
           echo "::error::checksums.txt was not among the downloaded assets for $TAG"
           exit 1
         fi
+        # Releases up to v1.0.0 were checksummed with `sha256sum ./*.zip`, so
+        # the names in the file carry a `./` prefix while the downloaded
+        # files land bare. Normalize the local copy once so both the name
+        # matching below and `sha256sum --check` see one shape; the release's
+        # asset is never touched.
+        sed -i 's/  \.\//  /' checksums.txt
         # Only the lines for files that are actually here are checked, but a
         # downloaded artifact that checksums.txt does not name at all is a hard
         # error: the point is proving these are the hashed bytes.
