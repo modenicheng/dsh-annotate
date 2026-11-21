@@ -63,16 +63,16 @@ runs:
 
     # The lanes submit the release's bytes, never a rebuild (§4.9, §4.10).
     - name: Download the released Firefox zip and prove its checksum
+      uses: ./.github/actions/fetch-verified-asset
+      with:
+        tag: ${{ inputs.tag }}
+        patterns: 'dsh-marker-firefox-*.zip,checksums.txt'
+
+    - name: Re-read the version inside the verified zip
       shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         assets="$GITHUB_WORKSPACE/dist/release-assets"
-        rm -rf "$assets"
-        mkdir -p "$assets"
-        gh release download "${{ inputs.tag }}" --dir "$assets" --pattern 'dsh-marker-firefox-*.zip' --pattern 'checksums.txt' --clobber
-        (cd "$assets" && sha256sum --check --ignore-missing checksums.txt)
         rm -rf dist/firefox
         unzip -q "$assets"/dsh-marker-firefox-*.zip -d dist/firefox
         unzipped="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
@@ -80,7 +80,6 @@ runs:
           echo "::error::the zip on the release says $unzipped but the verify job read ${{ inputs.firefox_version }}; the asset changed under us"
           exit 1
         fi
-        ls -l "$assets"
 
     # Idempotency, before web-ext runs. AMO's public v5 API lists a listed
     # add-on's versions without auth: GET

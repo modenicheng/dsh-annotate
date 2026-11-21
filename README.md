@@ -85,9 +85,10 @@ bundler, no TypeScript and no dependency. Load `packages/extension/manifest.json
 as a temporary add-on (`about:debugging#/runtime/this-firefox`; Zen:
 `about:debugging`).
 
-Firefox is what has been run for real; Chromium has had its browser QA pass in
-Chromium 156 — load, service worker, content script, popup, and the annotation
-HUD.
+Firefox is what has been run for real. An early build passed a basic bring-up
+pass in Chromium 156 — load, service worker, content script, popup, and the
+annotation HUD, behaving much like Firefox — but the current version has not
+been re-tested in a real Chromium.
 
 What the extension reads, where it sends it and what it keeps locally is
 [docs/privacy.md](docs/privacy.md) — the same page the stores link to.
@@ -265,6 +266,10 @@ intentional: Node expands it itself, which keeps the command identical on
 Windows, macOS, and Linux. Biome is a pinned devDependency: after one
 `pnpm install`, `pnpm run check`, the hooks, and the tests all run offline;
 only `pnpm install` itself needs the registry.
+
+The extension's `_locales/` currently localizes only the manifest metadata (the
+store name and description); the interface strings come from the built-in
+bilingual table in `src/content/ui/strings.js`, not from `_locales/`.
 
 The two store targets are generated from one source tree for local QA and
 inspection — `node scripts/build-extension.mjs` writes `dist/firefox` and

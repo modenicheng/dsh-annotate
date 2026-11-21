@@ -424,6 +424,8 @@
     rangeFromOffsets,
     pathWithin,
     nodeAtPath,
+    // Shared with hydrator.js, which used to carry a byte-identical copy.
+    clampOffset,
     MAX_INDEX_CHARS,
   }
 

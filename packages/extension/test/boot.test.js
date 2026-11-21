@@ -22,6 +22,7 @@ const extensionRoot = dirname(here)
 /** The background files in manifest order (`manifest.json` `background.scripts`). */
 const SCRIPTS = [
   'src/shared/protocol.global.js',
+  'src/shared/inject.js',
   'src/background/endpoints.js',
   'src/background/discovery.js',
   'src/background/connection.js',

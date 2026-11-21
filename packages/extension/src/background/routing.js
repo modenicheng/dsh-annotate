@@ -169,23 +169,12 @@
     if (tab !== undefined && tab !== null && typeof tab.id === 'number') lastTabId = tab.id
   }
 
-  /** Declared content scripts in manifest order, used only as a repair path. */
-  function contentScriptFiles() {
-    const manifest = ns.manifest
-    const groups = Array.isArray(manifest.content_scripts) ? manifest.content_scripts : []
-    const files = []
-    for (const group of groups) {
-      for (const file of Array.isArray(group.js) ? group.js : []) {
-        if (!files.includes(file)) files.push(file)
-      }
-    }
-    return files
-  }
-
   /**
    * Inject the declared content scripts into a tab that predates the install.
    * The content scripts guard against double boot, so a second injection is a
    * no-op; this is only attempted after `tabs.sendMessage` found no receiver.
+   * The file list itself comes from the shared `src/shared/inject.js`, the one
+   * place that reads the manifest's `content_scripts`.
    * @param {number} tabId
    */
   async function injectContentScripts(tabId) {
@@ -193,7 +182,7 @@
     const previous = injectionHistory.get(tabId) ?? 0
     if (now - previous < INJECT_COOLDOWN_MS) return false
     injectionHistory.set(tabId, now)
-    const files = contentScriptFiles()
+    const files = globalThis.__DSH_INJECT__.contentScriptFiles(ns.manifest)
     if (files.length === 0) return false
     try {
       await browser.scripting.executeScript({ target: { tabId }, files })

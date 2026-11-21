@@ -83,18 +83,15 @@
 
   // ── selection ──────────────────────────────────────────────────────────────
 
-  function clampOffset(offset, node) {
-    const length = node && node.nodeValue ? node.nodeValue.length : 0
-    const value = Number(offset)
-    if (!Number.isFinite(value)) return 0
-    return Math.max(0, Math.min(Math.trunc(value), length))
-  }
+  // `clampOffset` and the whitespace normalizer live on `ns.text` (anchor.js,
+  // the script this one loads after); they were local byte-identical copies
+  // here until the duplication drifted once too often.
 
   function rangeFromPaths(document, first, last, domRange) {
     try {
       const range = document.createRange()
-      range.setStart(first, clampOffset(domRange.startOffset, first))
-      range.setEnd(last, clampOffset(domRange.endOffset, last))
+      range.setStart(first, text.clampOffset(domRange.startOffset, first))
+      range.setEnd(last, text.clampOffset(domRange.endOffset, last))
       return range
     } catch {
       return null
@@ -120,12 +117,6 @@
     if (expected === '') return false
     const probe = expected.slice(0, Math.min(40, expected.length))
     return got.slice(0, probe.length) === probe
-  }
-
-  function normalizeWhitespace(value) {
-    return String(value == null ? '' : value)
-      .replace(/\s+/g, ' ')
-      .trim()
   }
 
   /**
@@ -216,7 +207,7 @@
     }
     if (best) return best
 
-    const needle = normalizeWhitespace(exact)
+    const needle = text.normalizeWs(exact)
     if (needle === '') return null
     const normalized = normalizedIndexOf(index)
     const at = normalized.text.indexOf(needle)
@@ -334,7 +325,7 @@
       for (const name of expectedClasses) if (actualClasses.has(name)) shared += 1
       score += 0.2 * (shared / expectedClasses.length)
     }
-    const expectedText = normalizeWhitespace(fingerprint.textExcerpt || '')
+    const expectedText = text.normalizeWs(fingerprint.textExcerpt || '')
     if (expectedText !== '') {
       const actualText = ns.dom.cheapText(element).slice(0, 400)
       score += 0.3 * diceCoefficient(expectedText.slice(0, 200), actualText)
@@ -609,7 +600,11 @@
   /**
    * At most one run per `intervalMs` (250 ms ≈ 4 Hz): SPA re-renders fire
    * MutationObserver in bursts, and a full re-anchor per record is not cheap.
-   * Requests that arrive while a run is queued are coalesced.
+   * Requests that arrive while a run is queued are coalesced. `stop()` is the
+   * lifecycle contract of that queue — a stopped scheduler stays quiet — and
+   * hydrator.test.js pins it; nothing calls it during a normal page lifetime,
+   * where the scheduler lives exactly as long as the content script and a
+   * pending timer with no page left is the browser's to reap.
    */
   function createScheduler(run, intervalMs) {
     const budget = Math.max(50, Number(intervalMs) || 250)

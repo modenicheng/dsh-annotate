@@ -158,6 +158,28 @@
   }
 
   /**
+   * Restore the backoff position left by a previous event-page lifetime.
+   *
+   * The retry state lives in `ns.netState`, which dies with the event page.
+   * The last published status (`anno.status`) already carries `attempts` and
+   * `nextRetryAt`, so reading it back keeps a worker restart from restarting
+   * the backoff at 1 s while a 30 s cadence was already earned. Only a retry
+   * that is still in the future counts: anything older was for a lifetime that
+   * already spent it.
+   */
+  async function restoreBackoff() {
+    if (ns.netState.attempts !== 0 || ns.netState.nextRetryAt !== 0) return
+    const stored = await ns.storageGet(ns.msg.STORAGE_KEYS.lastStatus, null)
+    if (!ns.isPlainObject(stored)) return
+    const attempts = Number(stored.attempts)
+    const nextRetryAt = Number(stored.nextRetryAt)
+    if (!Number.isFinite(attempts) || attempts <= 0) return
+    if (!Number.isFinite(nextRetryAt) || nextRetryAt <= Date.now()) return
+    ns.setNetState({ attempts: Math.floor(attempts), nextRetryAt })
+    ns.log.info(`restored retry attempt ${Math.floor(attempts)} from the previous lifetime`)
+  }
+
+  /**
    * Open one socket. Connection attempts are serialized: a second attempt
    * while the first is probing would race it, so it is coalesced instead.
    * @param {{ reason?: string, resetAttempts?: boolean, forceProbe?: boolean }} [options]
@@ -198,6 +220,7 @@
     }
     const started = generation
     clearRetryTimer()
+    await restoreBackoff()
     if (resetAttempts) ns.setNetState({ attempts: 0 })
 
     const prefs = await ns.readPrefs()

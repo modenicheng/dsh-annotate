@@ -376,6 +376,11 @@ async function bootContentScript() {
     seeked,
     listeners,
     lineRects,
+    /** Scroll the page mid-gesture, the way a wheel event during a drag would. */
+    scrollTo(x, y) {
+      sandbox.scrollX = x
+      sandbox.scrollY = y
+    },
   }
 }
 
@@ -421,6 +426,39 @@ test('a Shift-drag is left to the browser: no rubber band, no default prevention
   const locked = harness.ui.calls.locked.at(-1)
   assert.equal(locked.holder, 'composer')
   assert.deepEqual(locked.lines, harness.lineRects, 'every line of the marked text is banded')
+})
+
+test('a mid-drag scroll shifts the marquee start with the content', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.marquee.length = 0
+
+  // A region drag starts at a page point captured in the scroll-0 viewport.
+  harness.fire('pointerdown', { clientX: 100, clientY: 100 })
+  harness.fire('pointermove', { clientX: 140, clientY: 140, buttons: 1 })
+  assert.deepEqual(
+    harness.ui.calls.marquee.at(-1),
+    { x: 100, y: 100, w: 40, h: 40 },
+    'with no scroll the marquee spans press to pointer',
+  )
+
+  // The page scrolls 300px down mid-drag: the pressed content now sits 300px
+  // higher in the viewport, and the marquee must follow it, not stay pinned to
+  // the stale viewport coordinate of the press.
+  harness.scrollTo(0, 300)
+  harness.fire('pointermove', { clientX: 140, clientY: 140, buttons: 1 })
+  assert.deepEqual(
+    harness.ui.calls.marquee.at(-1),
+    { x: 100, y: -200, w: 40, h: 340 },
+    'the start shifts up with the content after the scroll',
+  )
+
+  // The release captures the same compensated rectangle.
+  harness.fire('pointerup', { clientX: 160, clientY: 160, buttons: 0 })
+  assert.deepEqual(
+    harness.ui.calls.composer.at(-1).rect,
+    { x: 100, y: -200, w: 60, h: 360 },
+    'the region anchor is captured from the compensated rectangle',
+  )
 })
 
 test('a marked element is outlined as one box, with no bands', async () => {

@@ -39,6 +39,14 @@
   const LAST_GOOD_TTL_MS = 12 * 60 * 60 * 1_000
 
   /**
+   * How far into the future a remembered timestamp may sit and still count.
+   * `at` comes from the same clock that read it, so a future value means a
+   * clock rollback or a hand-edited record; without this tolerance such a
+   * record would stay valid until real time catches up with the bogus stamp.
+   */
+  const LAST_GOOD_FUTURE_TOLERANCE_MS = 5 * 60_000
+
+  /**
    * A focus report older than this stops counting for ranking: a host left on a
    * Session yesterday must not outrank the one the user is actually using.
    */
@@ -317,6 +325,7 @@
     if (typeof value.at !== 'number' || !Number.isFinite(value.at)) return null
     const clock = Number.isFinite(now) ? now : Date.now()
     if (clock - value.at > LAST_GOOD_TTL_MS) return null
+    if (value.at - clock > LAST_GOOD_FUTURE_TOLERANCE_MS) return null
     const instanceId = value.instanceId
     if (instanceId !== undefined && instanceId !== null && !PROTOCOL.isInstanceId(instanceId)) return null
     return {

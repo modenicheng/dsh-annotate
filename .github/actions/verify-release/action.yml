@@ -115,17 +115,16 @@ runs:
     # (§4.9, AGENTS.md). Unzip so the version reads use the released package,
     # not a fresh build (§4.10).
     - name: Download the released store artifacts
+      uses: ./.github/actions/fetch-verified-asset
+      with:
+        tag: ${{ inputs.tag }}
+        patterns: '*.zip,checksums.txt'
+
+    - name: Unzip the verified artifacts
       shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        TAG="${{ inputs.tag }}"
         assets="$GITHUB_WORKSPACE/dist/release-assets"
-        rm -rf "$assets"
-        mkdir -p "$assets"
-        gh release download "$TAG" --dir "$assets" --pattern '*.zip' --pattern 'checksums.txt' --clobber
-        (cd "$assets" && sha256sum --check --ignore-missing checksums.txt)
         for target in firefox chromium; do
           rm -rf "dist/$target"
           unzip -q "$assets/dsh-marker-$target-"*.zip -d "dist/$target"

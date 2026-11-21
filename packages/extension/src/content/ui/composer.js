@@ -18,12 +18,37 @@
    */
   function install(ctx) {
     const { t, state, handlers, dom } = ctx
-    const { createElement, createIcon, setVisible, clamp, viewportSize } = dom
+    const { createElement, createIcon, setVisible, clamp, viewportSize, scrollOffset } = dom
 
     // mdi:send from Iconify (Apache-2.0), shown on the primary button.
     const ICON_SEND = 'M2,21L23,12L2,3V10L17,12L2,14V21Z'
 
-    let composerRect = null
+    // The card follows its subject: the rect arrives in viewport pixels, is
+    // immediately promoted to a document rect, and every later placement
+    // re-projects it with the live scroll offset — the same approach the
+    // badges use — so scrolling while writing keeps the card next to the
+    // outlined target instead of clamping a frozen viewport rect in place.
+    let composerPageRect = null
+
+    function pageRectOf(rect) {
+      const scroll = scrollOffset()
+      return {
+        x: rect.x + scroll.x,
+        y: rect.y + scroll.y,
+        w: rect.w,
+        h: rect.h,
+      }
+    }
+
+    function viewportRectOf(rect) {
+      const scroll = scrollOffset()
+      return {
+        x: rect.x - scroll.x,
+        y: rect.y - scroll.y,
+        w: rect.w,
+        h: rect.h,
+      }
+    }
 
     const composer = createElement('div', 'composer')
     const composerHead = createElement('div', 'composer-head')
@@ -65,7 +90,7 @@
       const width = Math.min(340, Math.max(240, size.width - 24))
       composer.style.width = `${width}px`
       const margin = 10
-      const rect = composerRect
+      const rect = viewportRectOf(composerPageRect)
       const left = clamp(rect.x, margin, Math.max(margin, size.width - width - margin))
       let top = rect.y + rect.h + 8
       if (top + measured > size.height - margin) top = rect.y - measured - 8
@@ -76,7 +101,7 @@
 
     /** Reposition the open card after a scroll or a resize; no card, no work. */
     function position(size) {
-      if (!composerRect) return
+      if (!composerPageRect) return
       positionComposer(size)
     }
 
@@ -144,7 +169,7 @@
       composerError.textContent = ''
       setVisible(composerError, false)
       textarea.value = ''
-      composerRect = config.rect || { x: 8, y: 8, w: 0, h: 0 }
+      composerPageRect = pageRectOf(config.rect || { x: 8, y: 8, w: 0, h: 0 })
       setVisible(composer, true)
       syncSendState()
       positionComposer(viewportSize())
@@ -162,7 +187,7 @@
       state.busy = false
       state.intent = ''
       ctx.target.resetForClose()
-      composerRect = null
+      composerPageRect = null
       setVisible(composer, false)
       composerError.textContent = ''
       setVisible(composerError, false)
@@ -202,10 +227,23 @@
       }
     })
 
+    // `keydown.isComposing` is the primary signal, but old Safari and some
+    // Linux IMEs fire the post-composition Enter with isComposing already
+    // false — or never set it — while the compositionend event has not
+    // landed yet. Track the composition lifecycle ourselves and require both
+    // signals to agree the composition is over before Enter may send.
+    let composing = false
+    textarea.addEventListener('compositionstart', () => {
+      composing = true
+    })
+    textarea.addEventListener('compositionend', () => {
+      composing = false
+    })
+
     textarea.addEventListener('keydown', (event) => {
       // Enter sends, Shift+Enter is a newline, and an in-progress IME
       // composition (Chinese/Japanese input) owns Enter until it commits.
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !composing) {
         event.preventDefault()
         event.stopPropagation()
         submitComposer()

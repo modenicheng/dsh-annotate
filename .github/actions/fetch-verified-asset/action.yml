@@ -1,0 +1,69 @@
+name: 'Fetch a release asset and prove its checksum'
+description: >
+  The download-and-verify block every release lane starts with: download the
+  named assets from a release into dist/release-assets and prove they are the
+  bytes checksums.txt hashed. The check never runs blind: a checksums.txt that
+  names none of the downloaded files must fail loudly instead of passing an
+  empty `sha256sum --check --ignore-missing` (C2). Lanes submit the release's
+  bytes, never a rebuild (docs/DISTRIBUTION.md §4.9, §4.10).
+
+inputs:
+  tag:
+    description: The release tag whose assets are being fetched.
+    required: true
+  patterns:
+    description: >
+      Comma-separated `gh release download` patterns, e.g.
+      `dsh-marker-firefox-*.zip,checksums.txt`. checksums.txt must be among
+      them or the step fails.
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download the assets and prove their checksums
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        # Lanes that use this action check out nothing, so gh cannot resolve
+        # the repository from a git remote; name it explicitly.
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+        PATTERNS: ${{ inputs.patterns }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        rm -rf "$assets"
+        mkdir -p "$assets"
+
+        args=()
+        while IFS=',' read -r pattern; do
+          [ -n "$pattern" ] && args+=(--pattern "$pattern")
+        done <<< "$PATTERNS"
+        gh release download "$TAG" --dir "$assets" "${args[@]}" --clobber
+
+        cd "$assets"
+        if [ ! -f checksums.txt ]; then
+          echo "::error::checksums.txt was not among the downloaded assets for $TAG"
+          exit 1
+        fi
+        # Only the lines for files that are actually here are checked, but a
+        # downloaded artifact that checksums.txt does not name at all is a hard
+        # error: the point is proving these are the hashed bytes.
+        verify="$RUNNER_TEMP/verify-checksums.txt"
+        : > "$verify"
+        for file in *; do
+          [ "$file" = "checksums.txt" ] && continue
+          line="$(grep -F "  $file" checksums.txt || true)"
+          if [ -z "$line" ]; then
+            echo "::error::checksums.txt for $TAG does not name $file; refusing to trust unchecksummed bytes"
+            exit 1
+          fi
+          printf '%s\n' "$line" >> "$verify"
+        done
+        if [ ! -s "$verify" ]; then
+          echo "::error::nothing to verify: no non-checksum assets matched $PATTERNS"
+          exit 1
+        fi
+        sha256sum --check "$verify"
+        ls -l "$assets"
