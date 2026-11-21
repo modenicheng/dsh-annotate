@@ -659,3 +659,30 @@ code {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* ── annotation settings ───────────────────────────────────────────────────
+   New controls keep the popup's existing skin (same radii, borders, and type
+   ramp) instead of introducing a second visual language. */
+.shortcut-row {
+  display: flex;
+  gap: 6px;
+}
+
+.shortcut-key {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--text);
+  font: 600 var(--text-body) / var(--text-body-lh) var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.shortcut-key--recording {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}

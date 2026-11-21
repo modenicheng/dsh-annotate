@@ -139,6 +139,8 @@
       shortcutSaved: 'Shortcut saved.',
       shortcutReset: 'Shortcut reset to the default.',
       shortcutBrowserFailed: 'Saved for pages, but the browser rejected it as an extension shortcut.',
+      shortcutPagesOnly:
+        'Saved for pages only: this browser cannot update the extension command, so the toolbar path may still be needed for screenshots.',
       exitAfterSendLabel: 'Exit annotate mode after sending',
       exitAfterSendHint: 'Off by default: staying in the mode lets you mark several things in a row.',
       exitOnRightClickLabel: 'Right-click leaves annotate mode',
@@ -277,6 +279,7 @@
       shortcutSaved: '快捷键已保存。',
       shortcutReset: '快捷键已恢复默认。',
       shortcutBrowserFailed: '已保存为页面内快捷键，但浏览器拒绝了它作为扩展命令。',
+      shortcutPagesOnly: '仅对页面生效：此浏览器无法更新扩展命令，截图可能仍需走工具栏入口。',
       exitAfterSendLabel: '发送后退出批注模式',
       exitAfterSendHint: '默认关闭：保持模式便于连续标注多处。',
       exitOnRightClickLabel: '右键退出批注模式',

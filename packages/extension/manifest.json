@@ -59,6 +59,7 @@
         "src/shared/protocol.global.js",
         "src/content/anchor.js",
         "src/content/hydrator.js",
+        "src/shared/shortcut.js",
         "src/content/ui/strings.js",
         "src/content/ui/styles.js",
         "src/content/ui/dom.js",

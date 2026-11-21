@@ -13,6 +13,8 @@
     <!-- The popup's language table. The English text in the markup below is the
          no-script fallback; every visible label is painted from this table. -->
     <script src="../shared/i18n.js"></script>
+    <!-- The shortcut parser, shared with the content script's keydown matcher. -->
+    <script src="../shared/shortcut.js"></script>
     <!-- One content-script list for the background and the popup repair path. -->
     <script src="../shared/inject.js"></script>
     <!-- One endpoint parser for the popup and the background. -->
@@ -34,6 +36,24 @@
     </header>
 
     <main class="content">
+      <section class="panel" aria-labelledby="annotation-heading">
+        <h2 id="annotation-heading" class="panel__title" data-i18n="annotationHeading">Annotate</h2>
+        <div class="field">
+          <span id="shortcut-label" data-i18n="shortcutLabel">Shortcut</span>
+          <div class="shortcut-row">
+            <button id="shortcut-record" class="shortcut-key" type="button" aria-labelledby="shortcut-label">
+              Alt+Shift+A
+            </button>
+            <button id="shortcut-reset" class="button button--secondary" type="button" data-i18n="resetShortcut">
+              Reset
+            </button>
+          </div>
+          <p class="hint" data-i18n="shortcutHint">
+            Click, then press a combination. The browser command is updated so screenshots keep working.
+          </p>
+        </div>
+      </section>
+
       <section class="panel" aria-labelledby="bridge-heading">
         <h2 id="bridge-heading" class="panel__title" data-i18n="bridgeTitle">Host bridge</h2>
         <form id="settings-form" class="form" autocomplete="off" novalidate>

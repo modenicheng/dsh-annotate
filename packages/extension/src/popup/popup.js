@@ -51,6 +51,7 @@
    */
   const POPUP = (globalThis.__DSH_POPUP__ ??= {})
   const I18N = globalThis.__DSH_I18N__
+  const SHORTCUT = globalThis.__DSH_SHORTCUT__
   const language = I18N ? I18N.pickLanguage(I18N.browserLanguage(globalThis)) : 'en'
   const t = I18N ? I18N.make(language) : (key) => key
   const CONNECTION_KEYS = {
@@ -81,6 +82,10 @@
     outbox: { count: 0, pendingImages: 0 },
     token: '',
     busyIds: new Set(),
+    /** Canonical shortcut string; the browser command and the page both use it. */
+    shortcut: SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.DEFAULT,
+    /** True while the shortcut button is waiting for a recorded combination. */
+    recording: false,
   }
 
   /** @type {Record<string, HTMLElement>} */
@@ -172,6 +177,8 @@
       'records',
       'records-empty',
       'feedback',
+      'shortcut-record',
+      'shortcut-reset',
     ]
     for (const id of ids) {
       const node = document.getElementById(id)
@@ -185,6 +192,8 @@
     if (el.flush !== undefined) el.flush.addEventListener('click', () => void flushOutbox())
     if (el['toggle-token'] !== undefined) el['toggle-token'].addEventListener('click', toggleTokenVisibility)
     if (el.records !== undefined) el.records.addEventListener('click', onRecordsClick)
+    if (el['shortcut-record'] !== undefined) el['shortcut-record'].addEventListener('click', onShortcutRecordClick)
+    if (el['shortcut-reset'] !== undefined) el['shortcut-reset'].addEventListener('click', () => void resetShortcut())
 
     // The mode control, the host list, the scan action, and the endpoint drop
     // zone belong to the discovery panel, which wires its own listeners.
@@ -263,6 +272,8 @@
     if (el.host !== undefined) el.host.value = host
     if (el.port !== undefined) el.port.value = String(port)
     if (el.token !== undefined && document.activeElement !== el.token) el.token.value = token
+    state.shortcut = SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.normalize(prefs?.shortcut) || SHORTCUT.DEFAULT
+    updateShortcutButton()
     // The panel owns the mode radios and their hint: it adopts a stored choice
     // and otherwise leaves its current paint (the default) alone.
     component.setStoredMode(prefs?.connection)
@@ -343,6 +354,126 @@
     el.token.type = hidden ? 'text' : 'password'
     el['toggle-token'].textContent = hidden ? t('hide') : t('show')
     el['toggle-token'].setAttribute('aria-pressed', hidden ? 'true' : 'false')
+  }
+
+  // ── annotation settings ───────────────────────────────────────────────────
+
+  /** Merge one patch into the stored prefs, leaving the other keys (host, port,
+   * token-adjacent flags, `connection`) exactly as they are. */
+  async function savePrefsPatch(patch) {
+    try {
+      const stored = await browser.storage.local.get(MSG.STORAGE_KEYS.prefs)
+      const raw = stored?.[MSG.STORAGE_KEYS.prefs]
+      const prefs = raw !== null && typeof raw === 'object' ? { ...raw, ...patch } : { ...patch }
+      await browser.storage.local.set({ [MSG.STORAGE_KEYS.prefs]: prefs })
+      return true
+    } catch (error) {
+      feedback(t('saveFailed', { reason: describeError(error) }), 'error')
+      return false
+    }
+  }
+
+  function updateShortcutButton() {
+    const button = el['shortcut-record']
+    if (button === undefined) return
+    const value = state.recording
+      ? t('recordingShortcut')
+      : SHORTCUT === undefined
+        ? state.shortcut
+        : SHORTCUT.label(state.shortcut)
+    button.textContent = value
+    button.setAttribute('aria-pressed', state.recording ? 'true' : 'false')
+    button.classList.toggle('shortcut-key--recording', state.recording)
+  }
+
+  function onShortcutRecordClick() {
+    if (state.recording) {
+      stopRecording()
+      return
+    }
+    state.recording = true
+    updateShortcutButton()
+    // Capture on the document, in the capture phase: the recorder must win over
+    // the controls around it, and it is removed the moment a key lands.
+    document.addEventListener('keydown', onRecordShortcutKey, true)
+    if (el['shortcut-record'] !== undefined) el['shortcut-record'].focus()
+  }
+
+  function stopRecording() {
+    if (!state.recording) return
+    state.recording = false
+    document.removeEventListener('keydown', onRecordShortcutKey, true)
+    updateShortcutButton()
+  }
+
+  /** @param {KeyboardEvent} event */
+  function onRecordShortcutKey(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.key === 'Escape') {
+      stopRecording()
+      return
+    }
+    // A lone modifier is a step in the combination, not an answer.
+    if (event.key === 'Control' || event.key === 'Alt' || event.key === 'Shift' || event.key === 'Meta') return
+    const spec = SHORTCUT === undefined ? null : SHORTCUT.fromEvent(event)
+    if (spec === null) {
+      feedback(t('shortcutInvalid'), 'error')
+      return
+    }
+    stopRecording()
+    void applyShortcut(spec)
+  }
+
+  /**
+   * Store the shortcut and mirror it onto the browser command when the engine
+   * allows it. Firefox's `commands.update` keeps the activeTab grant that
+   * screenshots need; Chromium lets extensions read commands but not write
+   * them, so there the page matcher is the only door and the screenshot may be
+   * missing — the feedback says so instead of claiming success.
+   * @param {string} spec
+   */
+  async function applyShortcut(spec) {
+    const normalized = SHORTCUT === undefined ? null : SHORTCUT.normalize(spec)
+    if (normalized === null) {
+      feedback(t('shortcutInvalid'), 'error')
+      return
+    }
+    state.shortcut = normalized
+    updateShortcutButton()
+    if (!(await savePrefsPatch({ shortcut: normalized }))) return
+    const commands = browser.commands
+    if (commands === undefined || typeof commands.update !== 'function') {
+      feedback(t('shortcutPagesOnly'), 'warn')
+      return
+    }
+    try {
+      await commands.update({ name: 'annotate-page', shortcut: normalized })
+    } catch {
+      feedback(t('shortcutBrowserFailed'), 'warn')
+      return
+    }
+    feedback(t('shortcutSaved'), 'ok')
+  }
+
+  async function resetShortcut() {
+    stopRecording()
+    const fallback = SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.DEFAULT
+    state.shortcut = fallback
+    updateShortcutButton()
+    if (!(await savePrefsPatch({ shortcut: fallback }))) return
+    const commands = browser.commands
+    try {
+      if (commands !== undefined && typeof commands.reset === 'function') {
+        await commands.reset('annotate-page')
+      } else if (commands !== undefined && typeof commands.update === 'function') {
+        await commands.update({ name: 'annotate-page', shortcut: fallback })
+      }
+    } catch {
+      // The page-level matcher still uses the default; the browser command is
+      // only a second door to the same mode.
+    }
+    feedback(t('shortcutReset'), 'ok')
   }
 
   // ── background state ──────────────────────────────────────────────────────

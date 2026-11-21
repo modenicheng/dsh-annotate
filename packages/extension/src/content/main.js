@@ -63,6 +63,9 @@
    * documents.
    */
   const platform = global.__DSH_PLATFORM__
+  const SHORTCUT_API = global.__DSH_SHORTCUT__
+  /** Used only when `src/shared/shortcut.js` did not load (older inject list). */
+  const SHORTCUT_DEFAULT = SHORTCUT_API && SHORTCUT_API.DEFAULT ? SHORTCUT_API.DEFAULT : 'Alt+Shift+A'
   const document = global.document
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
   // Route changes share the hydrator's coalescing budget: an SPA router can
@@ -187,6 +190,31 @@
     return String(template).replace(/\{(\w+)\}/g, (match, key) =>
       values && Object.hasOwn(values, key) ? String(values[key]) : match,
     )
+  }
+
+  /**
+   * The stored shortcut, normalized; the default when the preference is absent.
+   * Read lazily from `state.prefs` so a popup write applies on the next keydown
+   * without a second mirrored field to keep in step.
+   */
+  function shortcutSpec() {
+    if (!SHORTCUT_API || typeof SHORTCUT_API.normalize !== 'function') return SHORTCUT_DEFAULT
+    return SHORTCUT_API.normalize(state.prefs && state.prefs.shortcut) || SHORTCUT_DEFAULT
+  }
+
+  /**
+   * Firefox consumes a command's key before the page sees it, so this matcher is
+   * the fallback that makes a custom shortcut work on engines that cannot update
+   * a command (Chromium) and the door that stays open if the browser rejected a
+   * combination. With no parser loaded it reproduces the original Alt+Shift+A.
+   * @param {KeyboardEvent} event
+   */
+  function isShortcutEvent(event) {
+    if (SHORTCUT_API && typeof SHORTCUT_API.matches === 'function') {
+      return SHORTCUT_API.matches(event, shortcutSpec())
+    }
+    const key = String(event.key || '').toLowerCase()
+    return event.altKey === true && event.shiftKey === true && (event.code === 'KeyA' || key === 'a')
   }
 
   // ── restricted documents ───────────────────────────────────────────────────
@@ -1593,8 +1621,7 @@
 
   function onKeyDown(event) {
     if (!event || event.repeat) return
-    const key = String(event.key || '').toLowerCase()
-    if (event.altKey && event.shiftKey && (event.code === 'KeyA' || key === 'a')) {
+    if (isShortcutEvent(event)) {
       event.preventDefault()
       event.stopPropagation()
       toggleMode()
