@@ -609,7 +609,7 @@
       )
       if (!missing) return false
       try {
-        const files = contentScriptFiles()
+        const files = globalThis.__DSH_INJECT__.contentScriptFiles(browser.runtime.getManifest())
         if (files.length > 0) await browser.scripting.executeScript({ target: { tabId }, files })
         await browser.tabs.sendMessage(tabId, message)
         return true
@@ -617,18 +617,6 @@
         return false
       }
     }
-  }
-
-  function contentScriptFiles() {
-    const manifest = browser.runtime.getManifest()
-    const groups = Array.isArray(manifest.content_scripts) ? manifest.content_scripts : []
-    const files = []
-    for (const group of groups) {
-      for (const file of Array.isArray(group.js) ? group.js : []) {
-        if (!files.includes(file)) files.push(file)
-      }
-    }
-    return files
   }
 
   // ── outbox ────────────────────────────────────────────────────────────────
