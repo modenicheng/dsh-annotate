@@ -41,6 +41,7 @@
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
       createSession: 'anno.session.create',
+      debug: 'anno.content.debug',
     },
     TO_CONTENT: {
       records: 'anno.records',
@@ -60,6 +61,7 @@
       scan: 'anno.popup.scan',
       chooseHost: 'anno.popup.choose',
       importRecord: 'anno.popup.import',
+      activate: 'anno.popup.activate',
     },
     STORAGE_KEYS: {
       token: 'anno.token',
@@ -100,6 +102,19 @@
     info: (...args) => console.info(`${LOG_PREFIX}:`, ...args),
     warn: (...args) => console.warn(`${LOG_PREFIX}:`, ...args),
     error: (...args) => console.error(`${LOG_PREFIX}:`, ...args),
+  }
+
+  /**
+   * A small, local ring buffer of lifecycle events for the popup's Diagnostics
+   * panel. Console logging alone is useless to a user who cannot tell which of
+   * the three contexts failed, so the background records the activation path.
+   */
+  ns.diagnostics = []
+  ns.diag = (message) => {
+    const line = `${new Date().toISOString().slice(11, 23)} ${String(message).slice(0, 400)}`
+    ns.diagnostics.push(line)
+    while (ns.diagnostics.length > 80) ns.diagnostics.shift()
+    ns.log.info(String(message))
   }
 
   /** @param {unknown} value */

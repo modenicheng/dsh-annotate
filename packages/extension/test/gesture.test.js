@@ -54,6 +54,7 @@ function createSelection() {
 function createUi() {
   const calls = {
     hover: [],
+    hud: [],
     marquee: [],
     cursor: [],
     shiftDrop: [],
@@ -73,7 +74,9 @@ function createUi() {
       return ui
     },
     mount() {},
-    setHud() {},
+    setHud(options) {
+      calls.hud.push(options)
+    },
     setHidden() {},
     setCaptureSuppressed(value) {
       calls.captureSuppressed.push(value === true)
@@ -210,6 +213,10 @@ async function bootContentScript() {
     live: null,
   })
 
+  /** Storage changes the popup would broadcast; tests drive it directly. */
+  let onStorageChanged = null
+  /** The runtime's reply, when a test needs the background to answer. */
+  let sendMessageImpl = null
   const sandbox = {
     console: { log() {}, info() {}, warn() {}, error() {} },
     location: { protocol: 'http:', href: 'http://127.0.0.1/harness' },
@@ -242,7 +249,7 @@ async function bootContentScript() {
     wrappedJSObject: { eval() {} },
     browser: {
       runtime: {
-        sendMessage: () => Promise.resolve(undefined),
+        sendMessage: (message) => (sendMessageImpl ? sendMessageImpl(message) : Promise.resolve(undefined)),
         onMessage: {
           addListener(listener) {
             onContentMessage = listener
@@ -251,7 +258,11 @@ async function bootContentScript() {
       },
       storage: {
         local: { get: () => Promise.resolve({}), set: () => Promise.resolve(undefined) },
-        onChanged: { addListener() {} },
+        onChanged: {
+          addListener(listener) {
+            onStorageChanged = listener
+          },
+        },
       },
     },
     __DSH_PROTOCOL__: {
@@ -428,8 +439,22 @@ async function bootContentScript() {
 
   fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
 
+  /** Deliver one `anno.prefs` change, the way the popup's storage write does. */
+  function setPrefs(prefs) {
+    if (typeof onStorageChanged === 'function') {
+      onStorageChanged({ 'anno.prefs': { newValue: prefs } }, 'local')
+    }
+  }
+
+  /** Make the fake runtime answer sends; the default is an absent background. */
+  function stubSend(fn) {
+    sendMessageImpl = fn
+  }
+
   return {
     fire,
+    setPrefs,
+    stubSend,
     flushTimers,
     flushFrames,
     records,
@@ -978,4 +1003,77 @@ test('Shift+Tab stands the text-selection drop down instead of drawing both guid
   )
   assert.equal(harness.ui.calls.shiftDrop.at(-1), null, 'the drop leaves: element picking won the pointer')
   assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20', 'back at the deepest element, no marker')
+})
+
+test('a popup activation enters the mode instead of toggling it', async () => {
+  const harness = await bootContentScript()
+  harness.deliver({ type: 'anno.activate', mode: 'enter' })
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, true, 'the first activation enters annotate mode')
+
+  harness.ui.calls.hud.length = 0
+  harness.deliver({ type: 'anno.activate', mode: 'enter' })
+  assert.equal(harness.ui.calls.hud.length, 0, 'a second activation is a no-op, never an exit')
+
+  harness.deliver({ type: 'anno.activate', mode: 'auto' })
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, false, 'the keyboard command path still toggles out')
+})
+
+test('a right click on the page leaves annotation mode', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.hud.length = 0
+  const event = harness.fire('contextmenu', {})
+  assert.equal(event.defaultPrevented, true, 'the page context menu is suppressed')
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, false, 'leaving the mode hides the HUD')
+})
+
+test('a right click inside the open composer keeps the mode and the menu', async () => {
+  const harness = await bootContentScript()
+  harness.ui.composerOpen = true
+  harness.ui.calls.hud.length = 0
+  const event = harness.fire('contextmenu', {})
+  assert.equal(event.defaultPrevented, false, 'the textarea keeps its paste menu')
+  assert.equal(harness.ui.calls.hud.length, 0, 'the mode was not left')
+})
+
+test('right-click exit can be turned off in the preferences', async () => {
+  const harness = await bootContentScript()
+  harness.setPrefs({ exitOnRightClick: false })
+  harness.ui.calls.hud.length = 0
+  const event = harness.fire('contextmenu', {})
+  assert.equal(event.defaultPrevented, false, 'the page context menu is left alone')
+  assert.equal(harness.ui.calls.hud.length, 0, 'the mode stays')
+})
+
+test('exit after sending leaves the mode only when the preference is on', async () => {
+  const harness = await bootContentScript()
+  harness.stubSend(() => Promise.resolve({ ok: true, record: { id: 'an-test-1' } }))
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  const sendOne = async () => {
+    harness.fire('pointerdown', { clientX: 120, clientY: 50 })
+    harness.fire('pointerup', { clientX: 120, clientY: 50, buttons: 0 })
+    harness.flushTimers()
+    harness.ui.handlers.onSend({ text: '' })
+    await settle()
+  }
+
+  await sendOne()
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, true, 'off by default: the mode stays for the next mark')
+
+  harness.setPrefs({ exitAfterSend: true })
+  await sendOne()
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, false, 'with the preference on, the ack leaves the mode')
+})
+
+test('lifecycle lines reach the background as anno.content.debug', async () => {
+  const harness = await bootContentScript()
+  const sent = []
+  harness.stubSend((message) => {
+    sent.push(message)
+    return Promise.resolve(undefined)
+  })
+  harness.fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
+  const line = sent.find((message) => String(message?.message || '').startsWith('leaveMode'))
+  assert.ok(line, 'the leaveMode transition reported itself')
+  assert.match(String(line.message), /leaveMode reason=toggle/, 'the line names the transition and its reason')
 })
