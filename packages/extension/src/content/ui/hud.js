@@ -19,16 +19,6 @@
     const { t, state, handlers, dom } = ctx
     const { createElement, setVisible, fill } = dom
 
-    // The idle launcher: one small square in the corner that enters annotation
-    // mode without a keyboard. It is the only chrome that survives when the HUD
-    // is off, so it is mounted separately and shown by `setLauncher`.
-    const launcher = createElement('button', 'launcher')
-    launcher.type = 'button'
-    const launcherGlyph = createElement('span', 'launcher-glyph', 'A')
-    const launcherKey = createElement('span', 'launcher-key')
-    launcher.append(launcherGlyph, launcherKey)
-    setVisible(launcher, false)
-
     const hud = createElement('div', 'hud')
     const hudDot = createElement('span', 'hud-dot')
     const hudMode = createElement('span', 'hud-mode')
@@ -218,29 +208,8 @@
       setVisible(toastNode, false)
     }
 
-    /**
-     * Show or hide the corner launcher and name its shortcut. Visibility is a
-     * full stop, not a CSS toggle: an invisible button must not eat a click
-     * meant for the page.
-     * @param {{ visible?: boolean, shortcut?: string } | boolean} options
-     */
-    function setLauncher(options) {
-      const config = options !== null && typeof options === 'object' ? options : { visible: options === true }
-      if (config.visible !== undefined) setVisible(launcher, config.visible === true)
-      if (typeof config.shortcut === 'string') {
-        launcherKey.textContent = config.shortcut
-        launcher.title = `${t('launcherHint')} · ${config.shortcut}`
-        launcher.setAttribute('aria-label', `${t('launcher')} (${config.shortcut})`)
-      }
-    }
-
     hud.addEventListener('click', (event) => event.stopPropagation())
     pick.addEventListener('click', (event) => event.stopPropagation())
-    launcher.addEventListener('click', (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      if (typeof handlers.onLauncher === 'function') handlers.onLauncher()
-    })
 
     hudToggle.addEventListener('click', (event) => {
       event.preventDefault()
@@ -280,8 +249,6 @@
       node: hud,
       pick,
       toast: toastNode,
-      launcher,
-      setLauncher,
       syncHud,
       setHud,
       setPickBanner,

@@ -6,9 +6,8 @@ DSH client half) can be built against one description instead of drifting.
 ## The gesture
 
 1. On any page, the shortcut (default `Alt+Shift+A`, configurable in the
-   popup) or the corner launcher enters annotate mode. The toolbar popup's
-   **Annotate this page** button is the path that also grants `activeTab` on a
-   tab that predates the install.
+   popup) enters annotate mode. The toolbar popup's **Annotate this page** button
+   is the path that also grants `activeTab` on a tab that predates the install.
 2. The user marks a text selection, an element, or a region, and may write a
    comment. The mark alone is a complete annotation: an empty comment sends the
    pointer by itself.

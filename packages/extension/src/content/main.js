@@ -104,8 +104,6 @@
     selectionGesture: false,
     /** Canonical shortcut, mirrored from `anno.prefs.shortcut`. */
     shortcut: SHORTCUT_DEFAULT,
-    /** Whether the in-page launcher button is offered (prefs, unless disabled). */
-    launcher: true,
     /** Leave annotation mode after a successful send (pref, default off). */
     exitAfterSend: false,
     /** Leave annotation mode on a page right-click (pref, default on). */
@@ -768,7 +766,6 @@
     state.activeSource = source || 'user'
     if (!state.active) {
       state.active = true
-      syncLauncher()
       ui.setHud({ visible: true, mode: activeMode(), connected: state.connected })
       // A selection made before activation goes straight to the composer. It is
       // read *before* the repaint below: leaving annotation mode is what makes
@@ -805,7 +802,6 @@
     resetHoverChain()
     clearAnchor()
     if (ui) {
-      syncLauncher()
       if (ui.isComposerOpen()) ui.closeComposer()
       ui.clearLocked()
       ui.setHover(null)
@@ -1807,8 +1803,8 @@
 
   /**
    * Mirror the popup-owned prefs into the gesture layer. The language is read
-   * once at load, so changing it needs a page reload; the shortcut, the
-   * launcher, and the post-send exit apply immediately.
+   * once at load, so changing it needs a page reload; the shortcut and the exit
+   * choices apply immediately.
    * @param {any} prefs
    */
   function applyPrefs(prefs) {
@@ -1816,16 +1812,8 @@
       SHORTCUT_API && typeof SHORTCUT_API.normalize === 'function'
         ? SHORTCUT_API.normalize(prefs && prefs.shortcut) || SHORTCUT_API.DEFAULT
         : SHORTCUT_DEFAULT
-    state.launcher = !prefs || prefs.launcher !== false
     state.exitAfterSend = prefs?.exitAfterSend === true
     state.exitOnRightClick = prefs?.exitOnRightClick !== false
-    syncLauncher()
-  }
-
-  /** Show the floating launcher only while annotation mode is off. */
-  function syncLauncher() {
-    if (!ui) return
-    ui.setLauncher({ visible: state.launcher && !state.active, shortcut: state.shortcut })
   }
 
   // ── background → content ───────────────────────────────────────────────────
@@ -2022,7 +2010,6 @@
       onCancel: handleCancel,
       onToggleHidden: () => applyHidden(!state.hidden, true),
       onExit: () => leaveMode('hud'),
-      onLauncher: () => toggleMode(),
       onDelete: handleDelete,
       onClear: handleClear,
       onTargetRequest: () => void loadTargets(),
@@ -2037,7 +2024,6 @@
     })
     ui.mount()
     ui.setHidden(state.hidden)
-    syncLauncher()
     installConsoleHook()
     global.addEventListener('message', onPageMessage, false)
     global.addEventListener('keydown', onKeyDown, true)

@@ -167,7 +167,6 @@ async function bootContentScript() {
         create: () => ui,
         mount() {},
         setHud() {},
-        setLauncher() {},
         setHidden() {},
         setHover() {},
         setMarquee() {},

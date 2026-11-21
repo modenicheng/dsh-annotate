@@ -609,42 +609,6 @@
 .toast[data-tone="error"] { border-color: #ef4444; color: #fecaca; }
 .toast[data-tone="ok"] { border-color: #22c55e; }
 
-/* Idle launcher: the same dark chrome as the HUD, floated in the corner so the
-   mode is reachable without the keyboard. It is hidden (not just transparent)
-   while annotation mode is on, so it can never eat a page click. */
-.launcher {
-  position: fixed;
-  z-index: 10;
-  right: 16px;
-  bottom: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(17, 24, 39, 0.95);
-  color: #e5e7eb;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-}
-.launcher::before {
-  content: "";
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #2563eb;
-}
-.launcher:hover { background: #1f2937; }
-.launcher:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
-.launcher-glyph { font: 600 17px / 1 var(--font-ui); }
-/* The shortcut is the tooltip; a visible label would not fit 44 px. */
-.launcher-key { display: none; }
 `
 
   ui.styles = { BADGE_PX, CSS }

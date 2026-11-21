@@ -77,7 +77,6 @@ function createUi() {
     setHud(options) {
       calls.hud.push(options)
     },
-    setLauncher() {},
     setHidden() {},
     setCaptureSuppressed(value) {
       calls.captureSuppressed.push(value === true)

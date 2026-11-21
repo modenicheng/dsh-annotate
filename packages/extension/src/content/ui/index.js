@@ -163,7 +163,6 @@
     // would otherwise stringify it into the page as text.
     shadow.append(
       ctx.hud.node,
-      ctx.hud.launcher,
       ctx.hud.pick,
       ctx.overlay.hoverBox,
       ctx.overlay.hoverChip,
@@ -229,7 +228,6 @@
         ctx.hud.syncHud()
       },
       setHud: ctx.hud.setHud,
-      setLauncher: ctx.hud.setLauncher,
       setHover: ctx.overlay.setHover,
       setLocked: ctx.overlay.setLocked,
       clearLocked: ctx.overlay.clearLocked,

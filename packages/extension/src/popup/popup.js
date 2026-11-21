@@ -85,8 +85,6 @@
     busyIds: new Set(),
     /** Canonical shortcut string; the browser command and the page both use it. */
     shortcut: SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.DEFAULT,
-    /** Whether the in-page floating button is offered. */
-    launcher: true,
     /** Leave annotation mode after a successful send (off by default). */
     exitAfterSend: false,
     /** Leave annotation mode on a page right-click (on by default). */
@@ -188,7 +186,6 @@
       'feedback',
       'shortcut-record',
       'shortcut-reset',
-      'launcher-toggle',
       'exit-after-send',
       'exit-on-right-click',
       'annotate',
@@ -210,7 +207,6 @@
     if (el.records !== undefined) el.records.addEventListener('click', onRecordsClick)
     if (el['shortcut-record'] !== undefined) el['shortcut-record'].addEventListener('click', onShortcutRecordClick)
     if (el['shortcut-reset'] !== undefined) el['shortcut-reset'].addEventListener('click', () => void resetShortcut())
-    if (el['launcher-toggle'] !== undefined) el['launcher-toggle'].addEventListener('change', () => void saveLauncher())
     if (el['exit-after-send'] !== undefined) {
       el['exit-after-send'].addEventListener('change', () => void saveExitAfterSend())
     }
@@ -309,10 +305,8 @@
     if (el.port !== undefined) el.port.value = String(port)
     if (el.token !== undefined && document.activeElement !== el.token) el.token.value = token
     state.shortcut = SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.normalize(prefs?.shortcut) || SHORTCUT.DEFAULT
-    state.launcher = prefs?.launcher !== false
     state.exitAfterSend = prefs?.exitAfterSend === true
     state.exitOnRightClick = prefs?.exitOnRightClick !== false
-    if (el['launcher-toggle'] !== undefined) el['launcher-toggle'].checked = state.launcher
     if (el['exit-after-send'] !== undefined) el['exit-after-send'].checked = state.exitAfterSend
     if (el['exit-on-right-click'] !== undefined) el['exit-on-right-click'].checked = state.exitOnRightClick
     updateShortcutButton()
@@ -513,11 +507,6 @@
       // only a second door to the same mode.
     }
     feedback(t('shortcutReset'), 'ok')
-  }
-
-  async function saveLauncher() {
-    state.launcher = el['launcher-toggle'] === undefined ? true : el['launcher-toggle'].checked
-    await savePrefsPatch({ launcher: state.launcher })
   }
 
   async function saveExitAfterSend() {
