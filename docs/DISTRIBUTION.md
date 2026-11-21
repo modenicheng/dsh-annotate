@@ -231,9 +231,17 @@ entries are live.
 
 Triggers:
 
-- `push: tags: ['v*']` for builds. Verify the tag matches the manifest and
-  package versions and is an ancestor of `main`; a mistyped tag must fail before
-  anything is built.
+- `workflow_call` from the release-please workflow for the normal path.
+  release-please merges the Release PR, tags `vX.Y.Z` (force-tag-creation, so
+  the tag exists while the release is still a draft), and opens the draft
+  release with the changelog as its body; the called draft job then verifies
+  the tag, builds, and attaches the artifacts. The call cannot be a tag-push
+  event: release-please pushes the tag with `GITHUB_TOKEN`, and events created
+  by `GITHUB_TOKEN` do not start other workflows.
+- `push: tags: ['v*']` as the manual fallback: a hand-pushed tag gets the same
+  verify-and-build treatment and opens its own draft with generated notes.
+  Verify the tag matches the manifest and package versions and is an ancestor
+  of `main`; a mistyped tag must fail before anything is built.
 - `workflow_dispatch` with an explicit tag for retries, so a failed upload does
   not require re-tagging.
 - `concurrency: { group: release, cancel-in-progress: false }`. Never cancel a
@@ -241,11 +249,12 @@ Triggers:
 - Protect `v*` tags and require the release environment's reviewers; otherwise
   anyone who can push a tag can publish.
 
-Prefer a release tool that opens a version-bump PR (release-please or
-equivalent) over hand-pushed tags: the tag then always follows a reviewed diff
-that already bumped every version source. release-please's `extra-files` JSON
-updater can carry `packages/extension/manifest.json` alongside the package
-manifests.
+release-please owns the version bump (`release-please-config.json`, package at
+the repository root): it reads the Conventional Commits on `main`, maintains a
+Release PR that bumps `packages/plugin/package.json` and
+`packages/extension/manifest.json` ($.version, through the extra-files JSON
+updater) in the same diff and updates `CHANGELOG.md`. The tag then always
+follows a reviewed diff that already bumped every version source.
 
 ### 4.4 Artifacts
 
@@ -277,8 +286,9 @@ build.
 ### 4.5 Changelog
 
 Conventional Commits are already enforced by the local hooks, so the changelog
-is mechanical: `git-cliff` with a config in the repo, run at draft time, with
-the commit range from the previous tag. Two rules:
+is mechanical: release-please maintains `CHANGELOG.md` in the Release PR and
+writes the draft release body from the same parsing, in the sections
+configured in `release-please-config.json`. Two rules:
 
 - The generated notes are a draft for a human to edit; they become the store
   "what's new" text, which is user-facing and cannot be regenerated after
