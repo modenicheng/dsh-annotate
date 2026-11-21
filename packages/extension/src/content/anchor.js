@@ -295,6 +295,22 @@
   }
 
   /**
+   * The element the range's own common ancestor lives in — the smallest tree
+   * that can contain every block the range touches, and cheap to compute.
+   * @param {any} range
+   */
+  function scopeRootFor(range) {
+    let node = null
+    try {
+      node = range.commonAncestorContainer
+    } catch {
+      node = null
+    }
+    const element = node ? (node.nodeType === 1 ? node : node.parentElement) : null
+    return element || document.body || null
+  }
+
+  /**
    * Flatten a subtree into one string plus the offsets of every text node, so
    * quote/offset maths is a substring search instead of a DOM walk per probe.
    */
@@ -943,6 +959,29 @@
     return element || document.body || null
   }
 
+  /**
+   * The scope a multi-block selection is anchored to: the nearest non-inline
+   * element that contains both of its endpoint text nodes. A selection that
+   * spans paragraphs is one gesture over all of them, so its quote, paths,
+   * text position and geometry must cover the same whole span — anchoring it to
+   * the start block alone would silently drop every later paragraph.
+   * @param {any} first @param {any} last
+   */
+  function commonBlockFor(first, last) {
+    const ancestors = new Set()
+    for (let node = first; node; node = node.parentNode) {
+      if (node.nodeType === 1) ancestors.add(node)
+    }
+    let shared = null
+    for (let node = last; node; node = node.parentNode) {
+      if (node.nodeType === 1 && ancestors.has(node)) {
+        shared = node
+        break
+      }
+    }
+    return blockFor(shared)
+  }
+
   function clampOffset(offset, node) {
     const length = node && node.nodeValue ? node.nodeValue.length : 0
     const value = Number(offset)
@@ -953,8 +992,10 @@
   /**
    * Selection anchor. `rect` is in document coordinates (the validator requires
    * it), while the composer's crop rect is kept in viewport pixels separately.
-   * The geometry is scoped to the same block as the quote: a selection that
-   * ends in a later block is anchored, cropped and banded as its first block.
+   * The anchor is scoped to the nearest non-inline container that holds the
+   * whole selection: one gesture over several paragraphs is one annotation that
+   * carries all of them, and the quote, the paths, the text position and the
+   * geometry all describe the same span.
    */
   function selectionState(selection) {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
@@ -968,12 +1009,14 @@
     }
     if (text.trim() === '') return null
 
-    const block = blockFor(range.startContainer)
-    if (!block) return null
-    const nodes = nodesInRange(range, block)
+    // The walk must see every block the range touches, so it is rooted at the
+    // range's common ancestor — the start block alone would hide the rest.
+    const nodes = nodesInRange(range, scopeRootFor(range))
     if (nodes.length === 0) return null
     const first = nodes[0]
     const last = nodes[nodes.length - 1]
+    const block = commonBlockFor(first, last)
+    if (!block) return null
     // A range endpoint that sits on an element boundary is not inside a text
     // node, so the first/last text node it touches is fully selected.
     const startOffset = first === range.startContainer ? clampOffset(range.startOffset, first) : 0
@@ -993,12 +1036,10 @@
     const exact = quoteText.slice(0, LIMITS.quoteChars)
     if (exact.trim() === '') return null
 
-    // The quote, the dom paths and the text position all describe the part of
-    // the selection inside the start block: `nodesInRange` only walks that
-    // block. The geometry must describe the same span, or a drag that ends in
-    // a later block stores a rect whose crop and composer band cover text the
-    // quote never mentions, and a reload paints a smaller mark than the one
-    // that was made.
+    // The quote, the dom paths and the text position all describe the same
+    // span as the geometry: the clamped range runs from the first to the last
+    // covered text node, which for a cross-block selection is the whole
+    // gesture, and never text the quote does not mention.
     let geometryRange = range
     try {
       const owner = block.ownerDocument || global.document

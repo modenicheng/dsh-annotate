@@ -127,13 +127,13 @@ function twoBlockDocument() {
   return { document, first, second }
 }
 
-test('a selection that ends in a later block keeps its geometry inside the anchor block', async () => {
+test('a selection that spans two blocks marks both of them', async () => {
   const { document, first, second } = twoBlockDocument()
   const { ns } = await bootContent({ document, scrollY: 500 })
 
   // The drag starts mid-word in the first block and ends mid-word in the
-  // second one: the browser reports one line fragment per container, and the
-  // union of both spans far more text than the block-scoped quote describes.
+  // second one: one deliberate gesture over two paragraphs, and the annotation
+  // must carry the whole of it — the quote, the geometry and the live range.
   const range = document.createRange()
   range.setStart(first.childNodes[0], 2)
   range.setEnd(second.childNodes[1], 3)
@@ -145,21 +145,41 @@ test('a selection that ends in a later block keeps its geometry inside the ancho
 
   const state = ns.anchor.selection(selection)
   assert.ok(state, 'a cross-block drag is still one annotation')
-  // The anchor stays scoped to the start block, as before the fix.
-  assert.equal(state.anchor.quote.exact, 'pha beta')
-  assert.equal(state.anchor.domRange.blockSelector, '#first')
-  // The geometry now describes the same span as the quote: unioning both live
-  // fragments (240 px wide, both blocks tall) would cover a block the quote
-  // never mentions, and the crop taken from it would show that block.
-  assert.deepEqual(plain(state.viewportRect), { x: 0, y: 100, w: 200, h: 20 })
-  assert.deepEqual(plain(state.anchor.rect), { x: 0, y: 600, w: 200, h: 20 })
-  assert.deepEqual(plain(state.lineRects), [
-    { x: 0, y: 600, w: 120, h: 20 },
-    { x: 120, y: 600, w: 80, h: 20 },
-  ])
-  // The live range rides along clamped too, so the crop re-measured at submit
-  // time covers the recorded words instead of the whole drag.
+  // The quote covers both blocks, from the start of the drag to its end.
+  assert.equal(state.anchor.quote.exact, 'pha betagamma del')
+  // The anchor block widens to the scope that holds the whole selection.
+  assert.equal(state.anchor.domRange.blockSelector, 'body:nth-of-type(1)')
+  assert.equal(state.anchor.textPosition.start, 2)
+  assert.equal(state.anchor.textPosition.end, 19)
+  // The geometry describes the same span as the quote: both rows, nothing more.
+  assert.deepEqual(plain(state.viewportRect), { x: 0, y: 100, w: 240, h: 120 })
+  assert.deepEqual(plain(state.anchor.rect), { x: 0, y: 600, w: 240, h: 120 })
+  // The live range rides along covering the whole drag, so the crop re-measured
+  // at submit time shows every marked word.
   assert.equal(String(state.live.range), state.anchor.quote.exact)
+})
+
+test('a cross-block selection re-anchors after a reload with both blocks', async () => {
+  const { document, first, second } = twoBlockDocument()
+  const { ns } = await bootContent({ document, scrollY: 500 })
+
+  const range = document.createRange()
+  range.setStart(first.childNodes[0], 2)
+  range.setEnd(second.childNodes[1], 3)
+  const selection = { rangeCount: 1, isCollapsed: false, getRangeAt: () => range }
+  const captured = ns.anchor.selection(selection)
+  assert.ok(captured, 'the cross-block capture holds')
+
+  // A reload sees only the stored anchor; the hydrator must rebuild a range
+  // that spans the same two blocks, not the first one alone.
+  const placement = ns.hydrate.resolve({ id: 'an-20261122-cc0001', anchor: captured.anchor }, document, {})
+  assert.ok(placement, 'the anchor re-resolves')
+  assert.equal(placement.method, 'dom-range', 'the recorded paths verify against the quote')
+  assert.equal(
+    String(placement.range),
+    'pha betagamma del',
+    'the rebuilt range covers both paragraphs of the original gesture',
+  )
 })
 
 /** Boot with one element alone in a document, so uniqueness checks are honest. */
