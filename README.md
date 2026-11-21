@@ -102,16 +102,32 @@ What the extension reads, where it sends it and what it keeps locally is
    Windows). Leave **Connection** on *Automatic* and the address at the default
    `127.0.0.1` / `3080`; the extension then finds a host whose port moved by
    itself.
-2. Press `Alt+Shift+A` on a page: select text, click an element, or drag a
-   region, then press Enter. While an element is outlined, `Tab` widens it one
-   ancestor at a time and `Shift+Tab` steps back down; the click locks whatever
-   level is outlined. The comment is optional — with an empty one the
-   mark is sent on its own (the button reads **Send mark** / **只发标记**).
+2. On a page press `Alt+Shift+A` (the default; change it in the popup's
+   **Annotate** section): select text, click an element, or drag a region, then
+   press Enter. While an element is outlined, `Tab` widens it one ancestor at a time
+   and `Shift+Tab` steps back down; the click locks whatever level is outlined.
+   The comment is optional — with an empty one the mark is sent on its own (the
+   button reads **Send mark** / **只发标记**). A right-click on the page leaves
+   annotation mode (this can be turned off in the popup); inside the composer
+   the browser's own text menu wins.
 3. If the host cannot be found: switch to *Manual* and type the address — a
    full URL such as `wss://anno.example.com` works, and with no scheme the
    extension asks the host which one to use — or use **Import endpoint file…**
    to read the address from `$DSH_HOME/ext-bridge-endpoint.json`. Details:
    [docs/DISCOVERY.md](docs/DISCOVERY.md).
+
+The popup's **Annotate** section can also make a successful send leave the mode
+(off by default) and turn the right-click exit off. Recording a shortcut
+updates the browser command on Firefox, which is what keeps the screenshot's
+`activeTab` grant working; Chromium does not let extensions write commands, so
+there the recorded key works on pages and the toolbar path may still be needed
+for screenshots. The popup follows the browser UI language (English and
+Simplified Chinese ship today). If **Annotate this page** reports that the
+background did not answer, the popup is newer than the extension loaded in this
+browser session: click **Reload** in `about:debugging` and refresh the page. The
+popup's **Diagnostics** panel records the activation path (active tab, delivery,
+injection) for the cases where the background does answer but the overlay stays
+away.
 
 ## Tools
 
