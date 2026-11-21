@@ -615,9 +615,10 @@ through it.
 - A Microsoft account, then Partner Center: <https://partner.microsoft.com/dashboard/microsoftedge/public/login>.
 - The Edge program is free — no card, no fee. An individual account is enough; the publisher name is
   public on the listing.
-- Registration asks for a contact address. Chinese addresses work, but the province field wants the
-  code (`GD`, `ZJ`, …) rather than the name; a Chinese province name is the most common reason the
-  form refuses to submit.
+- Registration asks for a contact address. The province is a dropdown; the city and postal code
+  follow it (a Beijing postcode starts with `10`, not the administrative code `110100`).
+- The address validator usually cannot verify a Chinese address and offers **continue anyway**; take
+  it. Use an address you can actually receive mail at: the publisher profile shows it publicly.
 
 ### 8.2 The artifact
 
