@@ -530,7 +530,9 @@
       el['connection-label'].textContent = t(CONNECTION_KEYS[connection] ?? 'statusUnknown')
     }
     if (typeof status.lastError === 'string' && status.lastError !== '') {
-      feedback(status.lastError, 'error')
+      // The background's strings are diagnostics and stay English; the one a
+      // first-run user actually meets (no token yet) has a translated twin.
+      feedback(connection === 'no-token' ? t('noTokenFeedback') : status.lastError, 'error')
     } else if (connection === 'connected') {
       feedback(t('connectedFeedback'), 'ok')
     }
