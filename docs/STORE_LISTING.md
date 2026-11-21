@@ -14,10 +14,11 @@ Each store also asks for a privacy-policy URL, which must be a public page rathe
 at.
 
 One maintainer note before the paste blocks: the checked-in manifest is the Firefox target.
-`node scripts/build-extension.mjs --target chromium` produces the Chromium package from the same
+`node scripts/build-extension.mjs --target chromium` produces the Chromium target from the same
 tree — a service worker instead of `background.scripts`, no `ws://`/`wss://` host permissions (match
-patterns reject them), and the `platform.js` engine shim. Paste the CWS and Edge blocks against that
-artifact, not against `packages/extension`. The product name is `dsh-marker` everywhere a user types
+patterns reject them), and the `platform.js` engine shim. Read the CWS and Edge blocks against that
+target, or against the CI-built zip for the tag, and never against `packages/extension`; uploads use
+the CI zip, not a local build (§7.2, §8.2). The product name is `dsh-marker` everywhere a user types
 it (D23); the `anno` wire vocabulary stays internal.
 
 ## 1. Mozilla Add-ons (AMO)
@@ -619,27 +620,21 @@ through it.
 
 ### 8.2 The artifact
 
-The package is the Chromium zip, not a separate build:
+The package is the Chromium zip that CI built for the release tag — not a local `dist/` build
+([AGENTS.md](../AGENTS.md): releases and packaging are CI-only). Take it from the release:
 
 ```
-node scripts/build-extension.mjs --target chromium
+dsh-marker-chromium-<version>.zip     on the GitHub Release for the tag
+checksums.txt                         same release; verify the zip's SHA-256
 ```
 
-Zip the **contents** of `dist/chromium`, so `manifest.json` sits at the archive root and there is no
-top-level folder. The candidate built on 2026-11-21 from `chore(release): bump the product to
-0.1.4`:
+The tag build may still be a **draft**: its assets are attached and downloadable before the release
+is published, so the first store submission does not have to publish the release (and npm) first.
 
-| Property | Value |
-|---|---|
-| File | `dist/edge/dsh-marker-chromium-0.1.4.zip` |
-| Size | 175,911 bytes |
-| SHA-256 | `bc971b6ba71253aabac0762df6519e70b86ef739669318f09d7fff2d63571076` |
-| Contents | 39 files; `manifest.json` at the root; no `test/`, no `package.json` |
-
-A rebuild will not reproduce that hash (the zip tool differs), so verify the version inside the
-manifest instead of the bytes. At the time of writing the 0.1.4 tag is not pushed and the GitHub
-release is still 0.1.3; the Edge listing can lead, but the tag should follow before the listing URL
-is announced anywhere.
+Before uploading, unzip the asset and check it: `manifest.json` at the archive root, no `test/`, no
+`package.json`, `node scripts/check-manifest.mjs <unzipped-dir>` passing, and the version inside
+matching the tag. A local `node scripts/build-extension.mjs --target chromium` is QA only; never
+upload its output.
 
 ### 8.3 Create the extension and upload
 

@@ -19,6 +19,28 @@ may not.
   processes, missing toolchain), stop and say so. Do not work around it by
   committing without the hook.
 
+## Releases and packaging are CI-only
+
+- **Agents never cut a release locally.** No `git tag`, no `npm publish`, no
+  Chrome Web Store / AMO / Edge upload, no `gh release upload`, and no local
+  zip presented as a release artifact. A release is the tag plus what
+  `.github/workflows/release.yml` builds and publishes from it; a human
+  maintainer may push the tag, an agent may not.
+- **Local builds are never deliverables.** `node scripts/build-extension.mjs`
+  and everything it writes under `dist/` exist for tests, inspection, and local
+  QA. Their output must not be uploaded to a store, attached to a release, sent
+  to a user, or compared to the published checksums.
+- **Even a manual upload uses CI bytes.** The first submission to a store, and
+  any manual retry, downloads the artifact from the CI run (or the draft GitHub
+  Release it produced), verifies the checksum from `checksums.txt`, and uploads
+  that file. The upload is a delivery step, not a build step.
+- **If the CI artifact is missing or wrong, fix CI.** Re-run the build for the
+  tag, or carry the fix in the next patch version. Never rebuild locally and
+  upload it to "save time"; the published bytes and the checksummed bytes must
+  be the same bytes.
+- Do not create a tag merely to obtain a zip for local testing. Build locally
+  for QA, say that it is a QA build, and leave the release path alone.
+
 ## Git hygiene
 
 - Run `git status` before any git operation, and read it. If the tree has

@@ -138,14 +138,17 @@ TypeScript、没有依赖。以临时附加组件方式加载：
 临时附加组件在浏览器关闭后消失。要让安装永久化需要 addons.mozilla.org
 签名的 `.xpi`（M5）。
 
-两个商店包都由同一份源码生成：
+两个目标由同一份源码生成，供本地 QA 和检查：
 
 ```sh
 node scripts/build-extension.mjs        # dist/firefox + dist/chromium
 ```
 
-Firefox 是真正跑过的平台；Chromium 已构建且 lint 干净，但还需要浏览器 QA
-（见 [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)）。
+本地构建只用于测试；商店收到的包由 CI 从发布 tag 构建
+（[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) §4.4）。
+
+Firefox 是真正跑过的平台；Chromium 已在 Chromium 156 里通过浏览器 QA ——
+加载、service worker、content script、popup 和批注 HUD。
 
 扩展读了什么、发到哪里、本地留了什么，见
 [docs/privacy.md](docs/privacy.md)——商店链接的也是这一页。

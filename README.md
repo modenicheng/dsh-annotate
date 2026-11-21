@@ -149,14 +149,18 @@ bundler, no TypeScript and no dependency. Load it as a temporary add-on:
 Temporary add-ons disappear when the browser closes. A signed `.xpi` from
 addons.mozilla.org is what makes the install permanent (M5).
 
-The two store packages are generated from that one source tree:
+The two targets are generated from one source tree for local QA and inspection:
 
 ```sh
 node scripts/build-extension.mjs        # dist/firefox + dist/chromium
 ```
 
-Firefox is what has been run for real; Chromium is built and lint-clean but
-still needs its browser QA pass ([docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)).
+A local build is for testing only; the packages a store receives are built by CI
+from the release tag ([docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) §4.4).
+
+Firefox is what has been run for real; Chromium has had its browser QA pass in
+Chromium 156 — load, service worker, content script, popup, and the annotation
+HUD.
 
 What the extension reads, where it sends it and what it keeps locally is
 [docs/privacy.md](docs/privacy.md) — the same page the stores link to.
