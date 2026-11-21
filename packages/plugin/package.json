@@ -1,6 +1,6 @@
 {
   "name": "dsh-marker",
-  "version": "0.1.4",
+  "version": "1.0.0",
   "description": "Visual annotation bridge: mark text, elements, or regions in Firefox/Zen and hand them to DeepSeek Harness as first-class context",
   "type": "module",
   "license": "MIT",
