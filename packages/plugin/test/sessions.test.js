@@ -4,6 +4,9 @@ import test from 'node:test'
 import { SESSIONS_PATH } from '../src/protocol.js'
 import { createSessionCatalog, registerSessionsRoute } from '../src/sessions.js'
 
+/** Auth the header-only world uses everywhere: the token rides the dedicated header. */
+const AUTH = { headers: { 'x-anno-token': 'secret' } }
+
 /**
  * @param {object} services
  * @returns {(name: string) => any}
@@ -327,24 +330,25 @@ test('the route rejects a missing or wrong token', async () => {
 
   assert.equal((await call(handler, SESSIONS_PATH)).status, 401)
   assert.equal((await call(handler, `${SESSIONS_PATH}?token=nope`)).status, 401)
+  assert.equal((await call(handler, `${SESSIONS_PATH}?token=secret`)).status, 401)
   assert.equal((await call(handler, SESSIONS_PATH, { headers: { authorization: 'Bearer nope' } })).status, 401)
 })
 
-test('the route accepts query, bearer and header tokens', async () => {
+test('the route accepts bearer and header tokens but never a query token', async () => {
   const catalog = createSessionCatalog({ get: lookup(services()) })
   const { handler } = mount({ catalog, token: 'secret', matchesToken: (a, b) => a === b })
 
-  for (const url of [`${SESSIONS_PATH}?token=secret`, `${SESSIONS_PATH}?token=secret&limit=1`]) {
-    const { status, body } = await call(handler, url)
-    assert.equal(status, 200)
-    assert.equal(body.ok, true)
-  }
-
   const bearer = await call(handler, SESSIONS_PATH, { headers: { authorization: 'Bearer secret' } })
   assert.equal(bearer.status, 200)
+  assert.equal(bearer.body.ok, true)
 
   const custom = await call(handler, SESSIONS_PATH, { headers: { 'x-anno-token': 'secret' } })
   assert.equal(custom.status, 200)
+
+  // The URL never carries credentials: even a correct token in the query string is refused.
+  for (const url of [`${SESSIONS_PATH}?token=secret`, `${SESSIONS_PATH}?token=secret&limit=1`]) {
+    assert.equal((await call(handler, url)).status, 401)
+  }
 })
 
 test('the route answers the catalog with a default target', async () => {
@@ -353,7 +357,7 @@ test('the route answers the catalog with a default target', async () => {
     token: 'secret',
     matchesToken: (a, b) => a === b,
   })
-  const { body } = await call(handler, `${SESSIONS_PATH}?token=secret&limit=2`)
+  const { body } = await call(handler, `${SESSIONS_PATH}?limit=2`, { headers: { 'x-anno-token': 'secret' } })
 
   assert.deepEqual(
     body.items.map((item) => item.id),
@@ -371,15 +375,15 @@ test('the Session the Client is showing becomes the default target, while it is 
     preferred: () => 's-blank',
   }
   const { handler } = mount(registration)
-  assert.equal((await call(handler, `${SESSIONS_PATH}?token=secret`)).body.defaultSessionId, 's-blank')
+  assert.equal((await call(handler, SESSIONS_PATH, AUTH)).body.defaultSessionId, 's-blank')
 
   // A hint for a Session this catalog no longer lists is not a choice.
   const gone = mount({ ...registration, preferred: () => 's-deleted' })
-  assert.equal((await call(gone.handler, `${SESSIONS_PATH}?token=secret`)).body.defaultSessionId, 's-new')
+  assert.equal((await call(gone.handler, SESSIONS_PATH, AUTH)).body.defaultSessionId, 's-new')
 
   // And with no hint at all, activity decides, as before.
   const quiet = mount({ ...registration, preferred: () => undefined })
-  assert.equal((await call(quiet.handler, `${SESSIONS_PATH}?token=secret`)).body.defaultSessionId, 's-new')
+  assert.equal((await call(quiet.handler, SESSIONS_PATH, AUTH)).body.defaultSessionId, 's-new')
 })
 
 test('the route reports catalog failures without leaking a stack', async () => {
@@ -389,7 +393,7 @@ test('the route reports catalog failures without leaking a stack', async () => {
     },
   }
   const { handler } = mount({ catalog, token: 'secret', matchesToken: (a, b) => a === b })
-  const { status, body } = await call(handler, `${SESSIONS_PATH}?token=secret`)
+  const { status, body } = await call(handler, SESSIONS_PATH, { headers: { 'x-anno-token': 'secret' } })
 
   assert.equal(status, 500)
   assert.equal(body.error, 'catalog')

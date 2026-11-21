@@ -113,6 +113,23 @@ test('image references survive a reload', async () => {
   assert.equal(reloaded.image('an-20261118-ffffff')?.attachmentId, 'sha256:abc')
 })
 
+test('deleteWhere reaches records beyond the list window', async () => {
+  const dir = join(root, 'bulk')
+  const store = await new AnnotationStore({ dir, logger: silent }).load()
+  for (let index = 0; index < 250; index += 1) {
+    await store.put(record(`r${String(index).padStart(4, '0')}`, { state: 'resolved' }))
+  }
+  await store.put(record('keepme', { state: 'open', createdAt: '2026-11-20T00:00:00.000Z' }))
+  // `list()` can only ever see the newest 200; `deleteWhere` must see all.
+  assert.equal(store.list({ status: 'all', limit: 200 }).length, 200)
+  const cutoff = Date.parse('2026-11-19T00:00:00.000Z')
+  const removed = await store.deleteWhere((item) => item.state === 'resolved' && Date.parse(item.createdAt) < cutoff)
+  assert.equal(removed.length, 250, 'every matching record is deleted, not just the first 200')
+  assert.equal(store.size, 1)
+  const reloaded = await new AnnotationStore({ dir, logger: silent }).load()
+  assert.equal(reloaded.size, 1, 'the del events persist and fold after a restart')
+})
+
 test('url matching is forgiving about query strings but not paths', () => {
   assert.equal(matchesUrl('https://a.test/docs?x=1#h', 'https://a.test/docs?x=2'), true)
   assert.equal(matchesUrl('https://a.test/docs', 'https://a.test/other'), false)

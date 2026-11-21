@@ -100,14 +100,20 @@ export function createFocusStore({ dir, logger, file = 'focus.json' }) {
   /** @param {FocusEntry} next */
   async function persist(next) {
     // Serialized the same way the queue is: two overlapping renames would
-    // interleave and leave one report half-written.
-    writing = (writing ?? Promise.resolve()).then(async () => {
+    // interleave and leave one report half-written. The chain hands the pen
+    // on either settlement, so one failed write cannot strand later reports.
+    const write = async () => {
       const temporary = `${path}.tmp`
       await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
       await rename(temporary, path)
       persistedAt = next.at
-    })
-    await writing
+    }
+    const attempt = (writing ?? Promise.resolve()).then(write, write)
+    writing = attempt.then(
+      () => undefined,
+      () => undefined,
+    )
+    await attempt
   }
 
   return { load, get, set, flush: () => writing ?? Promise.resolve(), path }

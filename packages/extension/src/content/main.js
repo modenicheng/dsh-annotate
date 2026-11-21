@@ -63,6 +63,10 @@
   const platform = global.__DSH_PLATFORM__
   const document = global.document
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
+  // Route changes share the hydrator's coalescing budget: an SPA router can
+  // push several history entries while settling on a view, and each refresh
+  // clears the page's marks before re-querying.
+  const ROUTE_REFRESH_DEBOUNCE_MS = 250
   const HOOK_KEY = '__DSH_ANNO_HOOK__'
   /** Parallel host mutations for a bulk clear; the host acks one id at a time. */
   const DELETE_CONCURRENCY = 3
@@ -116,8 +120,13 @@
     /** Record ids whose highlights are painted on the page right now; '' when none. */
     markedSignature: '',
     clearing: false,
+    /** The URL the currently loaded annotations belong to. */
+    routeUrl: '',
+    routeScheduler: null,
   }
   ns.booted = true
+  // Pure URL→document predicate, exported for the route-refresh tests.
+  ns.documentChanged = documentChanged
 
   // ── messaging ──────────────────────────────────────────────────────────────
 
@@ -522,6 +531,76 @@
         if (Array.isArray(normalized.records)) replaceRecords(normalized.records)
       },
     )
+  }
+
+  // ── SPA route changes ──────────────────────────────────────────────────────
+
+  /**
+   * Whether `prev` and `next` point at different *documents*, in the same
+   * sense the store uses: query and hash alone never separate annotations, so
+   * they must not separate a refresh either. Exposed on `ns` for tests.
+   * @param {string} prev
+   * @param {string} next
+   * @returns {boolean}
+   */
+  function documentChanged(prev, next) {
+    if (typeof prev !== 'string' || prev === '') return typeof next === 'string' && next !== ''
+    return !P.sameDocument({ url: prev }, next)
+  }
+
+  function currentHref() {
+    return String((global.location && global.location.href) || '')
+  }
+
+  /**
+   * A history event may or may not have moved the document: the scheduler runs
+   * later, so the comparison is deferred to the moment of the refresh, where
+   * `location.href` is what the page settled on (routers often push and then
+   * immediately replace while booting a view).
+   */
+  function onPossibleRouteChange() {
+    if (documentChanged(state.routeUrl, currentHref())) state.routeScheduler.request()
+  }
+
+  /**
+   * The document moved: the old marks are pinned into DOM the router may have
+   * replaced, so they come off first — even if the re-query fails, the page
+   * must not keep the previous route's annotations. `queryRecords` →
+   * `replaceRecords` then repaints for the new URL.
+   */
+  function onRouteRefresh() {
+    if (!documentChanged(state.routeUrl, currentHref())) return
+    state.routeUrl = currentHref()
+    withObserverPaused(() => ns.hydrate.clearMarks())
+    state.placements.clear()
+    state.markedSignature = ''
+    void queryRecords()
+  }
+
+  /**
+   * Routers navigate through `history.pushState/replaceState` with no event we
+   * could otherwise see. The wrappers are transparent — same `this`, same
+   * arguments, same return value — and only ask whether a refresh is needed;
+   * a page whose history object refuses patching simply keeps the
+   * `popstate`/`hashchange` fallbacks.
+   */
+  function patchHistory() {
+    const history = global.history
+    if (!history || typeof history.pushState !== 'function' || typeof history.replaceState !== 'function') return
+    if (history.__dshAnnoRoutes) return
+    try {
+      for (const name of ['pushState', 'replaceState']) {
+        const original = history[name]
+        history[name] = function patchedState(...args) {
+          const result = original.apply(this, args)
+          onPossibleRouteChange()
+          return result
+        }
+      }
+      history.__dshAnnoRoutes = true
+    } catch {
+      // Sealed or frozen history: popstate/hashchange still cover the user.
+    }
   }
 
   // ── deleting annotations ───────────────────────────────────────────────────
@@ -1739,6 +1818,12 @@
       }
     }
     state.scheduler = ns.hydrate.createScheduler(onRehydrateTick, REHYDRATE_INTERVAL_MS)
+    // SPA routers swap documents without a load; see `onRouteRefresh`.
+    state.routeUrl = currentHref()
+    state.routeScheduler = ns.hydrate.createScheduler(onRouteRefresh, ROUTE_REFRESH_DEBOUNCE_MS)
+    global.addEventListener('popstate', onPossibleRouteChange, true)
+    global.addEventListener('hashchange', onPossibleRouteChange, true)
+    patchHistory()
     startObserver()
     void loadPrefs()
     void send(MSG.background.ready, {

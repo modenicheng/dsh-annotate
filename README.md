@@ -111,7 +111,7 @@ What the extension reads, where it sends it and what it keeps locally is
 
 ## Tools
 
-The host registers five tools, which appear in your DSH sessions; the one you
+The host registers six tools, which appear in your DSH sessions; the one you
 will see most is `annotate_pick`, the banner asking you to point at something.
 All of them operate on the annotation store and broadcast changes back to
 connected browsers.
@@ -121,6 +121,7 @@ connected browsers.
 | `annotate_list` | List annotations, default `open`, with `status`, `url_filter`, `kind`, and `limit` filters. Returns compact previews. |
 | `annotate_get` | Read one annotation by `id` (or `latest`): full anchor JSON plus the cropped screenshot as an image block. |
 | `annotate_resolve` | Mark an annotation `resolved` or `wont_fix` with a note the page badge shows, and optionally record `files_touched`. |
+| `annotate_delete` | Delete annotations outright by `ids`: the record, its crop, and its badge all go away. For noise that was never meant to be kept; prefer `annotate_resolve` when the work was actually done. |
 | `annotate_pick` | Ask the user to point at something in the browser; the call waits (5 s–15 min, default 2 min) for a selection, element, or region. |
 | `annotate_clear` | Bulk-delete annotations by `status` and/or `before_iso`. |
 
@@ -189,7 +190,7 @@ flowchart LR
     Health["/ext/anno/health\nprotocol version + counts\n+ wsUrl (scheme negotiation)"]
     Sessions["/ext/anno/sessions\nsession catalog (target picker)"]
     Store["AnnotationStore\nappend-only event log"]
-    Tools["annotate_* tools\nlist · get · resolve · pick · clear"]
+    Tools["annotate_* tools\nlist · get · resolve · delete · pick · clear"]
     Attach["Attachment service\ncropped screenshots"]
     WS --> Bridge
     WS --> Health
@@ -262,9 +263,9 @@ handshake, create → query → resolve, idempotent replay); run it after instal
 the bundle and after any protocol change. `smoke-discovery.mjs` is its discovery
 counterpart against a `dsh --profile anno --port 0` host. The quoted glob is
 intentional: Node expands it itself, which keeps the command identical on
-Windows, macOS, and Linux. `pnpm run check` fetches the pinned Biome version
-through `npx`, so it needs network access the first time; the tests and hooks do
-not.
+Windows, macOS, and Linux. Biome is a pinned devDependency: after one
+`pnpm install`, `pnpm run check`, the hooks, and the tests all run offline;
+only `pnpm install` itself needs the registry.
 
 The extension's `_locales/` currently localizes only the manifest metadata (the
 store name and description); the interface strings come from the built-in

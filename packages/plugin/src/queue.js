@@ -112,13 +112,20 @@ export function createMentionQueue({ dir, logger, file = 'pending-mentions.json'
   }
 
   function save() {
-    // Serialize writes: two overlapping renames would interleave.
-    writing = (writing ?? Promise.resolve()).then(async () => {
+    // Serialize writes: two overlapping renames would interleave. The chain
+    // hands the pen to the next write on either settlement, so one failed
+    // save rejects its own caller but cannot strand later saves in memory.
+    const write = async () => {
       const temp = `${path}.tmp`
       await writeFile(temp, `${JSON.stringify(entries, null, 2)}\n`, 'utf8')
       await rename(temp, path)
-    })
-    return writing
+    }
+    const attempt = (writing ?? Promise.resolve()).then(write, write)
+    writing = attempt.then(
+      () => undefined,
+      () => undefined,
+    )
+    return attempt
   }
 
   return { load, enqueue, list, all, ack, prune, flush: () => writing ?? Promise.resolve(), path }

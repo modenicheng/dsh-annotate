@@ -53,18 +53,13 @@
   // ── small helpers ─────────────────────────────────────────────────────────
 
   /**
-   * Read a message field. The contract is a flat envelope, but reading the
-   * nested `payload` shape as a fallback costs one expression and keeps the
-   * background working if one side still sends the older envelope during a
-   * rollout.
+   * Read a message field from the flat envelope every sender uses
+   * (test/messages-mirror.test.js guards that contract on all edges).
    * @param {any} message
    * @param {string} name
    */
   function field(message, name) {
-    if (!ns.isPlainObject(message)) return undefined
-    if (message[name] !== undefined) return message[name]
-    const payload = message.payload
-    return ns.isPlainObject(payload) ? payload[name] : undefined
+    return ns.isPlainObject(message) ? message[name] : undefined
   }
 
   /** @param {unknown} error */
@@ -789,22 +784,15 @@
     }
     const token = await ns.readToken()
     if (typeof token !== 'string' || token === '') return failure('the bridge token is missing')
-    const wsUrl = ns.netState.wsUrl
-    if (typeof wsUrl !== 'string' || wsUrl === '') return failure('not connected to DeepSeek Harness yet')
 
-    let url
-    try {
-      const parsed = new URL(wsUrl)
-      parsed.protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:'
-      parsed.pathname = '/ext/anno/sessions'
-      parsed.search = `?limit=50&token=${encodeURIComponent(token)}`
-      url = parsed.href
-    } catch (error) {
-      return failure(`unusable bridge address (${ns.describeError(error)})`)
-    }
+    // The token travels in the x-anno-token header, never the URL: a query
+    // string would land in host and reverse-proxy access logs.
+    const target = bridgeHttpUrl('/ext/anno/sessions')
+    if (target.ok !== true) return failure(target.error)
+    const url = `${target.url}?limit=50`
 
     try {
-      const response = await fetch(url, { cache: 'no-store' })
+      const response = await fetch(url, { cache: 'no-store', headers: { 'x-anno-token': token } })
       const body = await response.json()
       if (response.ok !== true || body?.ok === false) {
         return failure(typeof body?.message === 'string' ? body.message : `the host answered ${response.status}`)

@@ -104,7 +104,7 @@ bring-up 验证——加载、service worker、content script、弹窗（popup�
 
 ## 工具
 
-宿主注册了五个工具，会出现在你的 DSH 会话里；你最常见到的是
+宿主注册了六个工具，会出现在你的 DSH 会话里；你最常见到的是
 `annotate_pick`——请你指一下页面的横幅。它们全部作用于标注库，并把变更广播
 回已连接的浏览器。
 
@@ -113,6 +113,7 @@ bring-up 验证——加载、service worker、content script、弹窗（popup�
 | `annotate_list` | 列出标注，默认 `open`，支持 `status`、`url_filter`、`kind`、`limit` 过滤。返回紧凑预览。 |
 | `annotate_get` | 按 `id`（或 `latest`）读取一条标注：完整 anchor JSON，外加裁剪截图的图片块。 |
 | `annotate_resolve` | 将标注标记为 `resolved` 或 `wont_fix`，附一条备注显示在页面角标上，可选记录 `files_touched`。 |
+| `annotate_delete` | 按 `ids` 直接删除标注：记录、裁剪图与页面角标一并消失。用于清理本就不该留下的东西（测试标记、过期截屏）；工作确已做完时仍优先 `annotate_resolve`。 |
 | `annotate_pick` | 请用户在浏览器里指一下某物；调用会等待（5 秒–15 分钟，默认 2 分钟）用户做出一次选区、元素或区域标注。 |
 | `annotate_clear` | 按 `status`、`before_iso` 单独或组合批量删除标注。 |
 
@@ -175,7 +176,7 @@ flowchart LR
     Health["/ext/anno/health\n协议版本 + 计数\n+ wsUrl（scheme 协商）"]
     Sessions["/ext/anno/sessions\n会话清单（选择发送目标）"]
     Store["AnnotationStore\n只追加事件日志"]
-    Tools["annotate_* 工具\nlist · get · resolve · pick · clear"]
+    Tools["annotate_* 工具\nlist · get · resolve · delete · pick · clear"]
     Attach["附件服务\n裁剪截图"]
     WS --> Bridge
     WS --> Health
@@ -245,8 +246,9 @@ node scripts/smoke-discovery.mjs                    # 验证 --port 0 宿主的�
 查询 → resolve、幂等重放）；装好 bundle 后和每次协议改动后都应运行。
 `smoke-discovery.mjs` 作用与之相同，验证的是发现流程，宿主以
 `dsh --profile anno --port 0` 启动。带引号的 glob 是有意的：由 Node 自行
-展开，使命令在 Windows、macOS 和 Linux 上完全一致。`pnpm run check` 通过
-`npx` 拉取固定版本的 Biome，首次需要联网；测试和钩子不需要。
+展开，使命令在 Windows、macOS 和 Linux 上完全一致。Biome 是固定版本的
+devDependency：一次 `pnpm install` 之后，`pnpm run check`、钩子和测试全部
+离线可用；只有 `pnpm install` 本身需要访问 registry。
 
 扩展的 `_locales/` 目前只本地化 manifest 元数据（商店里的名称与描述）；
 界面文案由 `src/content/ui/strings.js` 内置的双语表提供，不走 `_locales/`。

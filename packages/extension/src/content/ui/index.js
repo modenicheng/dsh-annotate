@@ -162,12 +162,10 @@
 
     function refreshPositions() {
       const size = dom.viewportSize()
-      const scroll = dom.scrollOffset()
       ctx.badges.positionAll()
       if (state.composerOpen) ctx.composer.position(size)
       ctx.overlay.positionLocked()
       ctx.overlay.positionMarks()
-      void scroll
     }
 
     const onResize = () => refreshPositions()
