@@ -134,19 +134,24 @@ export function createMentionQueue({ dir, logger, file = 'pending-mentions.json'
 /**
  * Serve the queue to the Web Client that owns the target composers.
  *
- * The bridge token cannot gate this: the page is a different trust anchor from
- * the extension, and handing it the extension's token would be worse than the
- * route. What gates it is the browser's own same-origin header — the Client is
- * the page this Host serves, and a cross-site request cannot claim otherwise.
+ * The page is a different trust anchor from the extension, and handing it the
+ * extension's bridge token would be worse than the route. What gates it is the
+ * shared page gate — `ctx.connection.requestRejection` where the host provides
+ * it, the browser's own same-origin header otherwise. A cross-site request
+ * cannot claim to be the page, and a rebound one cannot claim its Host.
  *
  * @param {any} webServer
  * @param {object} options
  * @param {ReturnType<typeof createMentionQueue>} options.queue
+ * @param {(request: any) => 401 | 403 | undefined} [options.gate] page gate; defaults to the same-origin header check
  * @param {string} [options.path]
  * @param {string} [options.ackPath]
  * @returns {() => void} disposer
  */
-export function registerQueueRoutes(webServer, { queue, path = QUEUE_PATH, ackPath = QUEUE_ACK_PATH }) {
+export function registerQueueRoutes(
+  webServer,
+  { queue, gate = headerGate, path = QUEUE_PATH, ackPath = QUEUE_ACK_PATH },
+) {
   const baseHeaders = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -163,8 +168,9 @@ export function registerQueueRoutes(webServer, { queue, path = QUEUE_PATH, ackPa
         response.writeHead(status, baseHeaders)
         response.end(request.method === 'HEAD' ? undefined : JSON.stringify(payload))
       }
-      if (!sameOrigin(request)) {
-        send(403, { ok: false, error: 'origin' })
+      const rejection = gate(request)
+      if (rejection !== undefined) {
+        send(rejection, { ok: false, error: rejection === 401 ? 'auth' : 'origin' })
         return
       }
       if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -191,8 +197,9 @@ export function registerQueueRoutes(webServer, { queue, path = QUEUE_PATH, ackPa
         response.writeHead(status, baseHeaders)
         response.end(JSON.stringify(payload))
       }
-      if (!sameOrigin(request)) {
-        send(403, { ok: false, error: 'origin' })
+      const rejection = gate(request)
+      if (rejection !== undefined) {
+        send(rejection, { ok: false, error: rejection === 401 ? 'auth' : 'origin' })
         return
       }
       if (request.method !== 'POST') {
@@ -228,6 +235,16 @@ export function registerQueueRoutes(webServer, { queue, path = QUEUE_PATH, ackPa
  */
 function sameOrigin(request) {
   return request.headers?.['sec-fetch-site'] === 'same-origin'
+}
+
+/**
+ * The shipped gate when no other is provided: the same-origin header, in the
+ * admission contract the routes speak (undefined admits, a status refuses).
+ * @param {any} request
+ * @returns {403 | undefined}
+ */
+function headerGate(request) {
+  return sameOrigin(request) ? undefined : 403
 }
 
 /** @param {any} request */
