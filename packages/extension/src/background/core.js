@@ -182,6 +182,15 @@
     await browser.storage.local.set({ [key]: value })
   }
 
+  /** @param {string} key */
+  ns.storageRemove = async function storageRemove(key) {
+    try {
+      await browser.storage.local.remove(key)
+    } catch (error) {
+      ns.log.warn(`could not remove ${key} from storage.local: ${ns.describeError(error)}`)
+    }
+  }
+
   /**
    * Normalize a user-typed bridge address.
    *

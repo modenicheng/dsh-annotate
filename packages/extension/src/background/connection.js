@@ -85,7 +85,7 @@
   /**
    * Persist the host's answer so an event-page restart does not probe again.
    * @param {{ host: string, port: number, secure: boolean | null }} address
-   * @param {{ wsUrl: string, secure: boolean, healthUrl: string }} selection
+   * @param {{ wsUrl: string, secure: boolean, healthUrl: string, instanceId: string | null }} selection
    */
   async function rememberDiscovery(address, selection) {
     const record = {
@@ -95,6 +95,7 @@
       secure: selection.secure,
       wsUrl: selection.wsUrl,
       healthUrl: selection.healthUrl,
+      instanceId: selection.instanceId ?? null,
       at: Date.now(),
     }
     discovered = record
@@ -108,11 +109,7 @@
   /** Forget the remembered scheme answer; the next attempt probes again. */
   async function invalidate() {
     discovered = null
-    try {
-      await browser.storage.local.remove(discoveryKey())
-    } catch (error) {
-      ns.log.debug(`could not clear the discovered endpoint: ${ns.describeError(error)}`)
-    }
+    await ns.storageRemove(discoveryKey())
   }
 
   /**
@@ -165,6 +162,22 @@
       }
     }
     return { winner: null, failures }
+  }
+
+  /**
+   * Probe the health candidates for one address, then derive where to connect.
+   *
+   * Both paths that reach the host run this same probe-first / select-ws-url
+   * sequence: the manual single-address resolution and the per-host probe of
+   * automatic discovery. The automatic caller adds its instanceId cross-check
+   * afterwards, on the answer this returns.
+   * @param {{ host: string, port: number, secure: boolean | null }} address
+   * @returns {Promise<{ winner: { url: string, health: any } | null, failures: string[], selection: { wsUrl: string, secure: boolean } | null }>}
+   */
+  async function probeAddress(address) {
+    const { winner, failures } = await probeFirst(ns.endpoints.healthCandidates(address))
+    if (winner === null) return { winner: null, failures, selection: null }
+    return { winner, failures, selection: ns.endpoints.selectWsUrl({ address, health: winner.health }) }
   }
 
   /**
@@ -235,14 +248,13 @@
     const parsed = ns.endpoints.parseAddress(host.origin)
     if (parsed.ok !== true) return null
     const address = { host: parsed.host, port: parsed.port, secure: parsed.secure }
-    const { winner } = await probeFirst(ns.endpoints.healthCandidates(address))
+    const { winner, selection } = await probeAddress(address)
     if (winner === null) return null
     const answeredId = winner.health.instanceId
     if (host.instanceId !== null && answeredId !== null && answeredId !== host.instanceId) {
       ns.log.debug(`discovery: ${host.origin} now answers as ${answeredId}, not ${host.instanceId}; ignoring it`)
       return null
     }
-    const selection = ns.endpoints.selectWsUrl({ address, health: winner.health })
     return {
       address,
       selection,
@@ -258,7 +270,11 @@
    * @param {any} probe
    */
   async function rememberHost(probe) {
-    await rememberDiscovery(probe.address, { ...probe.selection, healthUrl: probe.healthUrl })
+    await rememberDiscovery(probe.address, {
+      ...probe.selection,
+      healthUrl: probe.healthUrl,
+      instanceId: probe.instanceId,
+    })
     try {
       const stored = ns.discovery.makeLastGood(probe.host)
       await ns.storageSet(addressKey(), stored)
@@ -286,30 +302,38 @@
         secure: cached.secure === true,
         source: 'health',
         healthUrl: typeof cached.healthUrl === 'string' ? cached.healthUrl : '',
+        // Carry the id the host answered with, so the caller sees which
+        // instance the cached scheme belongs to instead of an empty string.
+        instanceId: typeof cached.instanceId === 'string' ? cached.instanceId : '',
         error: '',
       }
     }
 
-    const candidates = ns.endpoints.healthCandidates(address)
-    const { winner, failures } = await probeFirst(candidates)
+    const { winner, failures, selection } = await probeAddress(address)
     if (winner === null) {
       // The configured address is the fallback: a host that answers the socket
       // but not health (a proxy that swallows GETs, an older host) still works.
-      const selection = ns.endpoints.selectWsUrl({ address, health: null })
-      ns.log.info(`health probe failed (${failures.join('; ')}); using ${selection.wsUrl}`)
+      const fallback = ns.endpoints.selectWsUrl({ address, health: null })
+      const candidates = ns.endpoints.healthCandidates(address)
+      ns.log.info(`health probe failed (${failures.join('; ')}); using ${fallback.wsUrl}`)
       return {
-        ...selection,
+        ...fallback,
         healthUrl: candidates[0] === undefined ? '' : candidates[0].url,
+        instanceId: '',
         error: failures.join('; '),
       }
     }
 
-    const selection = ns.endpoints.selectWsUrl({ address, health: winner.health })
-    await rememberDiscovery(address, { ...selection, healthUrl: winner.url })
+    const answeredId = winner.health.instanceId ?? ''
+    await rememberDiscovery(address, {
+      ...selection,
+      healthUrl: winner.url,
+      instanceId: winner.health.instanceId ?? null,
+    })
     ns.log.info(
       `host advertises ${winner.health.wsUrl === '' ? '(no url)' : winner.health.wsUrl} (secure ${String(winner.health.secure)}); using ${selection.wsUrl}`,
     )
-    return { ...selection, healthUrl: winner.url, error: '' }
+    return { ...selection, healthUrl: winner.url, instanceId: answeredId, error: '' }
   }
 
   /**
@@ -389,7 +413,7 @@
       // A half-loaded extension must still connect the way it did before.
       ns.log.warn('discovery.js did not load; using the configured address')
       ns.setNetState({ discoveryMode: 'manual', discoverySource: 'manual' })
-      return { ...(await discoverAt(address, { force })), instanceId: '' }
+      return discoverAt(address, { force })
     }
     const plan = ns.discovery.planResolution({ mode, address })
     if (plan.auto !== true) {
@@ -402,7 +426,7 @@
         discovered: [],
         discoveryFailures: [],
       })
-      return { ...(await discoverAt(address, { force })), instanceId: '' }
+      return discoverAt(address, { force })
     }
     ns.setNetState({ discoveryMode: 'auto' })
     return discoverAutomatically({ address, force })
