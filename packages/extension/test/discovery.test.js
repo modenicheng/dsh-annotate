@@ -298,6 +298,25 @@ test('a stored address with an unusable origin or instanceId is dropped', async 
   assert.equal(noId.origin, stored.origin)
 })
 
+test('a stored timestamp in the future beyond a small tolerance is dropped', async () => {
+  const discovery = await loadDiscovery()
+  const stored = {
+    origin: 'http://127.0.0.1:51234',
+    instanceId: INSTANCE,
+    profile: 'desktop',
+    startedAt: STARTED_AT,
+    focusAt: null,
+    at: NOW,
+  }
+  // A few minutes of skew between the writer and the reader is normal; the
+  // record survives.
+  assert.notEqual(discovery.readLastGood({ ...stored, at: NOW + 60_000 }, NOW), null)
+  // A stamp far in the future (a clock rollback or a hand-edited record)
+  // would otherwise stay valid until real time caught up with it.
+  assert.equal(discovery.readLastGood({ ...stored, at: NOW + discovery.LAST_GOOD_FUTURE_TOLERANCE_MS + 1 }, NOW), null)
+  assert.equal(discovery.readLastGood({ ...stored, at: NOW + 24 * 60 * 60 * 1_000 }, NOW), null)
+})
+
 test('ranking follows preference, recency, and port order', async () => {
   const discovery = await loadDiscovery()
   const ids = {
