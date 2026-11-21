@@ -35,13 +35,9 @@ name: Release
 #   CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN   Google OAuth client
 #   vars.CWS_PUBLISHER_ID, vars.CWS_ITEM_ID               CWS ids; item exists
 #   vars.CWS_PUBLISH_TYPE               DEFAULT_PUBLISH (default) or STAGED_PUBLISH
-#   EDGE_CLIENT_ID, EDGE_API_KEY        Partner Center Publish API (TODO lane)
-#   vars.EDGE_PUBLISH                   'true' enables the Edge TODO lane
-#
-# Only checkout/setup-node/pnpm-action are used here, at the same major
-# tags as the other jobs; the release-please workflow owns the one extra
-# third-party action. Pinning every action to a commit SHA is a repo-wide
-# change (§4.8), not something to do for one lane only.
+#   EDGE_CLIENT_ID, EDGE_API_KEY        Partner Center Publish API (Add-ons API v1.1)
+#   vars.EDGE_PRODUCT_ID                Edge product ID; the item already exists
+#   vars.EDGE_PUBLISH                   'true' enables the Edge lane
 
 on:
   push:
@@ -159,12 +155,13 @@ jobs:
           CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
           EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
           set -euo pipefail
           if [ -n "${AMO_JWT_ISSUER:-}" ] && [ -n "${AMO_JWT_SECRET:-}" ]; then amo=true; else amo=false; fi
           if [ -n "${CWS_CLIENT_ID:-}" ] && [ -n "${CWS_CLIENT_SECRET:-}" ] && [ -n "${CWS_REFRESH_TOKEN:-}" ] && [ -n "${CWS_PUBLISHER_ID:-}" ] && [ -n "${CWS_ITEM_ID:-}" ]; then cws=true; else cws=false; fi
-          if [ -n "${EDGE_CLIENT_ID:-}" ] && [ -n "${EDGE_API_KEY:-}" ]; then edge=true; else edge=false; fi
+          if [ -n "${EDGE_CLIENT_ID:-}" ] && [ -n "${EDGE_API_KEY:-}" ] && [ -n "${EDGE_PRODUCT_ID:-}" ]; then edge=true; else edge=false; fi
           {
             echo "amo=$amo"
             echo "cws=$cws"
@@ -280,36 +277,73 @@ jobs:
           version: ${{ needs.verify.outputs.version }}
           chromium_version: ${{ needs.verify.outputs.chromium_version }}
 
-  # Edge Add-ons is optional (§4.6: Edge installs CWS items) and deliberately
-  # not implemented: the Partner Center Publish API's current shape has not
-  # been confirmed against the live docs, and an invented endpoint is worse
-  # than a TODO. The lane is gated on vars.EDGE_PUBLISH so nothing runs by
-  # default; when it is enabled without credentials it skips with a notice,
-  # and when enabled with credentials it fails loudly instead of guessing.
+  # Edge Add-ons is optional (§4.6: Edge installs CWS items) and off by
+  # default: vars.EDGE_PUBLISH opts the lane in, and it also needs the
+  # Partner Center credentials (secrets EDGE_CLIENT_ID, EDGE_API_KEY) and
+  # the product ID (vars.EDGE_PRODUCT_ID). The Add-ons API cannot create
+  # the item — the first submission was manual (docs/STORE_LISTING.md §8);
+  # this lane only updates it. The zip is the release's Chromium zip, the
+  # same checksummed bytes the CWS lane submits, never a rebuild.
   edge:
-    name: submit to Edge (TODO)
+    name: submit to Edge
     needs: [channels, verify]
     if: >-
       needs.channels.outputs.dry_run != 'true' &&
+      needs.channels.outputs.edge == 'true' &&
       vars.EDGE_PUBLISH == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     environment:
       name: release
-    env:
-      EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
-      EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
-      CR_VERSION: ${{ needs.verify.outputs.chromium_version }}
     steps:
-      - name: Edge Add-ons is a documented TODO
+      - name: Refuse a version mismatch
+        env:
+          CR_VERSION: ${{ needs.verify.outputs.chromium_version }}
+          PRODUCT_VERSION: ${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${EDGE_CLIENT_ID:-}" ] || [ -z "${EDGE_API_KEY:-}" ]; then
-            echo "::notice::Edge publishing is enabled but EDGE_CLIENT_ID and/or EDGE_API_KEY are not set on the release environment; skipping Edge. The Chromium zip is on the GitHub Release."
-            exit 0
+          if [ "$CR_VERSION" != "$PRODUCT_VERSION" ]; then
+            echo "::error::refusing to submit to Edge: the Chromium artifact is version $CR_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+            exit 1
           fi
-          echo "::error::Edge Add-ons publishing is a documented TODO and is not implemented. Nothing was uploaded for $CR_VERSION. Required credentials are EDGE_CLIENT_ID and EDGE_API_KEY (Partner Center Publish API, Client ID + API key; the Azure AD app model is retired)."
-          exit 1
+
+      # The lanes submit the release's bytes, never a rebuild (§4.9, §4.10).
+      - name: Download the released Chromium zip and prove its checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # This lane checks out nothing, so gh cannot resolve the repository
+          # from a git remote; name it explicitly.
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          assets="$GITHUB_WORKSPACE/dist/release-assets"
+          rm -rf "$assets"
+          mkdir -p "$assets"
+          gh release download "${{ needs.verify.outputs.tag }}" --dir "$assets" --pattern 'dsh-marker-chromium-*.zip' --pattern 'checksums.txt' --clobber
+          (cd "$assets" && sha256sum --check --ignore-missing checksums.txt)
+          ls -l "$assets"
+
+      # The Edge Add-ons API v1.1 (Client ID + API key headers, no OAuth):
+      # upload the zip to the draft submission, then submit it for
+      # certification; the action polls both operations to completion.
+      # Submission means review, not live — certification takes up to 7
+      # business days (docs/STORE_LISTING.md §8.9). Pinned to a major tag
+      # like every other action in this file.
+      - name: Submit the released Chromium zip
+        uses: wdzeng/edge-addon@v2
+        with:
+          product-id: ${{ vars.EDGE_PRODUCT_ID }}
+          zip-path: dist/release-assets/dsh-marker-chromium-${{ needs.verify.outputs.version }}.zip
+          api-key: ${{ secrets.EDGE_API_KEY }}
+          client-id: ${{ secrets.EDGE_CLIENT_ID }}
+          # The point that decides the review (§8.8): the overlay is testable
+          # without the DSH host, and the host dependency is disclosed.
+          notes-for-certification: >-
+            Testable without the host: install, open any page, press
+            Alt+Shift+A, and mark text, an element, or a region. The overlay,
+            markers, and screenshot capture all work standalone. The DeepSeek
+            Harness host (127.0.0.1, same machine) is needed only to send a
+            mark into a session, and the privacy policy discloses it.
 
   # §4.7: the lanes are independent; this is where any failure becomes a red
   # run, after every lane has had its turn — with parallel lanes each failure
