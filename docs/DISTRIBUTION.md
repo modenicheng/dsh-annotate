@@ -554,27 +554,37 @@ Product versions name releases; they are not a compatibility signal.
 Why: the halves are released on different clocks. npm is instant; CWS and AMO
 are not, and review can take days. Any check that couples the two product
 versions turns a store review delay into an outage for everyone already
-installed — which is exactly what an exact-match protocol check does today
-(`bridge.js:160-167`).
+installed — which is what an exact-match protocol check did before the window
+landed.
 
 The contract:
 
 - `hello` carries `{ token, protocol }` and never a product version. It already
-  carries only the protocol version (`bridge.js:155-168`); keep it that way.
+  carries only the protocol version (`bridge.js`); keep it that way.
 - The host accepts a window: `MIN_PROTOCOL ≤ protocol ≤ PROTOCOL_VERSION`. The
   window spans at least the previous protocol version; shrinking it is an
   announced decision, never a side effect of a release.
-- `/ext/anno/health` advertises `{ protocol, minProtocol, caps }` so a client can
-  explain a mismatch before it connects.
-- Differences inside the window are negotiated with `caps` (`hello.ok` already
-  carries them), not inferred from a number.
+- `/ext/anno/health` advertises `version`, `minProtocol`, and `caps` so a client
+  can explain a mismatch before it connects. The same window rides on the
+  locator answer and the endpoint record.
+- Differences inside the window are negotiated with `caps` (`hello.ok` and
+  health carry them), not inferred from a number.
 - The UI says "this extension is too old for the installed plugin" or the
   reverse, with both protocol numbers; it never renders a product-version
   comparison.
 
-`PROTOCOL_VERSION` and the new `MIN_PROTOCOL_VERSION` live in
+`PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION` live in
 `packages/protocol/src/index.js`, are copied by `sync-protocol.mjs` like
 everything else, and change only when the wire changes.
+
+**The window shipped dormant (2026-11-21).** Both constants are 1, so this
+changes nothing on the wire today: `bridge.js` accepts the window, `hello.ok`
+and health carry `minProtocol`, and the extension checks the window before it
+opens a socket. The payoff arrives at the next wire change, which bumps
+`PROTOCOL_VERSION` to 2 while `MIN_PROTOCOL_VERSION` stays 1 — and only
+window-aware extensions survive it, which is the point of shipping the logic
+a release cycle early. A pre-window extension still speaks to a windowed host
+while both carry version 1.
 
 `engines.dsh` is a different check in a different place: it is package metadata
 that DSH evaluates at install time, and it never reaches the socket.
@@ -587,7 +597,7 @@ that DSH evaluates at install time, and it never reaches the socket.
 | Chromium QA (capture, popup, reconnect, pick, permissions audit) | 3-5 d |
 | Store assets and listings (icons, screenshots, privacy policy, EN/ZH copy) | 2-3 d |
 | Release automation (build matrix, draft release, changelog, npm, AMO, CWS) | 4-6 d |
-| Protocol window (`MIN_PROTOCOL`, health, UI states) | 1-2 d |
+| Protocol window (`MIN_PROTOCOL`, health, UI states) | landed 2026-11-21 (§7) |
 | Beta channel (separate add-on ID, unpacked builds, install docs) | 1 d |
 
 T1+T2 lands in roughly two working weeks, plus the store review calendars, which

@@ -124,6 +124,9 @@ test('a documented locator answer becomes exactly one host', async () => {
   assert.deepEqual(plain(discovery.parseLocate(LOCATE_BODY)), EXPECTED_HOST)
   // The origin is normalized, including a trailing slash the host never writes.
   assert.deepEqual(plain(discovery.parseLocate({ ...LOCATE_BODY, origin: 'http://127.0.0.1:51234/' })), EXPECTED_HOST)
+  // D15: a newer host whose floor reaches back to this build still counts —
+  // the window is what keeps a store-review delay from becoming an outage.
+  assert.deepEqual(plain(discovery.parseLocate({ ...LOCATE_BODY, version: 2, minProtocol: 1 })), EXPECTED_HOST)
 })
 
 test('anything that is not a DSH locator answer is rejected', async () => {
@@ -131,7 +134,10 @@ test('anything that is not a DSH locator answer is rejected', async () => {
   const rejected = {
     'a foreign app': { ...LOCATE_BODY, app: 'dsh-other' },
     'a newer protocol': { ...LOCATE_BODY, version: 2 },
+    'a floor above this build': { ...LOCATE_BODY, version: 2, minProtocol: 2 },
+    'a floor above the host itself': { ...LOCATE_BODY, minProtocol: 2 },
     'a string version': { ...LOCATE_BODY, version: '1' },
+    'a string floor': { ...LOCATE_BODY, minProtocol: '1' },
     'a missing instanceId': { ...LOCATE_BODY, instanceId: undefined },
     'a short instanceId': { ...LOCATE_BODY, instanceId: '9f1c0b7a' },
     'an uppercase instanceId': { ...LOCATE_BODY, instanceId: INSTANCE.toUpperCase() },
@@ -202,6 +208,15 @@ test('the endpoint record is reduced to its five known fields', async () => {
   assert.equal('token' in parsed, false)
   assert.equal('extra' in parsed, false)
   assert.deepEqual([...Object.keys(parsed)].sort(), ['instanceId', 'origin', 'pid', 'profile', 'startedAt'])
+  // `minProtocol` is read for the window check (D15) and not copied either.
+  const windowed = discovery.parseEndpointRecord({ ...ENDPOINT_RECORD, version: 2, minProtocol: 1 })
+  assert.deepEqual(plain(windowed), {
+    origin: 'http://127.0.0.1:51234',
+    instanceId: INSTANCE,
+    profile: 'desktop',
+    startedAt: STARTED_AT,
+    pid: 23144,
+  })
   // A malformed pid or profile degrades like a malformed timestamp.
   const degraded = discovery.parseEndpointRecord({ ...ENDPOINT_RECORD, pid: '23144', profile: 42 })
   assert.equal(degraded.pid, null)
@@ -213,6 +228,7 @@ test('a record that is not this app, version, or loopback is rejected', async ()
   const rejected = {
     'a foreign app': { ...ENDPOINT_RECORD, app: 'dsh-other' },
     'a newer protocol': { ...ENDPOINT_RECORD, version: 2 },
+    'a floor above this build': { ...ENDPOINT_RECORD, version: 2, minProtocol: 2 },
     'an uppercase instanceId': { ...ENDPOINT_RECORD, instanceId: INSTANCE.toUpperCase() },
     'a LAN origin': { ...ENDPOINT_RECORD, origin: 'http://192.168.1.5:51234' },
     'a public origin': { ...ENDPOINT_RECORD, origin: 'https://example.com' },

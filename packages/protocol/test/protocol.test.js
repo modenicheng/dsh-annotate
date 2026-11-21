@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  MIN_PROTOCOL_VERSION,
+  PROTOCOL_VERSION,
   SESSION_CREATE_MODES,
   describeAnchor,
   encodeFrame,
@@ -11,6 +13,8 @@ import {
   parseAnnoText,
   parseClientFrame,
   parseServerFrame,
+  protocolCompatibleWith,
+  protocolInRange,
   sameDocument,
   validateRecord,
   validateSessionCreateRequest,
@@ -45,6 +49,36 @@ test('ids are formatted and time-scoped', () => {
   const id = newAnnotationId(new Date(2026, 10, 18), () => 0.5)
   assert.equal(id, 'an-20261118-888888')
   assert.match(id, /^an-\d{8}-[0-9a-f]{6}$/)
+})
+
+test('the protocol window is checked from both sides', () => {
+  assert.equal(MIN_PROTOCOL_VERSION <= PROTOCOL_VERSION, true, 'the window is well-formed')
+  // The host-side check on a client's `hello.version`, against this build's window.
+  assert.equal(protocolInRange(MIN_PROTOCOL_VERSION), true)
+  assert.equal(protocolInRange(PROTOCOL_VERSION), true)
+  assert.equal(protocolInRange(PROTOCOL_VERSION + 1), false, 'above the window')
+  assert.equal(protocolInRange(MIN_PROTOCOL_VERSION - 1), false, 'below the window')
+  assert.equal(protocolInRange(1.5), false, 'a version is an integer')
+  assert.equal(protocolInRange('1'), false)
+  assert.equal(protocolInRange(1, 2, 3), false, 'an explicit foreign window is honored')
+  assert.equal(protocolInRange(2, 1, 3), true)
+  // The client-side check on the window a host advertised.
+  assert.equal(protocolCompatibleWith(PROTOCOL_VERSION), true, 'an equal peer')
+  assert.equal(
+    protocolCompatibleWith(PROTOCOL_VERSION + 1, MIN_PROTOCOL_VERSION),
+    true,
+    'a newer host whose floor reaches back to this build — the rollout case D15 exists for',
+  )
+  assert.equal(
+    protocolCompatibleWith(PROTOCOL_VERSION + 1, PROTOCOL_VERSION + 1),
+    false,
+    'a floor above this build: this extension is the older half',
+  )
+  assert.equal(
+    protocolCompatibleWith(MIN_PROTOCOL_VERSION - 1),
+    false,
+    'a host that cannot receive this build: the host is the older half',
+  )
 })
 
 test('a well-formed record validates', () => {
