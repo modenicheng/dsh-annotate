@@ -13,7 +13,9 @@ dsh-annotate（产品名 dsh-marker）把日常浏览器里的页面标注变成
 ### 分支与合并（main 受保护）
 
 - `main` 已启用分支保护：**不要直接向 `main` 推送**，也不要 force-push 或删除远端 `main`。
-- 一切改动从 `main` 切出特性分支，经 PR 合并；CI 全绿后才可合入。
+- `dev` 是集成分支：特性分支从 `main` 切出，PR 目标为 `dev`，日常调试与合并都在 dev 上进行。
+- `main` 只收 PR：发版走 `dev → main` 的 PR，或 release-please 的 Release PR。push 到 main 后 `sync-dev` workflow 会自动把 main 快进回合 dev。
+- 一切改动经 PR 合并；CI 全绿后才可合入。
 - 本地提交同样必须过 hooks（见下）；PR 描述写清动机与验证方式。
 
 ### Git hooks 是硬约束

@@ -274,6 +274,14 @@ Release PR that bumps `packages/plugin/package.json` and
 updater) in the same diff and updates `CHANGELOG.md`. The tag then always
 follows a reviewed diff that already bumped every version source.
 
+The branch model around it changed without touching it (CONTRIBUTING.md
+§Branches): feature PRs target `dev`, and `main` receives only PRs — a
+`dev→main` PR for a release, or this Release PR. release-please still reads
+`main`, so the version bump lands on `main` alone; the `sync-dev` workflow
+fast-forwards `dev` back to `main` after every push there, keeping the two
+branches one fast-forward apart instead of forking on the changelog and
+version files.
+
 ### 4.4 Artifacts
 
 | Artifact | Produced by | Goes to |
