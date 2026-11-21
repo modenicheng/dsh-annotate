@@ -600,16 +600,16 @@
   /**
    * At most one run per `intervalMs` (250 ms ≈ 4 Hz): SPA re-renders fire
    * MutationObserver in bursts, and a full re-anchor per record is not cheap.
-   * Requests that arrive while a run is queued are coalesced.
+   * Requests that arrive while a run is queued are coalesced. There is no
+   * teardown: the scheduler lives exactly as long as the content script, and
+   * a pending timer with no page left is the browser's to reap.
    */
   function createScheduler(run, intervalMs) {
     const budget = Math.max(50, Number(intervalMs) || 250)
     let timer = 0
     let lastRun = 0
-    let stopped = false
     function fire() {
       timer = 0
-      if (stopped) return
       lastRun = Date.now()
       try {
         run()
@@ -620,16 +620,9 @@
     }
     return {
       request() {
-        if (stopped || timer) return
+        if (timer) return
         const wait = Math.max(0, budget - (Date.now() - lastRun))
         timer = global.setTimeout(fire, wait)
-      },
-      stop() {
-        stopped = true
-        if (timer) {
-          global.clearTimeout(timer)
-          timer = 0
-        }
       },
       get pending() {
         return timer !== 0

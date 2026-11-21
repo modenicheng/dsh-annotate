@@ -241,7 +241,6 @@
   }
 
   ui.create = create
-  ui.badgeLabel = dom.badgeLabel
   ui.STRINGS = strings.STRINGS
   ui.pickLanguage = strings.pickLanguage
 })(globalThis)
