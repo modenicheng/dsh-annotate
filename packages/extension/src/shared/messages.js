@@ -33,6 +33,8 @@ export const TO_BACKGROUND = {
   sessions: 'anno.sessions',
   /** Create a Session on the host for the "new session" target. */
   createSession: 'anno.session.create',
+  /** One lifecycle line for the popup's diagnostics panel. */
+  debug: 'anno.content.debug',
 }
 
 /** background → content */
@@ -67,6 +69,8 @@ export const TO_BACKGROUND_POPUP = {
   chooseHost: 'anno.popup.choose',
   /** Seed the address from a picked endpoint record; never the token. */
   importRecord: 'anno.popup.import',
+  /** Enter annotation mode in the active tab (the popup's toolbar path). */
+  activate: 'anno.popup.activate',
 }
 
 /**

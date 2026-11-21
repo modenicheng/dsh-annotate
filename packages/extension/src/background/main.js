@@ -231,8 +231,10 @@
    * of a silent no-op.
    */
   async function runAnnotateCommand() {
+    ns.diag('command: annotate-page')
     try {
       const result = await ns.routing.activateCurrentPage('auto')
+      ns.diag(`command activate result: ${JSON.stringify(result)}`)
       if (result.ok === true) return
       ns.log.info(`annotate command: ${result.error}`)
       await flashBadge('!')

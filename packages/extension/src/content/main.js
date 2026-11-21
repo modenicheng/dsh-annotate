@@ -39,6 +39,7 @@
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
       createSession: 'anno.session.create',
+      debug: 'anno.content.debug',
     },
     content: {
       records: 'anno.records',
@@ -63,6 +64,9 @@
    * documents.
    */
   const platform = global.__DSH_PLATFORM__
+  const SHORTCUT_API = global.__DSH_SHORTCUT__
+  /** Used only when `src/shared/shortcut.js` did not load (older inject list). */
+  const SHORTCUT_DEFAULT = SHORTCUT_API && SHORTCUT_API.DEFAULT ? SHORTCUT_API.DEFAULT : 'Alt+Shift+A'
   const document = global.document
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
   // Route changes share the hydrator's coalescing budget: an SPA router can
@@ -98,6 +102,12 @@
     /** Shift is held, so the next drag selects text instead of an element. */
     shiftArmed: false,
     selectionGesture: false,
+    /** Canonical shortcut, mirrored from `anno.prefs.shortcut`. */
+    shortcut: SHORTCUT_DEFAULT,
+    /** Whether the in-page launcher button is offered (prefs, unless disabled). */
+    launcher: true,
+    /** Leave annotation mode after a successful send (pref, default off). */
+    exitAfterSend: false,
     consoleErrors: [],
     observer: null,
     scheduler: null,
@@ -187,6 +197,32 @@
     return String(template).replace(/\{(\w+)\}/g, (match, key) =>
       values && Object.hasOwn(values, key) ? String(values[key]) : match,
     )
+  }
+
+  /** The stored shortcut, normalized; the default when the preference is absent. */
+  function shortcutSpec() {
+    if (!SHORTCUT_API || typeof SHORTCUT_API.normalize !== 'function') return SHORTCUT_DEFAULT
+    return SHORTCUT_API.normalize(state.prefs && state.prefs.shortcut) || SHORTCUT_DEFAULT
+  }
+
+  /**
+   * Firefox consumes a command's key before the page sees it, so this matcher is
+   * the fallback that makes a custom shortcut work on engines that cannot update
+   * a command (Chromium) and the door that stays open if the browser rejected a
+   * combination. With no parser loaded it reproduces the original Alt+Shift+A.
+   * @param {KeyboardEvent} event
+   */
+  function isShortcutEvent(event) {
+    if (SHORTCUT_API && typeof SHORTCUT_API.matches === 'function') {
+      return SHORTCUT_API.matches(event, shortcutSpec())
+    }
+    const key = String(event.key || '').toLowerCase()
+    return event.altKey === true && event.shiftKey === true && (event.code === 'KeyA' || key === 'a')
+  }
+
+  /** Lifecycle diagnostics, mirrored to the popup's Diagnostics panel. */
+  function logInfo(message) {
+    void send(MSG.background.debug, { message: String(message) })
   }
 
   // ── restricted documents ───────────────────────────────────────────────────
@@ -718,6 +754,7 @@
 
   function enterMode(source, options) {
     const config = options || {}
+    logInfo(`enterMode source=${source || 'user'} restricted=${state.restricted}`)
     if (state.restricted) return
     if (state.hidden) {
       // An explicit activation always reveals the layers: activating while
@@ -729,6 +766,7 @@
     state.activeSource = source || 'user'
     if (!state.active) {
       state.active = true
+      syncLauncher()
       ui.setHud({ visible: true, mode: activeMode(), connected: state.connected })
       // A selection made before activation goes straight to the composer. It is
       // read *before* the repaint below: leaving annotation mode is what makes
@@ -752,6 +790,7 @@
   }
 
   function leaveMode(reason) {
+    logInfo(`leaveMode reason=${reason}`)
     if (!state.active) return
     state.active = false
     state.activeSource = ''
@@ -764,6 +803,7 @@
     resetHoverChain()
     clearAnchor()
     if (ui) {
+      syncLauncher()
       if (ui.isComposerOpen()) ui.closeComposer()
       ui.clearLocked()
       ui.setHover(null)
@@ -1158,6 +1198,9 @@
       // An annotation without a comment is the mark alone; say which one was
       // sent instead of implying words the user never wrote.
       ui.toast(draft.comment === '' ? t('savedMark') : t('saved'), 'ok')
+      // "Exit after sending" is opt-in: most people mark several things in a
+      // row, and leaving the mode after the first one would break that flow.
+      if (state.exitAfterSend) leaveMode('sent')
     })
   }
 
@@ -1577,6 +1620,20 @@
     event.preventDefault()
   }
 
+  /**
+   * A right click on the page is a way out of annotation mode. It is disabled
+   * while the composer is open, where the context menu belongs to the textarea
+   * (paste, spellcheck), and inside our own chrome.
+   */
+  function onContextMenu(event) {
+    if (!state.active || !ui) return
+    if (ns.text.isOurs(event.target)) return
+    if (ui.isComposerOpen()) return
+    event.preventDefault()
+    event.stopPropagation()
+    leaveMode('contextmenu')
+  }
+
   /** Shift means "select text", so it gets a pointer guide of its own. */
   function isShiftKey(event) {
     return event.key === 'Shift' || event.code === 'ShiftLeft' || event.code === 'ShiftRight'
@@ -1593,8 +1650,8 @@
 
   function onKeyDown(event) {
     if (!event || event.repeat) return
-    const key = String(event.key || '').toLowerCase()
-    if (event.altKey && event.shiftKey && (event.code === 'KeyA' || key === 'a')) {
+    if (isShortcutEvent(event)) {
+      logInfo('shortcut matched')
       event.preventDefault()
       event.stopPropagation()
       toggleMode()
@@ -1725,6 +1782,7 @@
         const prefs = stored && stored[MSG.prefs]
         if (!prefs || typeof prefs !== 'object') return
         state.prefs = prefs
+        applyPrefs(prefs)
         if (prefs.hidden === true) {
           // The single path that hides the layer also drops the page's marks:
           // setting `state.hidden` here would short-circuit applyHidden and leave
@@ -1740,7 +1798,30 @@
     const next = changes[MSG.prefs].newValue
     if (!next || typeof next !== 'object') return
     state.prefs = next
+    applyPrefs(next)
     applyHidden(next.hidden === true, false)
+  }
+
+  /**
+   * Mirror the popup-owned prefs into the gesture layer. The language is read
+   * once at load, so changing it needs a page reload; the shortcut, the
+   * launcher, and the post-send exit apply immediately.
+   * @param {any} prefs
+   */
+  function applyPrefs(prefs) {
+    state.shortcut =
+      SHORTCUT_API && typeof SHORTCUT_API.normalize === 'function'
+        ? SHORTCUT_API.normalize(prefs && prefs.shortcut) || SHORTCUT_API.DEFAULT
+        : SHORTCUT_DEFAULT
+    state.launcher = !prefs || prefs.launcher !== false
+    state.exitAfterSend = prefs?.exitAfterSend === true
+    syncLauncher()
+  }
+
+  /** Show the floating launcher only while annotation mode is off. */
+  function syncLauncher() {
+    if (!ui) return
+    ui.setLauncher({ visible: state.launcher && !state.active, shortcut: state.shortcut })
   }
 
   // ── background → content ───────────────────────────────────────────────────
@@ -1910,6 +1991,7 @@
       return Promise.resolve({ ok: true })
     }
     if (type === MSG.content.activate) {
+      logInfo('activate received')
       handleActivate(flat)
       return Promise.resolve({ ok: true })
     }
@@ -1927,13 +2009,16 @@
     const reason = restrictedReason()
     if (reason) {
       state.restricted = reason
+      logInfo(`restricted: ${reason}`)
       return
     }
+    logInfo(`content boot ${String(global.location && global.location.href).slice(0, 120)}`)
     ui = ns.ui.create({
       onSend: handleSend,
       onCancel: handleCancel,
       onToggleHidden: () => applyHidden(!state.hidden, true),
       onExit: () => leaveMode('hud'),
+      onLauncher: () => toggleMode(),
       onDelete: handleDelete,
       onClear: handleClear,
       onTargetRequest: () => void loadTargets(),
@@ -1948,6 +2033,7 @@
     })
     ui.mount()
     ui.setHidden(state.hidden)
+    syncLauncher()
     installConsoleHook()
     global.addEventListener('message', onPageMessage, false)
     global.addEventListener('keydown', onKeyDown, true)
@@ -1959,6 +2045,7 @@
     global.addEventListener('mousedown', onMouseDownCapture, true)
     global.addEventListener('click', onClickCapture, true)
     global.addEventListener('dragstart', onDragStart, true)
+    global.addEventListener('contextmenu', onContextMenu, true)
     global.addEventListener('scroll', onViewportChange, true)
     global.addEventListener('resize', onViewportChange, true)
     if (api && api.runtime && api.runtime.onMessage) {

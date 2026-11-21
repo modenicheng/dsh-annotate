@@ -665,3 +665,92 @@ code {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* ── annotation settings ───────────────────────────────────────────────────
+   New controls keep the popup's existing skin (same radii, borders, and type
+   ramp) instead of introducing a second visual language. */
+.shortcut-row {
+  display: flex;
+  gap: 6px;
+}
+
+.shortcut-key {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--text);
+  font: 600 var(--text-body) / var(--text-body-lh) var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.shortcut-key:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--chip) 82%, var(--border));
+}
+
+.shortcut-key--recording {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-label);
+  line-height: var(--text-label-lh);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.switch input {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.switch input:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--surface-raised);
+}
+
+/* The error line sits under the status bar and must stay in view even when the
+   popup is taller than the browser's popup window. */
+.feedback {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── diagnostics ─────────────────────────────────────────────────────────── */
+.diagnostics-panel > summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.diagnostics {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: var(--text-caption) / 1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
