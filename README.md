@@ -101,7 +101,9 @@ What the extension reads, where it sends it and what it keeps locally is
    `127.0.0.1` / `3080`; the extension then finds a host whose port moved by
    itself.
 2. Press `Alt+Shift+A` on a page: select text, click an element, or drag a
-   region, then press Enter. The comment is optional — with an empty one the
+   region, then press Enter. While an element is outlined, `Tab` widens it one
+   ancestor at a time and `Shift+Tab` steps back down; the click locks whatever
+   level is outlined. The comment is optional — with an empty one the
    mark is sent on its own (the button reads **Send mark** / **只发标记**).
 3. If the host cannot be found: switch to *Manual* and type the address — a
    full URL such as `wss://anno.example.com` works, and with no scheme the

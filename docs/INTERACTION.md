@@ -9,9 +9,16 @@ DSH client half) can be built against one description instead of drifting.
 2. The user marks a text selection, an element, or a region, and may write a
    comment. The mark alone is a complete annotation: an empty comment sends the
    pointer by itself.
-3. The composer shows a **target**: the Session the annotation will join.
+3. While an element is outlined, `Tab` widens the outline one ancestor at a
+   time and `Shift+Tab` steps back down (the chip counts the level, `↑2`).
+   The walk stops at the outermost wrapper before `body`. The level belongs to
+   the chain under the pointer: moving inside the widened element keeps the
+   outline on it, moving out restarts at the deepest element, and the click
+   locks whatever level is outlined. An open composer keeps `Tab` for its own
+   focus cycle, so the keys only act while picking.
+4. The composer shows a **target**: the Session the annotation will join.
    Default is the Session the user is currently looking at in the DSH window.
-4. Submitting stores the annotation and leaves a **reference** in that Session's
+5. Submitting stores the annotation and leaves a **reference** in that Session's
    composer — the same atomic chip `@file` and `@session` already use.
 
 The reference is the point. It is visible, it is part of the message the user is
