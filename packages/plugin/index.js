@@ -26,6 +26,7 @@ import { createProvisioner, registerProvisionRoutes } from './src/provision.js'
 import { registerPresentationRoutes } from './src/presentation.js'
 import { createMentionQueue, registerQueueRoutes } from './src/queue.js'
 import { createSessionCatalog, registerSessionsRoute } from './src/sessions.js'
+import { createPageGate } from './src/pagegate.js'
 import { createTools } from './src/tools.js'
 import { LOCATE_HOST, describeAnchor, formatAnnoMention } from './src/protocol.js'
 
@@ -149,6 +150,12 @@ export async function apply(ctx, config = {}) {
   )
 
   ctx.inject(['webServer'], (webCtx) => {
+    // The five GUI routes share one gate: the host Connection fence where it
+    // exists (Host/Origin checks against rebinding, plus the browser session
+    // the page holds), the same-origin header where it does not. Read per
+    // request because plugin load order is a deployment fact.
+    const pageGate = createPageGate({ get: (service) => ctx.get(service), logger })
+
     webCtx.effect(() => bridge.attach(webCtx.webServer), 'dsh-marker: /ext/anno bridge')
     webCtx.effect(
       () =>
@@ -171,13 +178,23 @@ export async function apply(ctx, config = {}) {
         }),
       'dsh-marker: /ext/anno/session-create',
     )
-    webCtx.effect(() => registerQueueRoutes(webCtx.webServer, { queue }), 'dsh-marker: /ext/anno/queue hand-off')
-    webCtx.effect(() => registerEventsRoute(webCtx.webServer, { events }), 'dsh-marker: /ext/anno/events push')
-    webCtx.effect(() => registerFocusRoute(webCtx.webServer, { store: focus }), 'dsh-marker: /ext/anno/focus report')
+    webCtx.effect(
+      () => registerQueueRoutes(webCtx.webServer, { queue, gate: pageGate }),
+      'dsh-marker: /ext/anno/queue hand-off',
+    )
+    webCtx.effect(
+      () => registerEventsRoute(webCtx.webServer, { events, gate: pageGate }),
+      'dsh-marker: /ext/anno/events push',
+    )
+    webCtx.effect(
+      () => registerFocusRoute(webCtx.webServer, { store: focus, gate: pageGate }),
+      'dsh-marker: /ext/anno/focus report',
+    )
     webCtx.effect(
       () =>
         registerPresentationRoutes(webCtx.webServer, {
           store,
+          gate: pageGate,
           readImage: async (ref) => {
             const attachments = ctx.get('attachments')
             if (attachments === undefined) throw new Error('no attachment service is mounted')

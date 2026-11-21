@@ -137,16 +137,18 @@ export function focusedSession(store, now = Date.now()) {
 /**
  * Serve the focus report to the page this Host serves.
  *
- * Like the queue, the gate is the browser's own same-origin header: the GUI is
- * the page the Host serves, and a cross-site request cannot claim to be it.
+ * Like the queue, the gate is the shared page gate — `ctx.connection.
+ * requestRejection` where the host provides it, the browser's own same-origin
+ * header otherwise.
  *
  * @param {any} webServer
  * @param {object} options
  * @param {ReturnType<typeof createFocusStore>} options.store
+ * @param {(request: any) => 401 | 403 | undefined} [options.gate] page gate; defaults to the same-origin header check
  * @param {string} [options.path]
  * @returns {() => void} disposer
  */
-export function registerFocusRoute(webServer, { store, path = FOCUS_PATH }) {
+export function registerFocusRoute(webServer, { store, gate = headerGate, path = FOCUS_PATH }) {
   const headers = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -163,8 +165,9 @@ export function registerFocusRoute(webServer, { store, path = FOCUS_PATH }) {
         response.writeHead(status, headers)
         response.end(request.method === 'HEAD' ? undefined : JSON.stringify(payload))
       }
-      if (!sameOrigin(request)) {
-        send(403, { ok: false, error: 'origin' })
+      const rejection = gate(request)
+      if (rejection !== undefined) {
+        send(rejection, { ok: false, error: rejection === 401 ? 'auth' : 'origin' })
         return
       }
       if (request.method === 'GET' || request.method === 'HEAD') {
@@ -205,6 +208,15 @@ function isEntry(value) {
  */
 function sameOrigin(request) {
   return request.headers?.['sec-fetch-site'] === 'same-origin'
+}
+/**
+ * The shipped gate when no other is provided: the same-origin header, in the
+ * admission contract the routes speak (undefined admits, a status refuses).
+ * @param {any} request
+ * @returns {403 | undefined}
+ */
+function headerGate(request) {
+  return sameOrigin(request) ? undefined : 403
 }
 
 /** @param {any} request */

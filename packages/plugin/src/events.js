@@ -166,25 +166,31 @@ export function createEventStream({ logger, heartbeatMs = HEARTBEAT_MS, maxClien
 /**
  * Serve the event stream to the page this Host serves.
  *
- * The gate is the browser's own same-origin header, exactly like the queue and
- * focus routes: the GUI is this Host's page, and the extension's bridge token
- * has no business in it (D12). Anything else gets an honest 403.
+ * The gate is the shared page gate, exactly like the queue and focus routes:
+ * `ctx.connection.requestRejection` where the host provides it (Host/Origin
+ * fence plus the browser session the page holds), the same-origin header
+ * otherwise. The extension's bridge token has no business in it (D12).
  *
  * @param {any} webServer
  * @param {object} options
  * @param {ReturnType<typeof createEventStream>} options.events
+ * @param {(request: any) => 401 | 403 | undefined} [options.gate] page gate; defaults to the same-origin header check
  * @param {string} [options.path]
  * @returns {() => void} disposer
  */
-export function registerEventsRoute(webServer, { events, path = EVENTS_PATH }) {
+export function registerEventsRoute(webServer, { events, gate = headerGate, path = EVENTS_PATH }) {
   return webServer.register({
     kind: 'exact',
     path,
     auth: 'anonymous',
     handler: (request, response) => {
-      if (!sameOrigin(request)) {
-        response.writeHead(403, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
-        response.end(JSON.stringify({ ok: false, error: 'origin' }))
+      const rejection = gate(request)
+      if (rejection !== undefined) {
+        response.writeHead(rejection, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        })
+        response.end(JSON.stringify({ ok: false, error: rejection === 401 ? 'auth' : 'origin' }))
         return
       }
       if (request.method !== 'GET') {
@@ -208,6 +214,15 @@ export function registerEventsRoute(webServer, { events, path = EVENTS_PATH }) {
  */
 function sameOrigin(request) {
   return request.headers?.['sec-fetch-site'] === 'same-origin'
+}
+/**
+ * The shipped gate when no other is provided: the same-origin header, in the
+ * admission contract the routes speak (undefined admits, a status refuses).
+ * @param {any} request
+ * @returns {403 | undefined}
+ */
+function headerGate(request) {
+  return sameOrigin(request) ? undefined : 403
 }
 
 /** @param {unknown} error */

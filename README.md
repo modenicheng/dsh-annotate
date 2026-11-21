@@ -163,6 +163,13 @@ The bridge is local-only by design:
   only anonymous endpoint is `/ext/anno/health`, which reports the protocol
   version, counts, and the scheme/URL a browser should use — never annotation
   content.
+- **The GUI routes sit behind the host's own fence.** The routes the Web Client
+  page reads (`/ext/anno/queue`, `/queue/ack`, `/focus`, `/events`, `/item`,
+  `/image`) are gated by DSH's Connection fence — Host/Origin checks that stop
+  DNS rebinding, plus the browser session the page already holds — and fall
+  back to the `sec-fetch-site: same-origin` header check on hosts without the
+  Connection service. The token is never in them: the page is a different trust
+  anchor from the extension.
 - **Discovery publishes an address, not a secret.** The loopback locator answers
   one `GET` with the host's origin and a per-process id; it returns no token and
   no annotation data, and refuses a `Host` that is not loopback.
