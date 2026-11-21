@@ -88,7 +88,7 @@
     // the record carries is read from here, never from the live document: the
     // element may be gone by the time the comment is written.
     snapshot: null,
-    pointer: { down: false, dragging: false, startX: 0, startY: 0 },
+    pointer: { down: false, dragging: false, startX: 0, startY: 0, startScroll: { x: 0, y: 0 } },
     /** Shift is held, so the next drag selects text instead of an element. */
     shiftArmed: false,
     selectionGesture: false,
@@ -1111,11 +1111,23 @@
   // ── gestures ───────────────────────────────────────────────────────────────
 
   function marqueeRect(x, y) {
+    // The press was captured in one viewport, the drag continues in whatever
+    // viewport a mid-drag scroll (wheel, autoscroll) has moved to. Shift the
+    // recorded start by the scroll delta so the rectangle keeps tracking the
+    // content the user started on; the anchor that lands is clamped, so a
+    // runaway delta cannot persist a bad rect.
+    // Scrolling moves the content, so the recorded start drifts with it: with
+    // the page scrolled further down by `delta`, the pressed point now sits
+    // `delta` higher in the viewport.
+    const deltaX = state.pointer.startScroll.x - (Number(global.scrollX) || 0)
+    const deltaY = state.pointer.startScroll.y - (Number(global.scrollY) || 0)
+    const startX = state.pointer.startX + deltaX
+    const startY = state.pointer.startY + deltaY
     return ns.geom.normalizeRect({
-      x: state.pointer.startX,
-      y: state.pointer.startY,
-      w: x - state.pointer.startX,
-      h: y - state.pointer.startY,
+      x: startX,
+      y: startY,
+      w: x - startX,
+      h: y - startY,
     })
   }
 
@@ -1230,6 +1242,12 @@
     state.hoverPoint = { x: event.clientX, y: event.clientY }
     state.pointer.startX = event.clientX
     state.pointer.startY = event.clientY
+    // Remember the viewport the press happened in so marqueeRect can shift the
+    // start with any mid-drag scroll.
+    state.pointer.startScroll = {
+      x: Number(global.scrollX) || 0,
+      y: Number(global.scrollY) || 0,
+    }
     state.pointer.down = true
     state.pointer.dragging = false
     if (event.shiftKey === true || mode === 'selection') {
