@@ -1,0 +1,52 @@
+name: Release please
+
+# release-please automates the version bump (DISTRIBUTION.md §4.3). It reads
+# the Conventional Commits on main and maintains a Release PR that bumps
+# packages/plugin/package.json and packages/extension/manifest.json ($.version,
+# through the extra-files JSON updater) in the same diff and updates
+# packages/plugin/CHANGELOG.md. When that PR is merged, release-please tags
+# vX.Y.Z (force-tag-creation, so the tag exists while the release is still a
+# draft) and opens the draft GitHub Release with the generated notes.
+#
+# This workflow then builds the store artifacts and attaches them to that
+# draft by re-using the draft job of release.yml through workflow_call.
+# The build cannot be triggered by the tag push itself: release-please pushes
+# the tag with GITHUB_TOKEN, and events created by GITHUB_TOKEN do not start
+# other workflows. A reusable-workflow call is not an event, so it runs.
+#
+# Two human gates remain, unchanged: merging the Release PR decides what ships
+# and at what version; publishing the draft release is what fires release.yml's
+# publish and stores jobs.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Only the draft job of release.yml runs in the called workflow: publish and
+  # stores are still gated on `release: published`, which workflow_call is not.
+  build:
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    permissions:
+      contents: write

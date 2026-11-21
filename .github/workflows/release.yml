@@ -3,8 +3,13 @@ name: Release
 # Three phases, because a registry or store version cannot be withdrawn
 # (docs/DISTRIBUTION.md §4.3):
 #
-#   push tag vX.Y.Z     verify the tag, build both store zips and the npm
-#                       tarball, and open a DRAFT release with all of them
+#   build and draft    release-please merges the Release PR, tags vX.Y.Z, and
+#                       opens the draft release with the generated notes; its
+#                       workflow then calls the draft job here through
+#                       workflow_call to verify the tag, build both store zips
+#                       and the npm tarball, and attach them to that draft.
+#                       A hand-pushed tag still enters through `push: tags`
+#                       and opens its own draft as a fallback path.
 #   release published   publish that tarball to npm — the human gate — then
 #                       submit the artifacts already on the release to the
 #                       stores (the `stores` job below); it never rebuilds
@@ -12,9 +17,10 @@ name: Release
 #                       failed, without burning a new tag; `dry_run` validates
 #                       and uploads nothing
 #
-# Phase 1 never touches the registry or a store, but it does build the store
-# artifacts: a human can inspect exactly the bytes a store will receive before
-# clicking Publish. Publish is still the only thing that fires phases 2 and 3.
+# The draft job never touches the registry or a store, but it does build the
+# store artifacts: a human can inspect exactly the bytes a store will receive
+# before clicking Publish. Publish is still the only thing that fires phases
+# 2 and 3.
 #
 # Phase 3 (stores) is gated differently from phase 2:
 #
@@ -54,6 +60,12 @@ on:
     tags: ['v*']
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing tag to verify, build, and attach (the release-please path)
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -78,24 +90,29 @@ concurrency:
 jobs:
   draft:
     name: verify and draft
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_call'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write
+    env:
+      # A tag push names it in the ref; the workflow_call from release-please
+      # passes it as an input. One variable, so the steps below never care.
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: The tag must name the package version
         id: version
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/plugin/package.json').version")"
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not name packages/plugin version $version"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not name packages/plugin version $version"
             exit 1
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
@@ -104,8 +121,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::$GITHUB_REF_NAME is not an ancestor of main; tag the merged commit"
+          tag_sha="$(git rev-parse "$TAG^{commit}")"
+          if ! git merge-base --is-ancestor "$tag_sha" origin/main; then
+            echo "::error::$TAG is not an ancestor of main; tag the merged commit"
             exit 1
           fi
 
@@ -248,45 +266,32 @@ jobs:
           npm pack ./packages/plugin --pack-destination "$assets"
           (cd "$assets" && sha256sum ./*.tgz ./*.zip > checksums.txt && cat checksums.txt)
 
-      # GitHub's --generate-notes only categorises merged pull requests, and
-      # this repository commits to main directly, so it produced nothing but a
-      # compare link (v0.1.4's draft shipped that way). The commits are strict
-      # Conventional Commits, so git-cliff reads the notes off the log using
-      # cliff.toml; the compare link is appended here so a first release works
-      # too. A first release with no earlier tag falls back to
-      # --generate-notes rather than inventing a range.
-      - name: Install git-cliff
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff@2
-
-      - name: Write the release notes
-        id: notes
-        run: |
-          set -euo pipefail
-          previous="$(git describe --tags --match 'v*' --abbrev=0 "$GITHUB_REF_NAME^1" 2>/dev/null || true)"
-          if [ -n "$previous" ]; then
-            repo_url="$(git remote get-url origin | sed -e 's|^git@github.com:|https://github.com/|' -e 's|\.git$||')"
-            git-cliff --config cliff.toml --latest --strip all > "$RUNNER_TEMP/release-notes.md"
-            printf '\n**Full Changelog**: %s/compare/%s...%s\n' "$repo_url" "$previous" "$GITHUB_REF_NAME" >> "$RUNNER_TEMP/release-notes.md"
-          else
-            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-              -f tag_name="$GITHUB_REF_NAME" --jq .body > "$RUNNER_TEMP/release-notes.md"
-          fi
-          cat "$RUNNER_TEMP/release-notes.md"
-
-      - name: Open a draft release
+      # release-please opened the draft release — with the changelog as its
+      # body — before this job ran; attach the built artifacts to it. A
+      # hand-pushed tag has no release-please draft, so fall back to opening
+      # one as before. Either way the release stays a draft until a human
+      # publishes it.
+      - name: Attach the artifacts to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           assets="$GITHUB_WORKSPACE/dist/release-assets"
-          gh release create "$GITHUB_REF_NAME" \
-            --draft \
-            --verify-tag \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file "$RUNNER_TEMP/release-notes.md" \
-            "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt
+          for attempt in 1 2 3 4 5 6; do
+            if gh release view "$TAG" >/dev/null 2>&1; then break; fi
+            echo "attempt $attempt: the release for $TAG is not visible yet"
+            sleep 10
+          done
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt --clobber
+          else
+            gh release create "$TAG" \
+              --draft \
+              --verify-tag \
+              --title "$TAG" \
+              --generate-notes \
+              "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt
+          fi
 
   publish:
     name: publish to npm
@@ -461,11 +466,10 @@ jobs:
   #   EDGE_CLIENT_ID, EDGE_API_KEY        Partner Center Publish API (TODO, not wired)
   #   vars.EDGE_PUBLISH                   'true' enables the Edge TODO step
   #
-  # One third-party action beyond checkout/setup-node/pnpm-action is allowed:
-  # taiki-e/install-action, which installs git-cliff for the draft release
-  # notes (cliff.toml). It is pinned to a major tag, like the actions above.
-  # Pinning every action to a commit SHA is a repo-wide change (§4.8), not
-  # something to do for one job only.
+  # Only checkout/setup-node/pnpm-action are used here, at the same major
+  # tags as the other jobs; the release-please workflow owns the one extra
+  # third-party action. Pinning every action to a commit SHA is a repo-wide
+  # change (§4.8), not something to do for one job only.
   # ---------------------------------------------------------------------------
   stores:
     name: build store artifacts and submit
