@@ -68,35 +68,36 @@ body {
   font: var(--text-label) / var(--text-label-lh) var(--font-ui);
 }
 
+/* One row: state on the left, address on the right. The row's height is
+   fixed by the label's line, so status rewrites never resize the popup. */
 .status-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
   background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
 }
 
-.status-bar__text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 .status-bar__label {
+  flex: none;
   margin: 0;
   font-weight: 600;
   font-size: var(--text-label);
+  line-height: var(--text-label-lh);
 }
 
 .status-bar__detail {
-  margin: 2px 0 0;
   /* One line, always: a reconnect cycle rewrites this text several times, and
      a rewrap between one and two lines would make the whole popup jump. The
      full value is on the element's title. */
-  min-height: var(--text-caption-lh);
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   color: var(--text-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -106,7 +107,6 @@ body {
   flex: 0 0 auto;
   width: 10px;
   height: 10px;
-  margin-top: 4px;
   border-radius: 50%;
   background: var(--idle);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--idle) 22%, transparent);
@@ -407,22 +407,27 @@ code {
   line-height: var(--text-caption-lh);
 }
 
-/* The status line sits above the fold and stays in view when the popup grows
-   taller than the browser's popup window, which is where a failing button's
-   message must still be readable. */
+/* Action and error feedback, directly under the status row. It collapses
+   away when there is nothing to say, so the empty state costs no space;
+   appearing is a deliberate event (a user action or a failure), which may
+   grow the popup by its own line. Sticky keeps a late error readable even
+   when the popup is scrolled. */
 .feedback {
   position: sticky;
   top: 0;
   z-index: 2;
-  min-height: 32px;
   margin: 0;
-  padding: 8px 14px 12px;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
   overflow-wrap: anywhere;
+}
+
+.feedback:empty {
+  display: none;
 }
 
 .feedback--ok {
