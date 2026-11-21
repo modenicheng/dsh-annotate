@@ -21,6 +21,9 @@ async function loadI18n() {
   const sandbox = {}
   sandbox.globalThis = sandbox
   vm.createContext(sandbox)
+  // Data first, logic second — the same order popup.html loads them in.
+  const strings = await readFile(join(extensionRoot, 'src/shared/popup-strings.js'), 'utf8')
+  vm.runInContext(strings, sandbox, { filename: 'src/shared/popup-strings.js' })
   const code = await readFile(join(extensionRoot, 'src/shared/i18n.js'), 'utf8')
   vm.runInContext(code, sandbox, { filename: 'src/shared/i18n.js' })
   return sandbox.__DSH_I18N__
@@ -64,6 +67,19 @@ test('format replaces named placeholders and leaves unknown ones alone', async (
   assert.equal(i18n.format('Deleted {n}, {failed} failed', { n: 3, failed: 1 }), 'Deleted 3, 1 failed')
   assert.equal(i18n.format('Deleted {n}'), 'Deleted {n}')
   assert.equal(i18n.format('no braces', { n: 1 }), 'no braces')
+})
+
+test('the strings live in the data file; the logic alone degrades to key names', async () => {
+  // i18n.js must stay free of copy: it only reads `__DSH_POPUP_STRINGS__`.
+  // Loading it without the data file must not throw — the popup then paints
+  // key names until the strings script arrives.
+  const sandbox = {}
+  sandbox.globalThis = sandbox
+  vm.createContext(sandbox)
+  const code = await readFile(join(extensionRoot, 'src/shared/i18n.js'), 'utf8')
+  vm.runInContext(code, sandbox, { filename: 'src/shared/i18n.js' })
+  assert.equal(Object.keys(sandbox.__DSH_I18N__.POPUP).length, 0, 'no copy hides in the logic file')
+  assert.equal(sandbox.__DSH_I18N__.make('zh-CN')('statusIdle'), 'statusIdle')
 })
 
 test('zh* locales pick the Chinese table; everything else is English', async () => {

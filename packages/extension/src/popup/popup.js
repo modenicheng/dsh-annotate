@@ -99,8 +99,6 @@
     exitAfterSend: false,
     /** Leave annotation mode on a page right-click (on by default). */
     exitOnRightClick: true,
-    /** Background lifecycle lines, newest last; shown by the diagnostics panel. */
-    diagnostics: [],
   }
 
   /** @type {Record<string, HTMLElement>} */
@@ -197,9 +195,6 @@
       'annotate',
       'exit-after-send',
       'exit-on-right-click',
-      'diagnostics-log',
-      'diagnostics-refresh',
-      'diagnostics-copy',
     ]
     for (const id of ids) {
       const node = document.getElementById(id)
@@ -221,18 +216,6 @@
     }
     if (el['exit-on-right-click'] !== undefined) {
       el['exit-on-right-click'].addEventListener('change', () => void saveExitOnRightClick())
-    }
-    if (el['diagnostics-refresh'] !== undefined) {
-      el['diagnostics-refresh'].addEventListener('click', () => void refreshState())
-    }
-    if (el['diagnostics-copy'] !== undefined) {
-      el['diagnostics-copy'].addEventListener('click', () => void copyDiagnostics())
-    }
-    const diagnosticsPanel = document.getElementById('diagnostics-panel')
-    if (diagnosticsPanel !== null) {
-      diagnosticsPanel.addEventListener('toggle', (event) => {
-        if (event.target === diagnosticsPanel && diagnosticsPanel.open) void refreshState()
-      })
     }
 
     // The mode control, the host list, the scan action, and the endpoint drop
@@ -380,9 +363,7 @@
         [MSG.STORAGE_KEYS.token]: token,
       })
       state.token = token
-      const scheme = parsed.secure === true ? 'wss' : parsed.secure === false ? 'ws' : 'ws or wss'
-      const decision = parsed.secure === null ? t('savedSchemeCheck') : ''
-      feedback(t('savedConnect', { scheme, host: parsed.host, port: parsed.port, decision }), 'ok')
+      feedback(t('savedConnect', { host: parsed.host, port: parsed.port }), 'ok')
       // The background reconnects on the storage change; give it a moment.
       setTimeout(() => {
         void refreshState()
@@ -562,10 +543,6 @@
     }
     if (response.status !== undefined) applyStatus(response.status)
     if (response.outbox !== undefined) applyOutbox(response.outbox)
-    if (Array.isArray(response.diagnostics)) {
-      state.diagnostics = response.diagnostics.slice()
-      renderDiagnostics()
-    }
     state.records = Array.isArray(response.records) ? response.records : []
     state.activeTab = response.activeTab ?? null
     renderPage()
@@ -587,7 +564,9 @@
       // first-run user actually meets (no token yet) has a translated twin.
       feedback(connection === 'no-token' ? t('noTokenFeedback') : status.lastError, 'error')
     } else if (connection === 'connected') {
-      feedback(t('connectedFeedback'), 'ok')
+      // Healthy is quiet: the green dot and the address say it, and an old
+      // error must not linger after the connection came back.
+      feedback('')
     }
     if (status.outbox !== undefined) applyOutbox(status.outbox)
     // The panel owns the detail line, the mode control, and the hosts list; it
@@ -621,25 +600,6 @@
           ? t('outboxEmpty')
           : t('outboxWaiting', { n: count }) +
             (pendingImages === 0 ? '' : t('outboxWaitingImages', { n: pendingImages }))
-    }
-  }
-  function renderDiagnostics() {
-    if (el['diagnostics-log'] === undefined) return
-    const lines = state.diagnostics
-    el['diagnostics-log'].textContent = lines.length === 0 ? t('diagnosticsEmpty') : lines.join('\n')
-  }
-
-  async function copyDiagnostics() {
-    const text = state.diagnostics.join('\n')
-    if (text === '') {
-      feedback(t('diagnosticsEmpty'), 'warn')
-      return
-    }
-    try {
-      await navigator.clipboard.writeText(text)
-      feedback(t('diagnosticsCopied'), 'ok')
-    } catch (error) {
-      feedback(t('diagnosticsCopyFailed', { reason: describeError(error) }), 'error')
     }
   }
 
