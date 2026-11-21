@@ -8,7 +8,13 @@ DSH client half) can be built against one description instead of drifting.
 1. On any page, the shortcut (default `Alt+Shift+A`, configurable in the
    popup) enters annotate mode. The toolbar popup's **Annotate this page** button
    enters it as well, and is the path that also grants `activeTab` on a tab that
-   predates the install.
+   predates the install. On Firefox the popup recording also updates the
+   browser command, so the two doors stay in step. On Chromium the extension
+   cannot write commands: the browser command must be assigned once by hand in
+   `chrome://extensions/shortcuts`, and only that command grants `activeTab`
+   (screenshots). The in-page matcher works everywhere but never grants
+   `activeTab`, so on Chromium a mark entered through it ships without its
+   screenshot unless the tab was granted another way.
 2. The user marks a text selection, an element, or a region, and may write a
    comment. The mark alone is a complete annotation: an empty comment sends the
    pointer by itself.
