@@ -52,7 +52,16 @@ function createSelection() {
 
 /** The `ns.ui` surface `main.js` calls, recording what reached the overlay. */
 function createUi() {
-  const calls = { hover: [], marquee: [], cursor: [], shiftDrop: [], markBands: [], locked: [], composer: [] }
+  const calls = {
+    hover: [],
+    marquee: [],
+    cursor: [],
+    shiftDrop: [],
+    markBands: [],
+    locked: [],
+    composer: [],
+    captureSuppressed: [],
+  }
   const ui = {
     calls,
     composerOpen: false,
@@ -66,6 +75,9 @@ function createUi() {
     mount() {},
     setHud() {},
     setHidden() {},
+    setCaptureSuppressed(value) {
+      calls.captureSuppressed.push(value === true)
+    },
     setHover(value) {
       calls.hover.push(value === null ? null : { rect: value.rect, label: value.label })
     },
@@ -138,7 +150,7 @@ async function bootContentScript() {
   const selection = createSelection()
   const ui = createUi()
   /** Marks applied to the page itself, counted by the hydrator stub. */
-  const marks = { clear: 0, apply: 0 }
+  const marks = { clear: 0, apply: 0, suppressed: [] }
   /** The `runtime.onMessage` listener the content script registered. */
   let onContentMessage = null
   const caret = { node: { nodeType: 3, nodeValue: 'caret text' }, offset: 4 }
@@ -278,6 +290,9 @@ async function bootContentScript() {
         applyMarks() {
           marks.apply += 1
         },
+        setMarksSuppressed(value) {
+          marks.suppressed.push(value === true)
+        },
         // No `<mark>` painted in this harness, so the handler falls back to the
         // placement range the way it does while annotating.
         markLineBoxes: () => [],
@@ -355,6 +370,12 @@ async function bootContentScript() {
     return onContentMessage({ type: 'anno.event', ...payload }, {})
   }
 
+  /** Deliver any typed runtime message the way the background would. */
+  function deliver(message) {
+    if (!onContentMessage) throw new Error('the content script registered no message listener')
+    return Promise.resolve(onContentMessage(message, {}))
+  }
+
   /** Make the next capture report these line boxes; `[]` models a lost range. */
   function captureLines(list) {
     captureLineRects = list
@@ -368,6 +389,7 @@ async function bootContentScript() {
     flushFrames,
     records,
     event,
+    deliver,
     captureLines,
     marks,
     selection,
@@ -690,4 +712,55 @@ test('ending a mark drops the selection it left on the page', async () => {
   harness.selection.rangeCount = 1
   harness.fire('keydown', { key: 'Escape' })
   assert.equal(harness.selection.removed, 2, 'leaving the mode drops any leftover selection')
+})
+
+test('a capture hide steps the layer out of the frame, restore brings it back', async () => {
+  const harness = await bootContentScript()
+
+  // The hide mutates at once but acks only after two presented frames: a
+  // capture that read the pre-hide compositor frame would ship the layer anyway.
+  const hide = harness.deliver({ type: 'anno.capture.hide' })
+  assert.deepEqual(harness.ui.calls.captureSuppressed, [true], 'the host leaves the frame')
+  assert.deepEqual(harness.marks.suppressed, [true], 'the highlight tint is painted away with it')
+  harness.flushFrames()
+  assert.equal((await hide).ok, true, 'the ack lands once the clean frame is presented')
+
+  harness.deliver({ type: 'anno.capture.restore' })
+  assert.deepEqual(harness.ui.calls.captureSuppressed, [true, false], 'the host comes back')
+  assert.deepEqual(harness.marks.suppressed, [true, false], 'and the marks keep their tint')
+})
+
+test('concurrent captures share one suppression until the last restore', async () => {
+  const harness = await bootContentScript()
+
+  // A submit and a late outbox crop can ask at once; the depth counter keeps
+  // the first restore from uncovering a frame the second capture is still reading.
+  const first = harness.deliver({ type: 'anno.capture.hide' })
+  const second = harness.deliver({ type: 'anno.capture.hide' })
+  assert.deepEqual(harness.ui.calls.captureSuppressed, [true], 'two hides are one mutation')
+  harness.flushFrames()
+  await first
+  await second
+
+  harness.deliver({ type: 'anno.capture.restore' })
+  assert.deepEqual(harness.ui.calls.captureSuppressed, [true], 'the first restore leaves the layer hidden')
+
+  harness.deliver({ type: 'anno.capture.restore' })
+  assert.deepEqual(harness.ui.calls.captureSuppressed, [true, false], 'the last restore uncovers it')
+})
+
+test('a hide whose restore never arrives un-hides itself', async () => {
+  const harness = await bootContentScript()
+  const hide = harness.deliver({ type: 'anno.capture.hide' })
+  harness.flushFrames()
+  await hide
+
+  // The event page died mid-capture: no restore is coming. The watchdog hands
+  // the page its layer back instead of leaving the user with no HUD forever.
+  harness.flushTimers()
+  assert.deepEqual(harness.ui.calls.captureSuppressed, [true, false], 'the watchdog puts the layer back')
+
+  // The late restore (or a duplicate) must not mis-count on the reset state.
+  harness.deliver({ type: 'anno.capture.restore' })
+  assert.deepEqual(harness.ui.calls.captureSuppressed, [true, false])
 })

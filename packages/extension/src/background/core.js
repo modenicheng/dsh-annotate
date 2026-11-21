@@ -49,6 +49,8 @@
       pickCancel: 'anno.pick.cancel',
       event: 'anno.event',
       activate: 'anno.activate',
+      captureHide: 'anno.capture.hide',
+      captureRestore: 'anno.capture.restore',
     },
     TO_BACKGROUND_POPUP: {
       state: 'anno.popup.state',
