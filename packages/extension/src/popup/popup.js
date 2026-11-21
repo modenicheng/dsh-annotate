@@ -87,8 +87,12 @@
     shortcut: SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.DEFAULT,
     /** Whether the in-page floating button is offered. */
     launcher: true,
+    /** Leave annotation mode after a successful send (off by default). */
+    exitAfterSend: false,
     /** True while the shortcut button is waiting for a recorded combination. */
     recording: false,
+    /** Background lifecycle lines, newest last; shown by the diagnostics panel. */
+    diagnostics: [],
   }
 
   /** @type {Record<string, HTMLElement>} */
@@ -183,7 +187,11 @@
       'shortcut-record',
       'shortcut-reset',
       'launcher-toggle',
+      'exit-after-send',
       'annotate',
+      'diagnostics-log',
+      'diagnostics-refresh',
+      'diagnostics-copy',
     ]
     for (const id of ids) {
       const node = document.getElementById(id)
@@ -200,7 +208,22 @@
     if (el['shortcut-record'] !== undefined) el['shortcut-record'].addEventListener('click', onShortcutRecordClick)
     if (el['shortcut-reset'] !== undefined) el['shortcut-reset'].addEventListener('click', () => void resetShortcut())
     if (el['launcher-toggle'] !== undefined) el['launcher-toggle'].addEventListener('change', () => void saveLauncher())
+    if (el['exit-after-send'] !== undefined) {
+      el['exit-after-send'].addEventListener('change', () => void saveExitAfterSend())
+    }
     if (el.annotate !== undefined) el.annotate.addEventListener('click', () => void annotateCurrentPage())
+    if (el['diagnostics-refresh'] !== undefined) {
+      el['diagnostics-refresh'].addEventListener('click', () => void refreshState())
+    }
+    if (el['diagnostics-copy'] !== undefined) {
+      el['diagnostics-copy'].addEventListener('click', () => void copyDiagnostics())
+    }
+    const diagnosticsPanel = document.getElementById('diagnostics-panel')
+    if (diagnosticsPanel !== null) {
+      diagnosticsPanel.addEventListener('toggle', (event) => {
+        if (event.target === diagnosticsPanel && diagnosticsPanel.open) void refreshState()
+      })
+    }
 
     // The mode control, the host list, the scan action, and the endpoint drop
     // zone belong to the discovery panel, which wires its own listeners.
@@ -281,7 +304,9 @@
     if (el.token !== undefined && document.activeElement !== el.token) el.token.value = token
     state.shortcut = SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.normalize(prefs?.shortcut) || SHORTCUT.DEFAULT
     state.launcher = prefs?.launcher !== false
+    state.exitAfterSend = prefs?.exitAfterSend === true
     if (el['launcher-toggle'] !== undefined) el['launcher-toggle'].checked = state.launcher
+    if (el['exit-after-send'] !== undefined) el['exit-after-send'].checked = state.exitAfterSend
     updateShortcutButton()
     // The panel owns the mode radios and their hint: it adopts a stored choice
     // and otherwise leaves its current paint (the default) alone.
@@ -487,6 +512,11 @@
     await savePrefsPatch({ launcher: state.launcher })
   }
 
+  async function saveExitAfterSend() {
+    state.exitAfterSend = el['exit-after-send'] === undefined ? false : el['exit-after-send'].checked
+    await savePrefsPatch({ exitAfterSend: state.exitAfterSend })
+  }
+
   /**
    * Toolbar path into annotation mode. Opening the popup already grants
    * `activeTab` for this tab, which is what lets the screenshot and the content
@@ -494,7 +524,13 @@
    */
   async function annotateCurrentPage() {
     const response = await send(MSG.TO_BACKGROUND_POPUP.activate)
-    if (response === null || typeof response !== 'object' || response.ok !== true) {
+    if (response === undefined || response === null) {
+      // An unknown message type is answered with nothing: the page in front is
+      // newer than the background loaded in this browser session.
+      feedback(t('annotateStale'), 'warn')
+      return
+    }
+    if (typeof response !== 'object' || response.ok !== true) {
       const reason = response?.error ?? t('noResponse')
       feedback(reason.startsWith('restricted-page') ? t('restrictedShort') : t('annotateFailed', { reason }), 'error')
       return
@@ -513,6 +549,10 @@
     }
     if (response.status !== undefined) applyStatus(response.status)
     if (response.outbox !== undefined) applyOutbox(response.outbox)
+    if (Array.isArray(response.diagnostics)) {
+      state.diagnostics = response.diagnostics.slice()
+      renderDiagnostics()
+    }
     state.records = Array.isArray(response.records) ? response.records : []
     state.activeTab = response.activeTab ?? null
     renderPage()
@@ -568,6 +608,26 @@
           ? t('outboxEmpty')
           : t('outboxWaiting', { n: count }) +
             (pendingImages === 0 ? '' : t('outboxWaitingImages', { n: pendingImages }))
+    }
+  }
+
+  function renderDiagnostics() {
+    if (el['diagnostics-log'] === undefined) return
+    const lines = state.diagnostics
+    el['diagnostics-log'].textContent = lines.length === 0 ? t('diagnosticsEmpty') : lines.join('\n')
+  }
+
+  async function copyDiagnostics() {
+    const text = state.diagnostics.join('\n')
+    if (text === '') {
+      feedback(t('diagnosticsEmpty'), 'warn')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      feedback(t('diagnosticsCopied'), 'ok')
+    } catch (error) {
+      feedback(t('diagnosticsCopyFailed', { reason: describeError(error) }), 'error')
     }
   }
 

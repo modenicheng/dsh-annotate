@@ -21,7 +21,38 @@
  */
 ;(function bootMain(global) {
   const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
-  if (ns.booted) return
+
+  /** One diagnostic line before `MSG` and the shared logger exist. */
+  function rawDiag(message) {
+    try {
+      const api = global.browser || global.chrome
+      const result = api?.runtime?.sendMessage({ type: 'anno.content.debug', message: `content: ${message}` })
+      if (result && typeof result.catch === 'function') result.catch(() => undefined)
+    } catch {
+      // A dead extension context cannot report; the console is all that is left.
+    }
+  }
+
+  if (ns.booted) {
+    rawDiag(`injected boot: booted=true teardown=${typeof ns.teardown}`)
+    // A re-injection after an extension reload runs in the *same* isolated
+    // world as the previous instance, whose runtime is dead but whose flag and
+    // listeners are still there. Take the world over instead of returning into
+    // a dead instance: otherwise the toolbar button and the shortcut keep
+    // failing until the user reloads the page.
+    if (typeof ns.teardown !== 'function') {
+      rawDiag('stale instance has no teardown; staying out')
+      return
+    }
+    try {
+      ns.teardown()
+      rawDiag('stale instance torn down')
+    } catch (error) {
+      rawDiag(`teardown failed: ${String(error)}`)
+      // Continue anyway: the new mount replaces the host even if the old
+      // instance could not finish its own cleanup.
+    }
+  }
 
   const P = global.__DSH_PROTOCOL__
   if (!P || !ns.anchor || !ns.hydrate || !ns.ui) return
@@ -39,6 +70,7 @@
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
       createSession: 'anno.session.create',
+      debug: 'anno.content.debug',
     },
     content: {
       records: 'anno.records',
@@ -54,6 +86,20 @@
   }
 
   const api = global.browser || global.chrome || null
+  /** Lifecycle diagnostics, mirrored to the popup's Diagnostics panel. */
+  function logInfo(message) {
+    // The panel lives on the background's ring buffer; a content-only failure
+    // is exactly what it needs to show, so every line is forwarded there.
+    void send(MSG.background.debug, { message: String(message) })
+  }
+  /** @param {unknown} error */
+  function logError(error) {
+    try {
+      console.error('dsh-marker: content start failed', error)
+    } catch {
+      // Same rule as logInfo.
+    }
+  }
   /**
    * The engine seam (`src/shared/platform.js`, listed first in the
    * content-script list). This script answers `runtime.onMessage` with a
@@ -85,6 +131,8 @@
   const state = {
     active: false,
     activeSource: '',
+    /** True once a newer content instance tore this one down. */
+    disposed: false,
     hidden: false,
     connected: '',
     connection: '',
@@ -104,6 +152,8 @@
     shortcut: SHORTCUT_DEFAULT,
     /** Whether the in-page launcher button is offered (prefs, unless disabled). */
     launcher: true,
+    /** Leave annotation mode after a successful send (pref, default off). */
+    exitAfterSend: false,
     /** Element ancestors under the pointer, deepest first; Tab/Shift+Tab index it. */
     hoverChain: [],
     hoverDepth: 0,
@@ -744,6 +794,7 @@
 
   function enterMode(source, options) {
     const config = options || {}
+    logInfo(`enterMode source=${source || 'user'} restricted=${state.restricted}`)
     if (state.restricted) return
     if (state.hidden) {
       // An explicit activation always reveals the layers: activating while
@@ -781,6 +832,7 @@
   }
 
   function leaveMode(reason) {
+    logInfo(`leaveMode reason=${reason}`)
     if (!state.active) return
     state.active = false
     state.activeSource = ''
@@ -1188,6 +1240,9 @@
       // An annotation without a comment is the mark alone; say which one was
       // sent instead of implying words the user never wrote.
       ui.toast(draft.comment === '' ? t('savedMark') : t('saved'), 'ok')
+      // "Exit after sending" is opt-in: most people mark several things in a
+      // row, and leaving the mode after the first one would break that flow.
+      if (state.exitAfterSend) leaveMode('sent')
     })
   }
 
@@ -1589,6 +1644,20 @@
     event.preventDefault()
   }
 
+  /**
+   * A right click on the page is a way out of annotation mode. It is disabled
+   * while the composer is open, where the context menu belongs to the textarea
+   * (paste, spellcheck), and inside our own chrome.
+   */
+  function onContextMenu(event) {
+    if (!state.active || !ui) return
+    if (ns.text.isOurs(event.target)) return
+    if (ui.isComposerOpen()) return
+    event.preventDefault()
+    event.stopPropagation()
+    leaveMode('contextmenu')
+  }
+
   /** Shift means "select text", so it gets a pointer guide of its own. */
   function isShiftKey(event) {
     return event.key === 'Shift' || event.code === 'ShiftLeft' || event.code === 'ShiftRight'
@@ -1627,6 +1696,7 @@
     }
     if (event.repeat) return
     if (isShortcutEvent(event)) {
+      logInfo('shortcut matched')
       event.preventDefault()
       event.stopPropagation()
       toggleMode()
@@ -1765,7 +1835,7 @@
   }
 
   function onStorageChanged(changes, area) {
-    if (area !== 'local' || !changes || !changes[MSG.prefs]) return
+    if (state.disposed || area !== 'local' || !changes || !changes[MSG.prefs]) return
     const next = changes[MSG.prefs].newValue
     if (!next || typeof next !== 'object') return
     state.prefs = next
@@ -1785,6 +1855,7 @@
         ? SHORTCUT_API.normalize(prefs && prefs.shortcut) || SHORTCUT_API.DEFAULT
         : SHORTCUT_DEFAULT
     state.launcher = !prefs || prefs.launcher !== false
+    state.exitAfterSend = prefs?.exitAfterSend === true
     syncLauncher()
   }
 
@@ -1935,7 +2006,7 @@
    * `sendResponse`, because a promise-returning listener is ignored below 148.
    */
   function onRuntimeMessage(message) {
-    if (!message || typeof message !== 'object') return undefined
+    if (state.disposed || !message || typeof message !== 'object') return undefined
     // Tolerate `{ type, payload: {...} }` from older builds; flat fields win.
     const flat =
       message.payload && typeof message.payload === 'object' ? Object.assign({}, message.payload, message) : message
@@ -1961,6 +2032,7 @@
       return Promise.resolve({ ok: true })
     }
     if (type === MSG.content.activate) {
+      logInfo('activate received')
       handleActivate(flat)
       return Promise.resolve({ ok: true })
     }
@@ -1974,12 +2046,67 @@
 
   // ── boot ───────────────────────────────────────────────────────────────────
 
+  /**
+   * Undo one instance's page footprint before a newer instance takes over. It
+   * only touches DOM and timers: the extension context may already be dead, so
+   * every browser call would reject.
+   */
+  function teardown() {
+    state.disposed = true
+    state.active = false
+    state.pick = null
+    const listeners = [
+      ['keydown', onKeyDown, true],
+      ['keyup', onKeyUp, true],
+      ['pointerdown', onPointerDown, true],
+      ['pointermove', onPointerMove, true],
+      ['pointerup', onPointerUp, true],
+      ['pointercancel', onPointerCancel, true],
+      ['mousedown', onMouseDownCapture, true],
+      ['click', onClickCapture, true],
+      ['dragstart', onDragStart, true],
+      ['contextmenu', onContextMenu, true],
+      ['scroll', onViewportChange, true],
+      ['resize', onViewportChange, true],
+      ['message', onPageMessage, false],
+      ['popstate', onPossibleRouteChange, true],
+      ['hashchange', onPossibleRouteChange, true],
+    ]
+    for (const [type, listener, capture] of listeners) {
+      try {
+        global.removeEventListener(type, listener, capture)
+      } catch {
+        // A detached window has nothing to unhook.
+      }
+    }
+    try {
+      state.observer?.disconnect()
+    } catch {
+      // Already gone.
+    }
+    state.scheduler?.cancel?.()
+    state.routeScheduler?.cancel?.()
+    try {
+      ui?.destroy()
+    } catch {
+      // The host node is the only thing that must go, and destroy() removes it.
+    }
+    ui = null
+    ns.booted = false
+    ns.teardown = null
+  }
+  // Published before boot: a re-injection that lands while `start()` is still
+  // running (or after it failed) must still be able to take the world over.
+  ns.teardown = teardown
+
   function start() {
     const reason = restrictedReason()
     if (reason) {
       state.restricted = reason
+      logInfo(`restricted: ${reason}`)
       return
     }
+    logInfo(`content boot ${String(global.location && global.location.href).slice(0, 120)}`)
     ui = ns.ui.create({
       onSend: handleSend,
       onCancel: handleCancel,
@@ -2012,6 +2139,7 @@
     global.addEventListener('mousedown', onMouseDownCapture, true)
     global.addEventListener('click', onClickCapture, true)
     global.addEventListener('dragstart', onDragStart, true)
+    global.addEventListener('contextmenu', onContextMenu, true)
     global.addEventListener('scroll', onViewportChange, true)
     global.addEventListener('resize', onViewportChange, true)
     if (api && api.runtime && api.runtime.onMessage) {
@@ -2048,6 +2176,8 @@
       else void queryRecords()
       if (normalized.status) handleStatusMessage(normalized.status)
     })
+    // Published last: a re-injection must be able to undo everything above.
+    ns.teardown = teardown
   }
 
   function boot() {
@@ -2065,10 +2195,21 @@
       return
     }
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', start, { once: true })
+      document.addEventListener('DOMContentLoaded', () => safeStart(), { once: true })
       return
     }
-    start()
+    safeStart()
+  }
+
+  /** `start()` is the one place a bad selector or a refused API would abort the
+   * whole content script; log it instead of leaving a silent no-op. */
+  function safeStart() {
+    try {
+      start()
+    } catch (error) {
+      logError(error)
+      rawDiag(`start failed: ${String(error)}`)
+    }
   }
 
   boot()

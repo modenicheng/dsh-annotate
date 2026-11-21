@@ -41,6 +41,7 @@
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
       createSession: 'anno.session.create',
+      debug: 'anno.content.debug',
     },
     TO_CONTENT: {
       records: 'anno.records',
@@ -95,6 +96,26 @@
   ns.popupMessageTypes = new Set(Object.values(ns.msg.TO_BACKGROUND_POPUP))
 
   const LOG_PREFIX = 'dsh-marker'
+
+  /**
+   * A small, local ring buffer of lifecycle events for the popup's Diagnostics
+   * panel. Console logging alone is useless to a user who cannot tell which of
+   * the three contexts failed, so the background records the path the command
+   * and the popup button take and the popup renders it.
+   */
+  ns.diagnostics = []
+  ns.diag = (message) => {
+    const line = `${new Date().toISOString().slice(11, 23)} ${String(message).slice(0, 400)}`
+    ns.diagnostics.push(line)
+    while (ns.diagnostics.length > 80) ns.diagnostics.shift()
+    try {
+      // Same surface as the status logger: visible in the extension's console,
+      // never in the page.
+      console.info(`dsh-marker: ${message}`)
+    } catch {
+      // A console that refuses the call is not worth failing a command over.
+    }
+  }
 
   ns.log = {
     debug: (...args) => console.debug(`${LOG_PREFIX}:`, ...args),

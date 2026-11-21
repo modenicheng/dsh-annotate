@@ -54,6 +54,7 @@ function createSelection() {
 function createUi() {
   const calls = {
     hover: [],
+    hud: [],
     marquee: [],
     cursor: [],
     shiftDrop: [],
@@ -73,7 +74,9 @@ function createUi() {
       return ui
     },
     mount() {},
-    setHud() {},
+    setHud(options) {
+      calls.hud.push(options)
+    },
     setLauncher() {},
     setHidden() {},
     setCaptureSuppressed(value) {
@@ -808,4 +811,21 @@ test('Shift+Tab still walks levels after Shift armed a text selection', async ()
   const parent = harness.ui.calls.hover.at(-1)
   assert.ok(parent, 'Shift+Tab disarms the text drop and outlines the parent')
   assert.match(parent.label, /2\/2$/)
+})
+
+test('a right click on the page leaves annotation mode', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.hud.length = 0
+  const event = harness.fire('contextmenu', {})
+  assert.equal(event.defaultPrevented, true, 'the page context menu is suppressed')
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, false, 'leaving the mode hides the HUD')
+})
+
+test('a right click inside the open composer keeps the mode and the menu', async () => {
+  const harness = await bootContentScript()
+  harness.ui.composerOpen = true
+  harness.ui.calls.hud.length = 0
+  const event = harness.fire('contextmenu', {})
+  assert.equal(event.defaultPrevented, false, 'the textarea keeps its paste menu')
+  assert.equal(harness.ui.calls.hud.length, 0, 'the mode was not left')
 })

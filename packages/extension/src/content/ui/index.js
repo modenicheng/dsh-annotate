@@ -48,9 +48,25 @@
       return Object.hasOwn(table, key) ? table[key] : strings.STRINGS.en[key] || key
     }
 
-    const host = document.getElementById(HOST_ID) || document.createElement('div')
-    host.id = HOST_ID
-    const shadow = host.shadowRoot || host.attachShadow({ mode: 'closed' })
+    // A closed shadow root cannot be read back from the host, so a host left by
+    // a previous instance is either reusable through `shadowRoot` (never, for
+    // closed mode) or replaceable. Replacing is the only option that works
+    // after an extension reload re-injects these files into an open page.
+    let host = document.getElementById(HOST_ID)
+    let shadow = host !== null ? host.shadowRoot : null
+    if (host !== null && shadow === null) {
+      try {
+        shadow = host.attachShadow({ mode: 'closed' })
+      } catch {
+        host.remove()
+        host = null
+      }
+    }
+    if (host === null) {
+      host = document.createElement('div')
+      host.id = HOST_ID
+      shadow = host.attachShadow({ mode: 'closed' })
+    }
     // A previous instance (hot reload, double injection) may have left nodes.
     while (shadow.firstChild) shadow.removeChild(shadow.firstChild)
 
