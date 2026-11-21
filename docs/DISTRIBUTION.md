@@ -247,17 +247,18 @@ waits on another lane.
 
 Triggers:
 
-- `workflow_call` from the release-please workflow for the normal path.
+- `workflow_call` from the release-please workflow — the only build entry.
   release-please merges the Release PR, tags `vX.Y.Z` (force-tag-creation, so
   the tag exists while the release is still a draft), and opens the draft
   release with the changelog as its body; the called draft job then verifies
   the tag, builds, and attaches the artifacts. The call cannot be a tag-push
   event: release-please pushes the tag with `GITHUB_TOKEN`, and events created
   by `GITHUB_TOKEN` do not start other workflows.
-- `push: tags: ['v*']` as the manual fallback: a hand-pushed tag gets the same
-  verify-and-build treatment and opens its own draft with generated notes.
-  Verify the tag matches the manifest and package versions and is an ancestor
-  of `main`; a mistyped tag must fail before anything is built.
+- No tag-push trigger, on purpose. A hand-pushed `v*` tag triggers nothing:
+  the version bypassed the Release PR review, so it ships no artifacts. This
+  is the enforced form of "the tag always follows a reviewed diff"; pair it
+  with a `v*` tag protection rule so only release-please can move release
+  tags.
 - `workflow_dispatch` with an explicit tag for retries, so a failed upload does
   not require re-tagging.
 - `concurrency: { group: release, cancel-in-progress: false }`. Never cancel a

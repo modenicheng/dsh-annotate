@@ -8,11 +8,11 @@ description: >
   ancestor of main, and has installed the toolchain
   (.github/actions/toolchain).
 
-  The normal path arrives from release-please: it merged the Release PR,
-  tagged vX.Y.Z, and opened the draft release with the changelog as its body,
-  so this action attaches to that draft and never rewrites its notes. A
-  hand-pushed tag has no release-please draft, and the action opens one with
-  generated notes as the fallback.
+  The only caller is the release-please path: release-please merged the
+  Release PR, tagged vX.Y.Z, and opened the draft release with the changelog
+  as its body, so this action attaches to that draft and never rewrites its
+  notes. A missing draft is an error, not something to open here — a version
+  that skipped release-please cannot ship.
 
 inputs:
   version:
@@ -152,10 +152,10 @@ runs:
         (cd "$assets" && sha256sum ./*.tgz ./*.zip > checksums.txt && cat checksums.txt)
 
     # release-please opened the draft release — with the changelog as its
-    # body — before this job ran; attach the built artifacts to it. A
-    # hand-pushed tag has no release-please draft, so fall back to opening
-    # one with generated notes. Either way the release stays a draft until a
-    # human publishes it.
+    # body — before this job ran; attach the built artifacts to it. The
+    # release may lag a few seconds behind the tag, hence the wait; a draft
+    # that never appears is an error; there is deliberately no path that
+    # opens a release here.
     - name: Attach the artifacts to the draft release
       shell: bash
       env:
@@ -169,13 +169,8 @@ runs:
           echo "attempt $attempt: the release for $TAG is not visible yet"
           sleep 10
         done
-        if gh release view "$TAG" >/dev/null 2>&1; then
-          gh release upload "$TAG" "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt --clobber
-        else
-          gh release create "$TAG" \
-            --draft \
-            --verify-tag \
-            --title "$TAG" \
-            --generate-notes \
-            "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt
+        if ! gh release view "$TAG" >/dev/null 2>&1; then
+          echo "::error::no GitHub Release exists for $TAG. Only release-please creates releases; a hand-pushed tag ships nothing (§4.3)."
+          exit 1
         fi
+        gh release upload "$TAG" "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt --clobber
