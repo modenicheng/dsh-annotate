@@ -13,7 +13,11 @@ DSH client half) can be built against one description instead of drifting.
    comment. The mark alone is a complete annotation: an empty comment sends the
    pointer by itself. In the element picker, **Tab** narrows the outline to a
    child and **Shift+Tab** widens it to the next container; the hover chip
-   shows the current level (`2/4`) so the chain is never invisible.
+   shows the current level (`2/4`) so the chain is never invisible. A
+   right-click on the page leaves the mode (the composer keeps the browser's
+   text menu), and a preference can make a successful send leave it as well.
+   Both stay off the destructive path: the saved annotation is acknowledged
+   before the overlay goes away.
 3. The composer shows a **target**: the Session the annotation will join.
    Default is the Session the user is currently looking at in the DSH window.
 4. Submitting stores the annotation and leaves a **reference** in that Session's

@@ -106,7 +106,8 @@ What the extension reads, where it sends it and what it keeps locally is
    Enter. With the element picker, **Tab** narrows to a child and **Shift+Tab**
    widens to a parent, so a button inside a card is one key away from the card.
    The comment is optional — with an empty one the mark is sent on its own (the
-   button reads **Send mark** / **只发标记**).
+   button reads **Send mark** / **只发标记**). A right-click on the page leaves
+   annotation mode; inside the composer the browser's own text menu wins.
 3. If the host cannot be found: switch to *Manual* and type the address — a
    full URL such as `wss://anno.example.com` works, and with no scheme the
    extension asks the host which one to use — or use **Import endpoint file…**
@@ -114,10 +115,16 @@ What the extension reads, where it sends it and what it keeps locally is
    [docs/DISCOVERY.md](docs/DISCOVERY.md).
 
 The popup's **Annotate** section also updates the browser command, which is
-what keeps the screenshot's `activeTab` grant working, and can hide the corner
-launcher. The overlay and the popup follow the browser UI language (English and
-Simplified Chinese ship today) and share one compact Swiss-style surface:
-square corners, hairline rules, one signal red.
+what keeps the screenshot's `activeTab` grant working, can hide the corner
+launcher, and can make a successful send leave the mode (off by default). The
+overlay and the popup follow the browser UI language (English and Simplified
+Chinese ship today) and share one compact Swiss-style surface: square corners,
+hairline rules, one signal red.
+
+If the popup's **Annotate this page** reports that the background did not
+answer, the page in front of it is newer than the extension loaded in this
+browser session: click **Reload** in `about:debugging` and refresh the page. The
+popup's **Diagnostics** panel records the activation path for exactly this case.
 
 ## Tools
 
