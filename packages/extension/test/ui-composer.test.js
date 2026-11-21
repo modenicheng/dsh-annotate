@@ -188,7 +188,7 @@ function keyEvent(overrides) {
 }
 
 test('Enter does not send while a composition is in progress', async () => {
-  const { part, sandbox, raf, sent } = await installComposer()
+  const { part, raf, sent } = await installComposer()
   open(part, raf, { x: 8, y: 8, w: 0, h: 0 })
   const textarea = part.node.children.find((child) => child && child.tagName === 'TEXTAREA')
   textarea.value = '你好'
@@ -205,7 +205,7 @@ test('Enter does not send while a composition is in progress', async () => {
 })
 
 test('plain Enter sends without any composition events', async () => {
-  const { part, sandbox, raf, sent } = await installComposer()
+  const { part, raf, sent } = await installComposer()
   open(part, raf, { x: 8, y: 8, w: 0, h: 0 })
   const textarea = part.node.children.find((child) => child && child.tagName === 'TEXTAREA')
   textarea.value = 'plain'
