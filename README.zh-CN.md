@@ -93,14 +93,20 @@ bring-up 验证——加载、service worker、content script、弹窗（popup�
    `%USERPROFILE%\.dsh\ext-bridge-token`）里的桥接 token。**Connection**
    保持 *Automatic*、地址保持默认 `127.0.0.1` / `3080`；即使宿主端口变
    了，扩展也会自己找到。
-2. 在页面上按 `Alt+Shift+A`：选择文字、点击元素或框选区域，然后按
-   Enter。备注可选——留空时只发送标记本身（按钮显示 **Send mark** /
-   **只发标记**）。
+2. 在页面上按 `Alt+Shift+A`（默认键；可在弹窗 **标注** 区修改，或点
+   右下角的小 **A** 浮动按钮，若已开启）：选择文字、点击元素或框选区域，
+   然后按 Enter。元素选择器里 **Tab** 收窄到子元素、**Shift+Tab** 放宽到
+   父元素，卡片里的按钮和整张卡片只差一个键。备注可选——留空时只发送标
+   记本身（按钮显示 **Send mark** / **只发标记**）。
 3. 如果找不到宿主：切到 *Manual* 手输地址——完整 URL（如
    `wss://anno.example.com`）两种模式都支持，不写 scheme 时扩展会询问宿
    主——或用 **Import endpoint file…** 从
    `$DSH_HOME/ext-bridge-endpoint.json` 读入地址。细节见
    [docs/DISCOVERY.md](docs/DISCOVERY.md)（英文）。
+
+弹窗的 **标注** 区会同步更新浏览器命令（这样截图所需的 `activeTab` 授权不会
+丢），也可以隐藏右下角的浮动按钮。浮层和弹窗跟随浏览器界面语言（目前随包
+提供英文和简体中文），共用一套紧凑的 Swiss 风格：直角、细线、单一信号红。
 
 ## 工具
 

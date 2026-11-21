@@ -100,14 +100,24 @@ What the extension reads, where it sends it and what it keeps locally is
    Windows). Leave **Connection** on *Automatic* and the address at the default
    `127.0.0.1` / `3080`; the extension then finds a host whose port moved by
    itself.
-2. Press `Alt+Shift+A` on a page: select text, click an element, or drag a
-   region, then press Enter. The comment is optional — with an empty one the
-   mark is sent on its own (the button reads **Send mark** / **只发标记**).
+2. On a page press `Alt+Shift+A` (the default; change it in the popup's
+   **Annotate** section, or click the small **A** launcher in the corner when it
+   is enabled): select text, click an element, or drag a region, then press
+   Enter. With the element picker, **Tab** narrows to a child and **Shift+Tab**
+   widens to a parent, so a button inside a card is one key away from the card.
+   The comment is optional — with an empty one the mark is sent on its own (the
+   button reads **Send mark** / **只发标记**).
 3. If the host cannot be found: switch to *Manual* and type the address — a
    full URL such as `wss://anno.example.com` works, and with no scheme the
    extension asks the host which one to use — or use **Import endpoint file…**
    to read the address from `$DSH_HOME/ext-bridge-endpoint.json`. Details:
    [docs/DISCOVERY.md](docs/DISCOVERY.md).
+
+The popup's **Annotate** section also updates the browser command, which is
+what keeps the screenshot's `activeTab` grant working, and can hide the corner
+launcher. The overlay and the popup follow the browser UI language (English and
+Simplified Chinese ship today) and share one compact Swiss-style surface:
+square corners, hairline rules, one signal red.
 
 ## Tools
 

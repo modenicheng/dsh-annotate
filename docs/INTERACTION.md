@@ -5,10 +5,15 @@ DSH client half) can be built against one description instead of drifting.
 
 ## The gesture
 
-1. On any page, `Alt+Shift+A` (or the toolbar button) enters annotate mode.
+1. On any page, the shortcut (default `Alt+Shift+A`, configurable in the
+   popup) or the corner launcher enters annotate mode. The toolbar popup's
+   **Annotate this page** button is the path that also grants `activeTab` on a
+   tab that predates the install.
 2. The user marks a text selection, an element, or a region, and may write a
    comment. The mark alone is a complete annotation: an empty comment sends the
-   pointer by itself.
+   pointer by itself. In the element picker, **Tab** narrows the outline to a
+   child and **Shift+Tab** widens it to the next container; the hover chip
+   shows the current level (`2/4`) so the chain is never invisible.
 3. The composer shows a **target**: the Session the annotation will join.
    Default is the Session the user is currently looking at in the DSH window.
 4. Submitting stores the annotation and leaves a **reference** in that Session's
