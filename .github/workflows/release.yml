@@ -201,9 +201,17 @@ jobs:
       # OIDC trusted publishing exchanges this for the npm token.
       id-token: write
     steps:
-      # No checkout on purpose: with an empty workspace the runner
-      # materializes the local action from this file's ref, so the lane
-      # always runs the current npm-publish and never the tag's frozen copy.
+      # A job-local `uses: ./...` action needs a checkout to exist at all,
+      # and the npm lane deliberately checks out the RUN REF, not the tag:
+      # npm-publish must always be the current copy (self-verifying), and it
+      # needs nothing from the tag's tree - the version comes from the
+      # tarball itself (§4.10). A release event runs the default branch's
+      # workflow file, so 'main' is its run ref.
+      - name: Checkout the run ref
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'release' && 'main' || github.ref_name }}
+
       # npm-publish verifies itself: published gate, checksummed tarball,
       # tarball version names the tag.
       - name: Publish the released tarball
