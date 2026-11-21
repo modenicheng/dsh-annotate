@@ -36,10 +36,15 @@ runs:
         rm -rf "$assets"
         mkdir -p "$assets"
 
+        # read assigns the whole remainder of the line (separators included)
+        # to its last variable, so a single-variable while-loop would hand gh
+        # one unsplit '*.zip,checksums.txt' pattern that matches no asset.
+        # read -a splits the comma list into one element per pattern.
         args=()
-        while IFS=',' read -r pattern; do
+        IFS=',' read -r -a patterns <<< "$PATTERNS"
+        for pattern in "${patterns[@]}"; do
           [ -n "$pattern" ] && args+=(--pattern "$pattern")
-        done <<< "$PATTERNS"
+        done
         gh release download "$TAG" --dir "$assets" "${args[@]}" --clobber
 
         cd "$assets"
