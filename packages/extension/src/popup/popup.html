@@ -29,13 +29,6 @@
     <script src="popup.js" defer></script>
   </head>
   <body>
-    <header class="status-bar">
-      <span id="connection-dot" class="dot dot--idle" aria-hidden="true"></span>
-      <p id="connection-label" class="status-bar__label">Connecting</p>
-      <p id="connection-detail" class="status-bar__detail">127.0.0.1:3080</p>
-      <span id="pending-badge" class="badge" hidden></span>
-    </header>
-
     <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
 
     <main class="content">
@@ -189,6 +182,13 @@
         <p id="records-empty" class="empty" data-i18n="noAnnotations">No annotations on this page.</p>
       </section>
     </main>
+
+    <footer class="status-bar">
+      <span id="connection-dot" class="dot dot--idle" aria-hidden="true"></span>
+      <p id="connection-label" class="status-bar__label">Connecting</p>
+      <p id="connection-detail" class="status-bar__detail">127.0.0.1:3080</p>
+      <span id="pending-badge" class="badge" hidden></span>
+    </footer>
 
   </body>
 </html>
