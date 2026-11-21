@@ -36,39 +36,19 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        npm install -g npm@^11.5.1
+        # Pinned exactly (C6): a floating range would let a future npm major
+        # change trusted-publishing behaviour on a release day. Bump this
+        # literal deliberately, after reading the release notes.
+        npm install -g npm@11.5.1
         npm --version
 
-    - name: Download the released tarball
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        # This lane checks out nothing, so gh cannot resolve the repository
-        # from a git remote; name it explicitly.
-        GH_REPO: ${{ github.repository }}
-      run: |
-        set -euo pipefail
-        mkdir -p dist
-        gh release download "${{ inputs.tag }}" --dir dist --pattern '*.tgz' --pattern 'checksums.txt'
-
-    - name: The bytes must be the ones the draft hashed
-      shell: bash
-      run: |
-        set -euo pipefail
-        cd dist
-        # Phase 1 wrote SHA-256 lines for the tarball and both store zips; the
-        # AMO lane may append a signed-XPI line to the same asset. This lane
-        # only downloaded the tarball, so it verifies the tarball lines and
-        # leaves the store lines to the store lanes. Still refuse a checksums
-        # file that names no tarball at all: an empty grep must not pass a
-        # check.
-        tarball_lines="$(grep -E '^[0-9a-f]{64}  .*\.tgz$' checksums.txt || true)"
-        if [ -z "$tarball_lines" ]; then
-          echo "::error::checksums.txt does not name the npm tarball"
-          exit 1
-        fi
-        printf '%s\n' "$tarball_lines" > "$RUNNER_TEMP/tarball-checksums.txt"
-        sha256sum --check "$RUNNER_TEMP/tarball-checksums.txt"
+    - name: Download the released tarball and prove its checksum
+      uses: ./.github/actions/fetch-verified-asset
+      with:
+        tag: ${{ inputs.tag }}
+        # The tarball plus the checksums file; the store zips stay with the
+        # store lanes.
+        patterns: '*.tgz,checksums.txt'
 
     # npm records sha512 in dist.integrity; computing it here is what lets the
     # lane prove, after the fact, that the registry holds these exact bytes.
@@ -77,7 +57,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        tarball="$(ls dist/*.tgz)"
+        tarball="$(ls dist/release-assets/*.tgz)"
         integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
         echo "value=$integrity" >> "$GITHUB_OUTPUT"
 
@@ -117,7 +97,7 @@ runs:
       if: steps.exists.outputs.value == 'no'
       run: |
         set -euo pipefail
-        npm publish ./dist/*.tgz --provenance --access public
+        npm publish ./dist/release-assets/*.tgz --provenance --access public
 
     # Anonymous by construction: no token is configured in this lane, so this
     # is the view a stranger gets. A fresh publish is eventually consistent

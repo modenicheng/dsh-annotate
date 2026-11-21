@@ -23,18 +23,19 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
-  # The called release.yml declares id-token: write on its publish job (npm
-  # OIDC). GitHub validates every job's declared permissions against the
-  # caller's grant when the reusable workflow starts — even for jobs this
-  # invocation would skip — so the caller must carry it too. The build path
-  # below never uses it.
-  id-token: write
+  # Least privilege at the workflow level: the release-please job raises its
+  # own grants below, and the build path's id-token grant (npm OIDC) is
+  # declared on the calling job, which is what GitHub checks for a reusable
+  # workflow. The workflow-level id-token: write that used to sit here made
+  # the release-please job's token mintable too, for nothing.
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
