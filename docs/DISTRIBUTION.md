@@ -251,7 +251,7 @@ manifests.
 
 | Artifact | Produced by | Goes to |
 |---|---|---|
-| `dsh-marker-firefox-<v>.zip` | `web-ext build` on the gecko target | GitHub Release; AMO upload |
+| `dsh-marker-firefox-<v>.zip` | zip of the firefox target | GitHub Release; AMO upload |
 | `dsh-marker-firefox-<v>.xpi` | `web-ext sign --channel unlisted` | beta channel and self-hosting |
 | `dsh-marker-chromium-<v>.zip` | zip of the chromium target | GitHub Release; CWS upload; Edge upload |
 | `dsh-marker-plugin-<v>.tgz` | `npm pack` | GitHub Release; npm |
@@ -267,6 +267,12 @@ target's `manifest.json` — the same "generated, committed, checked in CI"
 pattern as `sync-protocol.mjs` (D3), not a bundler (D1). Each target directory
 must exclude `package.json`, `test/`, and `dist/`; `web-ext build` will
 otherwise ship them.
+
+Phase 1 (the tag build) produces both zips and `checksums.txt` and attaches them
+to the **draft** release. The store job downloads those files and submits the
+same bytes; it never rebuilds them (§4.9). A manual first submission downloads
+the same draft asset, so the listing, the release and the store all describe one
+build.
 
 ### 4.5 Changelog
 

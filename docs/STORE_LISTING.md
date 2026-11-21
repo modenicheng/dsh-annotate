@@ -492,6 +492,9 @@ dsh-marker-chromium-<version>.zip     on the GitHub Release for the tag
 checksums.txt                         same release; compare the zip's SHA-256
 ```
 
+The tag build attaches both to the **draft** release, so they are available for inspection before
+Publish. Publishing runs the store job, which submits these same bytes instead of rebuilding them.
+
 Before uploading, unzip the asset and check it: `node scripts/check-manifest.mjs <unzipped-dir>`
 must pass, `manifest.json` must sit at the archive root, and the version must be the release's. The
 zip is the artifact the reviewer runs; a local `dist/chromium` proves nothing about the upload.
@@ -630,10 +633,9 @@ dsh-marker-chromium-<version>.zip     on the GitHub Release for the tag
 checksums.txt                         same release; verify the zip's SHA-256
 ```
 
-The artifact appears when the draft release is **published**: the `stores` job builds both zips,
-appends their SHA-256 lines to `checksums.txt`, and attaches all of it to the release. Publishing is
-the human gate and it also publishes the npm half, so the store package and the plugin come from one
-tag.
+The tag build attaches both zips and `checksums.txt` to the **draft** release, before it is published;
+download them from the draft. Publishing is the human gate for npm and the store submissions, and it
+does not rebuild the zips — the `stores` job submits these same bytes.
 
 Before uploading, unzip the asset and check it: `manifest.json` at the archive root, no `test/`, no
 `package.json`, `node scripts/check-manifest.mjs <unzipped-dir>` passing, and the version inside

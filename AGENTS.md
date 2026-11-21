@@ -21,11 +21,14 @@ may not.
 
 ## Releases and packaging are CI-only
 
-- **Agents never cut a release locally.** No `git tag`, no `npm publish`, no
-  Chrome Web Store / AMO / Edge upload, no `gh release upload`, and no local
-  zip presented as a release artifact. A release is the tag plus what
-  `.github/workflows/release.yml` builds and publishes from it; a human
-  maintainer may push the tag, an agent may not.
+- **Never create or push a tag unless the user asks.** A tag is a release
+  trigger, not a side effect of committing or pushing `main`. "Commit", "push",
+  or "prepare a release" is not a request to tag; if the instruction is
+  ambiguous, stop and ask. This applies to every tag, `v*` or otherwise.
+- **Agents never publish.** No `npm publish`, no Chrome Web Store / AMO / Edge
+  upload, no `gh release upload`, and no local zip presented as a release
+  artifact. A release is the tag plus what `.github/workflows/release.yml`
+  builds and publishes from it.
 - **Local builds are never deliverables.** `node scripts/build-extension.mjs`
   and everything it writes under `dist/` exist for tests, inspection, and local
   QA. Their output must not be uploaded to a store, attached to a release, sent
