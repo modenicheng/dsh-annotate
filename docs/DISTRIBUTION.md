@@ -472,6 +472,67 @@ package that does not exist yet publishes a `0.0.0-stage` placeholder — so a
 maintainer can stage the first version from a logged-in CLI and approve it with
 2FA, instead of publishing a real version by hand.
 
+### 6.2 Listing in the community catalog
+
+- **There is no official DSH plugin store to apply to.** DSH ships no index of
+  its own: Plugins → Discover reads the index URLs a user configures, and an
+  index is a format-1 JSON file on any static host ([plugin
+  index](https://deepseek-harness.github.io/deepseek-harness/guide/plugin-market)).
+  What "being in the market" means in practice is being in
+  [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin),
+  which publishes the index users add first
+  (`https://cdn.jsdelivr.net/npm/dsh-plugin-catalog/index.json`, mirrored at
+  `https://dshmarket.com/index.json`) and which the storefronts read as well.
+- **A listing is one upstream file, not a release artifact.** The catalog keeps
+  one YAML file per plugin in `data/plugins/` and generates both READMEs and the
+  site from it, so a submission never edits the list itself and never conflicts
+  with another one. Ours is
+  `data/plugins/modenicheng__dsh-annotate--packages-plugin.yml`:
+
+  ```yaml
+  url: https://github.com/modenicheng/dsh-annotate/tree/main/packages/plugin
+  name: modenicheng/dsh-annotate#plugin
+  category: browser
+  description: { en: …, zh: … }
+  icon: https://raw.githubusercontent.com/modenicheng/dsh-annotate/main/packages/extension/icon/icon-128.png
+  ```
+
+  The filename is not a choice — `slugFor(url)` in `scripts/lib/entries.mjs`
+  derives it, and CI rejects a mismatch. The `url` points at the subpackage
+  rather than the repository root because the root is a private workspace
+  without a manifest, and an install command built from a root-pointing entry
+  would install nothing. `browser` rather than `tools`: the mark is made in the
+  user's own browser window, not in anything DSH renders.
+- **The description is a claim that gets read against the code.** It names the
+  six `annotate_*` tools and the dependency on the extension, and it leads with
+  the difference from the plugins that annotate DSH's own preview or embedded
+  browser — several of those are already listed, and an entry that reads as the
+  same thing under another name is the one shape that does get sent back.
+- **The gate verifies the manifest where the entry points.** A `dsh.bundle` in
+  the entry's subpackage is authoritative; a repository that declares only
+  `dsh.client` is refused, as is one younger than a day. One PR may add at most
+  three entries, and `awesome-lint` plus the site build must pass. Green CI is
+  the precondition, not the decision: a maintainer then reads the repository and
+  checks every claim in the description.
+- **The icon is a storefront tile, and it must be a raster on GitHub hosting.**
+  SVG and third-party image hosts are refused, so the tile points at
+  `packages/extension/icon/icon-128.png`, which `build-icons.mjs` draws from the
+  same geometry as the bundle's `icon.svg`. There is no `screenshots.json` yet:
+  storefronts fall back to images in the README, and declaring captures before
+  real ones exist is how a listing grows dead links.
+- **npm linkage needs nothing declared.** The catalog maps entries to packages
+  from the published package's own `repository` field, which already points
+  back here; an `npm:` key in the entry is rejected as an unknown field.
+- **After the merge, nothing else is needed.** The site and the
+  `dsh-plugin-catalog` package rebuild from the same data, and an installed DSH
+  caches an index for ten minutes (`cacheTtlMs`) before Discover lists it. Later
+  edits change only our own file and only its description. A `held: author`
+  label means a maintainer asked for a change: push to the same branch and leave
+  one comment saying what changed. The first submission is
+  [PR #17568](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/17568);
+  until it merges, the repository is installable from its Git URL and from npm,
+  but not yet listed.
+
 ## 7. Compatibility policy: protocol only (D15)
 
 Decided 2026-11-19. A connection is accepted or rejected on the protocol version
