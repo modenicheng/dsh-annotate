@@ -32,6 +32,8 @@ export class FakeText {
     this.parentNode = null
     this.ownerDocument = null
     this.isConnected = true
+    /** The line box a range reports for this node when it derives its geometry. */
+    this.rect = null
   }
 
   get parentElement() {
@@ -173,7 +175,7 @@ export class FakeRange {
     this.startOffset = 0
     this.endContainer = null
     this.endOffset = 0
-    this.rects = [{ left: 10, top: 20, width: 50, height: 16 }]
+    this.rects = null
   }
 
   setStart(node, offset) {
@@ -234,8 +236,20 @@ export class FakeRange {
     return nodeStart < end && nodeStart + node.nodeValue.length > start
   }
 
+  /**
+   * Line boxes for this range. A test that pinned `rects` gets exactly those —
+   * that models the browser's measurement of *this* range. Otherwise the
+   * document measures the range from its text nodes, which is what a real
+   * range does and the only way a range the script builds itself (the
+   * block-clamped geometry range) can report real boxes.
+   */
+  #boxes() {
+    if (this.rects !== null) return this.rects
+    return this.document.measureRange(this)
+  }
+
   getClientRects() {
-    return this.rects
+    return this.#boxes()
   }
 
   getBoundingClientRect() {
@@ -243,7 +257,7 @@ export class FakeRange {
     let top = Number.POSITIVE_INFINITY
     let right = Number.NEGATIVE_INFINITY
     let bottom = Number.NEGATIVE_INFINITY
-    for (const box of this.rects) {
+    for (const box of this.#boxes()) {
       left = Math.min(left, box.left)
       top = Math.min(top, box.top)
       right = Math.max(right, box.left + box.width)
@@ -367,6 +381,21 @@ export function createDocument() {
   }
 
   document.createRange = () => new FakeRange(document)
+  // Default measurement: one box per intersected text node that carries a
+  // `rect`, so a range measures the layout it actually covers. Trees nobody
+  // measured fall back to one plain box (the historical default), and a test
+  // that needs "the page re-rendered and reports nothing" replaces this hook
+  // with `() => []`.
+  document.measureRange = (range) => {
+    const boxes = []
+    for (const node of document.textNodes()) {
+      if (node.rect === null || node.rect === undefined) continue
+      if (!range.intersectsNode(node)) continue
+      boxes.push({ ...node.rect })
+    }
+    if (boxes.length > 0) return boxes
+    return [{ left: 10, top: 20, width: 50, height: 16 }]
+  }
   document.elementsFromPoint = (x, y) => document.pointStack(x, y)
   document.elementFromPoint = (x, y) => document.pointStack(x, y)[0] || null
 

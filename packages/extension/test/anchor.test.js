@@ -24,13 +24,15 @@ function storyDocument() {
   return { document, p }
 }
 
-/** A selection over `brown` (node 1, offsets 0–5), measured at 100,40 120×20. */
+/** A selection over `brown` (node 1, offsets 0–5), laid out at 100,40 as 120×20. */
 function brownSelection(document) {
   const p = document.querySelector('#story')
   const range = document.createRange()
   range.setStart(p.childNodes[1], 0)
   range.setEnd(p.childNodes[1], 5)
-  range.rects = [{ left: 100, top: 40, width: 120, height: 20 }]
+  // The measurement belongs to the layout, which is why it lives on the text
+  // node: a range the script builds over the same span measures the same box.
+  p.childNodes[1].rect = { left: 100, top: 40, width: 120, height: 20 }
   return { range, selection: { rangeCount: 1, isCollapsed: false, getRangeAt: () => range } }
 }
 
@@ -99,14 +101,65 @@ test('a selection without a usable range degrades to null at each gate', async (
 test('a range the page unmeasured falls back to its block box', async () => {
   const { document } = storyDocument()
   const { ns } = await bootContent({ document })
-  const { range, selection } = brownSelection(document)
-  // The page re-rendered between drag and read: the range reports no geometry.
-  range.rects = []
+  const { selection } = brownSelection(document)
+  // The page re-rendered between drag and read: measuring the range now
+  // reports no boxes at all.
+  document.measureRange = () => []
 
   const state = ns.anchor.selection(selection)
   assert.ok(state)
   assert.deepEqual(plain(state.anchor.rect), { x: 0, y: 600, w: 300, h: 40 }, 'the owning block stands in')
   assert.equal(state.lineRects.length, 0, 'no line boxes survive an unmeasured range')
+})
+
+/** Two sibling blocks whose text nodes are measured like a real page measures its lines. */
+function twoBlockDocument() {
+  const { document, body } = createDocument()
+  const first = new FakeElement('p', { id: 'first' })
+  const second = new FakeElement('p', { id: 'second' })
+  first.append(new FakeText('alpha '), new FakeText('beta'))
+  second.append(new FakeText('gamma '), new FakeText('delta'))
+  body.append(first, second)
+  first.childNodes[0].rect = { left: 0, top: 100, width: 120, height: 20 }
+  first.childNodes[1].rect = { left: 120, top: 100, width: 80, height: 20 }
+  second.childNodes[0].rect = { left: 0, top: 200, width: 140, height: 20 }
+  second.childNodes[1].rect = { left: 140, top: 200, width: 100, height: 20 }
+  return { document, first, second }
+}
+
+test('a selection that ends in a later block keeps its geometry inside the anchor block', async () => {
+  const { document, first, second } = twoBlockDocument()
+  const { ns } = await bootContent({ document, scrollY: 500 })
+
+  // The drag starts mid-word in the first block and ends mid-word in the
+  // second one: the browser reports one line fragment per container, and the
+  // union of both spans far more text than the block-scoped quote describes.
+  const range = document.createRange()
+  range.setStart(first.childNodes[0], 2)
+  range.setEnd(second.childNodes[1], 3)
+  range.rects = [
+    { left: 0, top: 100, width: 200, height: 20 },
+    { left: 0, top: 200, width: 240, height: 20 },
+  ]
+  const selection = { rangeCount: 1, isCollapsed: false, getRangeAt: () => range }
+
+  const state = ns.anchor.selection(selection)
+  assert.ok(state, 'a cross-block drag is still one annotation')
+  // The anchor stays scoped to the start block, as before the fix.
+  assert.equal(state.anchor.quote.exact, 'pha beta')
+  assert.equal(state.anchor.domRange.blockSelector, '#first')
+  // The geometry now describes the same span as the quote: unioning both live
+  // fragments (240 px wide, both blocks tall) would cover a block the quote
+  // never mentions, and the crop taken from it would show that block.
+  assert.deepEqual(plain(state.viewportRect), { x: 0, y: 100, w: 200, h: 20 })
+  assert.deepEqual(plain(state.anchor.rect), { x: 0, y: 600, w: 200, h: 20 })
+  assert.deepEqual(plain(state.lineRects), [
+    { x: 0, y: 600, w: 120, h: 20 },
+    { x: 120, y: 600, w: 80, h: 20 },
+  ])
+  // The live range rides along clamped too, so the crop re-measured at submit
+  // time covers the recorded words instead of the whole drag.
+  assert.equal(String(state.live.range), state.anchor.quote.exact)
 })
 
 /** Boot with one element alone in a document, so uniqueness checks are honest. */
