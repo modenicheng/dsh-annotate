@@ -1,0 +1,76 @@
+name: Sync dev
+
+# Branch model (CONTRIBUTING.md §Branches): feature PRs merge into `dev`;
+# `main` only receives PRs (dev→main for releases, so release-please is
+# untouched and still reads Conventional Commits on `main`). That leaves `main`
+# with commits `dev` does not have — the Release PR's version bump — which would
+# otherwise fork the two branches and cause changelog/version conflicts on the
+# next dev→main PR. This workflow reconciles them right after anything lands on
+# `main`:
+#
+#   - Fast-forward path (the normal case): every merge into `main` — a feature
+#     dev→main PR or the release-please Release PR — carries all of dev's
+#     history, so `dev` can be fast-forwarded to `main` with a plain push.
+#   - Fallback path (someone bypassed the flow and main has non-dev history):
+#     never force-push dev; open a main→dev PR for a human to reconcile.
+#
+# Known GitHub quirk, same one release-please.yml documents: a push made with
+# GITHUB_TOKEN does not trigger other workflows, so the fast-forward does not
+# re-run CI on dev. That is acceptable: the fast-forwarded tree is byte-for-byte
+# the tree that just passed the full CI check and (on release merges) the
+# release build on `main`. The fallback PR merge, when a human performs it,
+# triggers dev CI normally.
+
+on:
+  push:
+    branches: [main]
+  # Manual trigger so the fast-forward/fallback decision can be exercised
+  # without waiting for a real push to the protected `main`.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two pushes to main in quick succession would race on the dev ref; let the
+  # queued run see the newer main instead of cancelling it.
+  group: sync-dev
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          # Full history: the ancestor check needs both branch tips.
+          fetch-depth: 0
+
+      - name: Fast-forward dev to main, or open a reconciliation PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin dev main
+
+          if git merge-base --is-ancestor origin/dev origin/main; then
+            echo "dev is an ancestor of main; fast-forwarding"
+            git push origin "origin/main:refs/heads/dev"
+          elif git merge-base --is-ancestor origin/main origin/dev; then
+            # dev already contains everything on main (the normal state while
+            # feature PRs accumulate on dev between releases). Nothing to do.
+            echo "main is already contained in dev; nothing to do"
+          else
+            echo "main has history dev does not; opening a main-into-dev PR"
+            if gh pr list --base dev --head main --state open --json number --jq 'length' | grep -qv '^0$'; then
+              echo "a main-into-dev PR is already open; nothing to do"
+              exit 0
+            fi
+            gh pr create \
+              --base dev \
+              --head main \
+              --title "chore(dev): reconcile main into dev" \
+              --body "main picked up commits outside the dev flow (see the push history). Merge this to bring dev back in line. Opened automatically by the sync-dev workflow."
+          fi

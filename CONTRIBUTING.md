@@ -35,6 +35,20 @@ node --test "packages/*/test/*.test.js"
 dependency (`ws`, host side) plus the single devDependency — the pinned Biome
 version (`@biomejs/biome`) — and nothing else.
 
+## Branches
+
+- `dev` is the integration branch: feature branches cut from `main`, PRs
+  targeting **`dev`**, daily debugging and merging happen there.
+- `main` is release-only and receives PRs exclusively — either a feature's
+  `dev→main` PR (this is what "ship" means) or release-please's Release PR.
+  Never push to `main` directly.
+- After every push to `main`, the `sync-dev` workflow fast-forwards `dev` back
+  to `main` (or opens a reconciliation PR if main somehow diverged), so the
+  release-please version bump never forks the two branches.
+- Release automation is unchanged: release-please still reads Conventional
+  Commits on `main`, and tags remain its only entry point
+  ([docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) §4.3).
+
 ## Commit format
 
 Subjects follow [Conventional Commits](https://www.conventionalcommits.org/):
