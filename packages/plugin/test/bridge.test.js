@@ -507,6 +507,28 @@ test('anno.mutate resolve and delete update the store and broadcast the change',
   assert.equal(deleteAck.state, 'deleted')
 })
 
+test('anno.mutate refuses an unknown action instead of writing a no-op patch', async (t) => {
+  const host = await openHost(t, 'mutate-unknown')
+  const alice = await host.client()
+  await authenticate(alice)
+
+  alice.send({ t: 'anno.create', reqId: 'c1', record: record('aaaaaa') })
+  await alice.waitFor((frame) => frame.t === 'anno.ack' && frame.reqId === 'c1')
+  await alice.waitFor((frame) => frame.t === 'anno.event' && frame.type === 'created')
+  const before = host.store.get('an-20261118-aaaaaa')
+
+  alice.send({ t: 'anno.mutate', reqId: 'm1', id: 'an-20261118-aaaaaa', action: 'archive' })
+  // The wire validator refuses the action first; the switch default in
+  // onMutate is the second gate for anything that slips past validation.
+  const refused = await alice.waitFor((frame) => frame.t === 'error')
+  assert.equal(refused.code, 'protocol')
+  assert.match(refused.message, /anno\.mutate\.action must be one of|unknown mutate action/)
+
+  const after = host.store.get('an-20261118-aaaaaa')
+  assert.equal(after.updatedAt, before.updatedAt, 'a refused action must not touch updatedAt')
+  await alice.expectNone((frame) => frame.t === 'anno.event' && frame.type === 'updated')
+})
+
 test('requestPick rejects when no browser is connected', async (t) => {
   const host = await openHost(t, 'pick-none')
   await assert.rejects(host.bridge.requestPick({ prompt: 'Where?' }), /no browser connected/)

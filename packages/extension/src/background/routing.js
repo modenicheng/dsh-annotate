@@ -53,18 +53,13 @@
   // ── small helpers ─────────────────────────────────────────────────────────
 
   /**
-   * Read a message field. The contract is a flat envelope, but reading the
-   * nested `payload` shape as a fallback costs one expression and keeps the
-   * background working if one side still sends the older envelope during a
-   * rollout.
+   * Read a message field from the flat envelope every sender uses
+   * (test/messages-mirror.test.js guards that contract on all edges).
    * @param {any} message
    * @param {string} name
    */
   function field(message, name) {
-    if (!ns.isPlainObject(message)) return undefined
-    if (message[name] !== undefined) return message[name]
-    const payload = message.payload
-    return ns.isPlainObject(payload) ? payload[name] : undefined
+    return ns.isPlainObject(message) ? message[name] : undefined
   }
 
   /** @param {unknown} error */

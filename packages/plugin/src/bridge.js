@@ -303,7 +303,10 @@ export function createBridge({ store, token, saveImage, onCreated, logger = {}, 
         patch.comment = String(frame.comment)
         break
       default:
-        break
+        // An unknown action must not fall through to the patch below: that
+        // would touch updatedAt, broadcast an empty update, and ack success.
+        reject(client, `unknown mutate action ${String(frame.action)}`)
+        return
     }
     const updated = await store.patch(frame.id, patch)
     send(client, { t: 'anno.ack', reqId: frame.reqId, id: frame.id, seq: store.seq, state: updated?.state })

@@ -154,9 +154,10 @@ generated changelog — is right. Several details need to change.
 
 ### 4.1 One product version, one protocol version
 
-Today: `packages/plugin/package.json` is 0.1.1, `packages/extension/manifest.json`
-is 0.1.0, `PROTOCOL_VERSION` is 1 (`protocol/src/index.js:13`). Three unrelated
-numbers guarantee that a release forgets one.
+At the time of this decision: `packages/plugin/package.json` was 0.1.1,
+`packages/extension/manifest.json` was 0.1.0, `PROTOCOL_VERSION` was 1
+(`protocol/src/index.js:13`). Three unrelated numbers guarantee that a release
+forgets one.
 
 - One **product version** for both halves, bumped by the release tooling. They
   ship together and are useless apart.

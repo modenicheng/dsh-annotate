@@ -14,6 +14,7 @@
 - `http://127.0.0.1:3080/ext/anno/health` —— 健康检查与协议版本；带 `instanceId`（本进程的十六进制短 id）。
 - `http://127.0.0.1:30810-30812/ext/anno/locate` —— 发现端口：只在宿主端口不是 `3080` 时监听（Desktop、`--port 0`、自定义端口），只答一个 `GET`，内容是当前 `origin`、`wsUrl`、`instanceId` 和时间戳；不含任何批注、会话或令牌。`POST`/`HEAD` 返回 `405`，`Host` 不是 `127.0.0.1`/`localhost` 返回 `403`，不发 CORS 头。
 - `GET /ext/anno/sessions` —— 目标选择器的会话目录，`defaultSessionId` 跟随网页里正在看的会话。桥接 token 走 `Authorization: Bearer` 或 `x-anno-token` header，不接受查询串（避免落入访问日志）。
+- `POST /ext/anno/session-create` —— 把一条批注投进新开的会话（默认 / 指定 / 新建工作区三种模式），token 同样只走 header；网页端「发送到新会话」用它。
 - 下面五条只服务宿主自己的页面（要求 `sec-fetch-site: same-origin`），扩展永远看不到它们：
   - `POST /ext/anno/focus` —— 网页汇报它当前显示的会话。
   - `GET /ext/anno/queue?session=…` / `POST /ext/anno/queue/ack` —— 待插入编辑框的引用。

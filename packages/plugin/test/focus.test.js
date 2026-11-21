@@ -8,7 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -57,6 +57,20 @@ test('the report survives a reload, and a torn file reads as no report', async (
   const torn = createFocusStore({ dir, file: 'missing.json' })
   await torn.load()
   assert.equal(focusedSession(torn), undefined)
+})
+
+test('a failed write rejects its caller and the next report still persists', async (t) => {
+  const { dir, store } = await fixture()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  // A directory where the temp file should be makes the write fail once.
+  await mkdir(join(dir, 'focus.json.tmp'))
+  await assert.rejects(store.set('session-a'))
+
+  await rm(join(dir, 'focus.json.tmp'), { recursive: true })
+  await store.set('session-b')
+  const onDisk = JSON.parse(await readFile(join(dir, 'focus.json'), 'utf8'))
+  assert.equal(onDisk.sessionId, 'session-b')
 })
 
 test('the focus route accepts the page and refuses everything else', async (t) => {
