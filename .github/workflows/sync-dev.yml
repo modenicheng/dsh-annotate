@@ -58,6 +58,10 @@ jobs:
           if git merge-base --is-ancestor origin/dev origin/main; then
             echo "dev is an ancestor of main; fast-forwarding"
             git push origin "origin/main:refs/heads/dev"
+          elif git merge-base --is-ancestor origin/main origin/dev; then
+            # dev already contains everything on main (the normal state while
+            # feature PRs accumulate on dev between releases). Nothing to do.
+            echo "main is already contained in dev; nothing to do"
           else
             echo "main has history dev does not; opening a main-into-dev PR"
             if gh pr list --base dev --head main --state open --json number --jq 'length' | grep -qv '^0$'; then
