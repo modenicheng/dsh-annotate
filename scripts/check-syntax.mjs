@@ -32,9 +32,11 @@ async function collect(directory) {
   const files = []
   const entries = await readdir(directory, { withFileTypes: true })
   for (const entry of entries) {
+    // `.tmp-` scratch — logs, captured profiles, half-written fixes — is never
+    // source; a broken one must not redden the pre-commit gate.
+    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.tmp-')) continue
     const full = join(directory, entry.name)
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue
       files.push(...(await collect(full)))
       continue
     }
