@@ -4,21 +4,26 @@ name: Release
 # in .github/actions/ (build-release-artifacts, verify-release, npm-publish,
 # amo-submit, cws-submit). Three moves (docs/DISTRIBUTION.md §4.3):
 #
-#   push tag vX.Y.Z   draft — build every artifact once and open a DRAFT
-#                     release that carries the zips, the tarball, the
-#                     checksums, and the git-cliff notes
-#   release published channels ∥ verify — which stores have credentials,
-#                     and that the release's artifacts are the checksummed
-#                     bytes (never a rebuild, §4.9); a dry run may validate
-#                     a draft
+#   build and draft    release-please merges the Release PR, tags vX.Y.Z, and
+#                       opens the DRAFT release with the generated notes; its
+#                       workflow then calls the draft job here through
+#                       workflow_call to run the CI gate on the tag, build
+#                       every artifact once, and attach them to that draft.
+#                       A hand-pushed tag still enters through `push: tags`
+#                       and opens its own draft as the fallback path.
+#   release published  channels ∥ verify — which stores have credentials,
+#                       and that the release's artifacts are the checksummed
+#                       bytes (never a rebuild, §4.9); a dry run may validate
+#                       a draft
 #   then, in parallel the four lanes npm ∥ AMO ∥ CWS ∥ Edge — each gated on
-#                     its own credentials, each idempotent (§4.7), each red
-#                     on its own failure; the summary job turns any lane
-#                     failure into a red run after every lane has had a turn
+#                       its own credentials, each idempotent (§4.7), each red
+#                       on its own failure; the summary job turns any lane
+#                       failure into a red run after every lane has had a turn
 #
 # Invariants kept from §4.3–§4.10:
 #   * the human gate is the draft's Publish click; no registry or store sees
-#     anything before it;
+#     anything before it (merging the Release PR is the other, earlier gate:
+#     it decides the version and the changelog);
 #   * a lane without credentials skips with a notice and the run stays green;
 #   * a dry run uploads nothing — every lane, npm included, is gated on it;
 #   * the npm lane stays in this file with no `environment:`: the npm
@@ -33,17 +38,22 @@ name: Release
 #   EDGE_CLIENT_ID, EDGE_API_KEY        Partner Center Publish API (TODO lane)
 #   vars.EDGE_PUBLISH                   'true' enables the Edge TODO lane
 #
-# One third-party action beyond checkout/setup-node/pnpm-action is allowed:
-# taiki-e/install-action, which installs git-cliff for the draft notes
-# (cliff.toml). It is pinned to a major tag, like the actions above. Pinning
-# every action to a commit SHA is a repo-wide change (§4.8), not something to
-# do for one lane only.
+# Only checkout/setup-node/pnpm-action are used here, at the same major
+# tags as the other jobs; the release-please workflow owns the one extra
+# third-party action. Pinning every action to a commit SHA is a repo-wide
+# change (§4.8), not something to do for one lane only.
 
 on:
   push:
     tags: ['v*']
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing tag to verify, build, and attach (the release-please path)
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -68,27 +78,32 @@ concurrency:
 jobs:
   draft:
     name: build and draft
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_call'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      # contents: write is only for opening the draft release. Every lane
-      # that does not attach assets stays at contents: read.
+      # contents: write is only for the draft release. Every lane that does
+      # not attach assets stays at contents: read.
       contents: write
+    env:
+      # A tag push names it in the ref; the workflow_call from release-please
+      # passes it as an input. One variable, so the steps below never care.
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history: the ancestor gate and the git-cliff notes read the log.
+          # Full history: the ancestor gate reads the log.
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: The tag must name the package version
         id: version
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/plugin/package.json').version")"
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not name packages/plugin version $version"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not name packages/plugin version $version"
             exit 1
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
@@ -97,18 +112,20 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::$GITHUB_REF_NAME is not an ancestor of main; tag the merged commit"
+          tag_sha="$(git rev-parse "$TAG^{commit}")"
+          if ! git merge-base --is-ancestor "$tag_sha" origin/main; then
+            echo "::error::$TAG is not an ancestor of main; tag the merged commit"
             exit 1
           fi
 
       - name: Install the toolchain
         uses: ./.github/actions/toolchain
 
-      - name: Build, package, and open the draft release
+      - name: Build, package, and attach the draft release
         uses: ./.github/actions/build-release-artifacts
         with:
           version: ${{ steps.version.outputs.value }}
+          tag: ${{ env.TAG }}
 
   # Detect once, before any lane runs: which stores have credentials, and is
   # this a dry run. Secrets may not appear in `if:` expressions (§4.8), so
@@ -116,7 +133,7 @@ jobs:
   # a value. This is the only job the lanes' `if:` conditions read. It runs
   # for a release or an explicit dispatch tag, so a failed upload can be
   # replayed without burning a new tag; the draft only runs for the tag push
-  # that built it.
+  # or the release-please workflow_call that built it.
   channels:
     name: detect store channels
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')

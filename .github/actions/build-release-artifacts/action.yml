@@ -2,16 +2,24 @@ name: 'Build and draft the release'
 description: >
   Phase 1 of the release pipeline (docs/DISTRIBUTION.md §4.3): run the CI gate
   on the tag, build both store zips and the npm tarball once, checksum every
-  asset, write the git-cliff notes, and open the DRAFT release that carries
-  them. This action never touches a registry or a store; the Publish click on
-  the draft is the human gate. The caller has already verified the tag names
-  the package version and is an ancestor of main, and has installed the
-  toolchain (.github/actions/toolchain) with the full history checked out —
-  the notes read the log.
+  asset, and attach them to the DRAFT release. This action never touches a
+  registry or a store; the Publish click on the draft is the human gate. The
+  caller has already verified the tag names the package version and is an
+  ancestor of main, and has installed the toolchain
+  (.github/actions/toolchain).
+
+  The normal path arrives from release-please: it merged the Release PR,
+  tagged vX.Y.Z, and opened the draft release with the changelog as its body,
+  so this action attaches to that draft and never rewrites its notes. A
+  hand-pushed tag has no release-please draft, and the action opens one with
+  generated notes as the fallback.
 
 inputs:
   version:
     description: The package version the tag was verified to name.
+    required: true
+  tag:
+    description: The release tag being built; names the draft to attach to.
     required: true
 
 runs:
@@ -143,47 +151,31 @@ runs:
         npm pack ./packages/plugin --pack-destination "$assets"
         (cd "$assets" && sha256sum ./*.tgz ./*.zip > checksums.txt && cat checksums.txt)
 
-    # GitHub's --generate-notes only categorises merged pull requests, and
-    # this repository commits to main directly, so it produced nothing but a
-    # compare link (v0.1.4's first draft shipped that way). The commits are
-    # strict Conventional Commits, so git-cliff reads the notes off the log
-    # using cliff.toml; the compare link is appended here so a first release
-    # works too. A first release with no earlier tag falls back to
-    # --generate-notes rather than inventing a range.
-    - name: Install git-cliff
-      uses: taiki-e/install-action@v2
-      with:
-        tool: git-cliff@2
-
-    - name: Write the release notes
-      shell: bash
-      env:
-        # The first-release fallback below calls `gh api`, and gh reads its
-        # token from the environment: GH_TOKEN must be set on this step.
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        previous="$(git describe --tags --match 'v*' --abbrev=0 "$GITHUB_REF_NAME^1" 2>/dev/null || true)"
-        if [ -n "$previous" ]; then
-          repo_url="$(git remote get-url origin | sed -e 's|^git@github.com:|https://github.com/|' -e 's|\.git$||')"
-          git-cliff --config cliff.toml --latest --strip all > "$RUNNER_TEMP/release-notes.md"
-          printf '\n**Full Changelog**: %s/compare/%s...%s\n' "$repo_url" "$previous" "$GITHUB_REF_NAME" >> "$RUNNER_TEMP/release-notes.md"
-        else
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq .body > "$RUNNER_TEMP/release-notes.md"
-        fi
-        cat "$RUNNER_TEMP/release-notes.md"
-
-    - name: Open a draft release
+    # release-please opened the draft release — with the changelog as its
+    # body — before this job ran; attach the built artifacts to it. A
+    # hand-pushed tag has no release-please draft, so fall back to opening
+    # one with generated notes. Either way the release stays a draft until a
+    # human publishes it.
+    - name: Attach the artifacts to the draft release
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        TAG: ${{ inputs.tag }}
       run: |
         set -euo pipefail
         assets="$GITHUB_WORKSPACE/dist/release-assets"
-        gh release create "$GITHUB_REF_NAME" \
-          --draft \
-          --verify-tag \
-          --title "$GITHUB_REF_NAME" \
-          --notes-file "$RUNNER_TEMP/release-notes.md" \
-          "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt
+        for attempt in 1 2 3 4 5 6; do
+          if gh release view "$TAG" >/dev/null 2>&1; then break; fi
+          echo "attempt $attempt: the release for $TAG is not visible yet"
+          sleep 10
+        done
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          gh release upload "$TAG" "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt --clobber
+        else
+          gh release create "$TAG" \
+            --draft \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt
+        fi
