@@ -10,7 +10,8 @@
  *
  * These tests load the real files into a `node:vm` context whose `document` is
  * undefined and whose only canvas is an `OffscreenCanvas` stub, then drive
- * `captureRequest` end to end.
+ * `captureRequest` end to end - including the hide/restore dance that keeps
+ * the annotation layer itself out of the frame while the capture reads it.
  */
 
 import assert from 'node:assert/strict'
@@ -36,13 +37,15 @@ const CAPTURE_DATA_URL = 'data:image/png;base64,iVBORw0KGgo='
 
 /**
  * Load the capture half into a worker-shaped global.
- * @param {{ offscreen?: boolean, bitmap?: boolean }} [capabilities]
+ * @param {{ offscreen?: boolean, bitmap?: boolean, sendMessage?: 'ack' | 'reject' }} [capabilities]
  */
-async function loadCapture({ offscreen = true, bitmap = true } = {}) {
+async function loadCapture({ offscreen = true, bitmap = true, sendMessage = 'ack' } = {}) {
   /** @type {string[]} */
   const warnings = []
   /** @type {any[]} */
   const canvases = []
+  /** Every tabs.sendMessage envelope, in order, with the capture marked. */
+  const frames = []
 
   /** Stands in for the browser's offscreen canvas; `convertToBlob` is the only
    * method the crop uses that a normal element canvas would not offer. */
@@ -76,7 +79,19 @@ async function loadCapture({ offscreen = true, bitmap = true } = {}) {
     },
     tabs: {
       get: async (tabId) => ({ id: tabId, windowId: 1, active: true, url: 'https://example.com/' }),
-      captureVisibleTab: async () => CAPTURE_DATA_URL,
+      captureVisibleTab: async () => {
+        frames.push('capture')
+        return CAPTURE_DATA_URL
+      },
+      sendMessage:
+        sendMessage === 'reject'
+          ? async () => {
+              throw new Error('Could not establish connection. Receiving end does not exist.')
+            }
+          : async (_tabId, message) => {
+              frames.push(message.type)
+              return { ok: true }
+            },
     },
   }
 
@@ -90,6 +105,8 @@ async function loadCapture({ offscreen = true, bitmap = true } = {}) {
     },
     URL,
     Blob,
+    setTimeout,
+    clearTimeout,
     atob: (text) => Buffer.from(text, 'base64').toString('binary'),
     btoa: (text) => Buffer.from(text, 'binary').toString('base64'),
     // The service worker's decoders: no document, no Image, no FileReader.
@@ -106,7 +123,7 @@ async function loadCapture({ offscreen = true, bitmap = true } = {}) {
   }
   const ns = sandbox.__DSH_ANNO_BG__
   assert.ok(ns?.capture !== undefined, 'capture.js published ns.capture')
-  return { ns, sandbox, warnings, canvases }
+  return { ns, sandbox, warnings, canvases, frames }
 }
 
 test('a crop renders on OffscreenCanvas when there is no document', async () => {
@@ -166,4 +183,61 @@ test('a worker with no decoder at all still resolves, with the raw capture', asy
   assert.equal(result.ok, true)
   assert.equal(result.meta.cropped, false)
   assert.match(result.meta.reason, /no image decoder/)
+})
+
+test('the page steps its own layer out of the frame for the capture', async () => {
+  // captureVisibleTab photographs the composited tab, so a shot taken while the
+  // composer card, the HUD and the badges are painted would ship the extension's
+  // own chrome to the agent as if the page had drawn it. The hide must land
+  // before the capture, and the layer must come back afterwards.
+  const { ns, frames } = await loadCapture()
+  const result = await ns.capture.captureRequest({
+    tabId: 1,
+    windowId: 1,
+    cropRect: { x: 10, y: 20, w: 200, h: 100 },
+    viewport: { width: 1000, height: 800 },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.meta.cropped, true)
+  assert.deepEqual(frames, [ns.msg.TO_CONTENT.captureHide, 'capture', ns.msg.TO_CONTENT.captureRestore])
+})
+
+test('a failed captureVisibleTab still restores the layer', async () => {
+  // A missing activeTab grant rejects the capture; the `finally` bracket owns
+  // the restore, or the user is left with a page whose HUD never came back.
+  const { ns, frames, sandbox } = await loadCapture()
+  sandbox.browser.tabs.captureVisibleTab = async () => {
+    frames.push('capture')
+    throw new Error('Missing host permission for the tab')
+  }
+
+  const result = await ns.capture.captureRequest({
+    tabId: 1,
+    windowId: 1,
+    cropRect: { x: 10, y: 20, w: 200, h: 100 },
+    viewport: { width: 1000, height: 800 },
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'capture-failed')
+  assert.deepEqual(frames, [ns.msg.TO_CONTENT.captureHide, 'capture', ns.msg.TO_CONTENT.captureRestore])
+})
+
+test('a page that cannot answer the hide still gets its capture', async () => {
+  // Restricted pages and documents that predate the install have no content
+  // script to ack; the capture must degrade to the old behaviour, not fail.
+  const { ns, frames } = await loadCapture({ sendMessage: 'reject' })
+  const result = await ns.capture.captureRequest({
+    tabId: 1,
+    windowId: 1,
+    cropRect: { x: 10, y: 20, w: 200, h: 100 },
+    viewport: { width: 1000, height: 800 },
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.meta.cropped, true)
+  // The hide was attempted (and answered by nothing), the capture ran, and the
+  // best-effort restore failed the same way without disturbing the result.
+  assert.deepEqual(frames, ['capture'])
 })

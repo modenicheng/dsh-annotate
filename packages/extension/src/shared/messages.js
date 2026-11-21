@@ -49,6 +49,10 @@ export const TO_CONTENT = {
   event: 'anno.event',
   /** Ask the content script to enter annotation mode (toolbar/shortcut). */
   activate: 'anno.activate',
+  /** Get the extension's own layer out of the frame before a screenshot. */
+  captureHide: 'anno.capture.hide',
+  /** Bring the layer back once the screenshot was taken. */
+  captureRestore: 'anno.capture.restore',
 }
 
 /** popup → background */

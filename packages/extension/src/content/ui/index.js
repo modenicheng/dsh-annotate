@@ -105,6 +105,8 @@
       clearTimer: 0,
       clearProgress: 0,
       clearTotal: 0,
+      /** True while a screenshot has the whole layer stepped out of the frame. */
+      captureSuppressed: false,
     }
 
     /**
@@ -180,6 +182,31 @@
     ctx.hud.hide()
     ctx.overlay.hideTransient()
 
+    /** The host's inline display before a capture suppression hid it. */
+    let hostDisplayBeforeSuppression = null
+
+    /**
+     * Step the whole layer out of the frame while a screenshot reads the tab:
+     * `captureVisibleTab` photographs the composited page, so the composer
+     * card, the HUD, the outlines, the badges and the toasts would otherwise
+     * ship in the image as if the page had drawn them. Hiding the shadow host
+     * is one mutation that removes every piece at once; the caller owns the
+     * depth counting, so this stays a plain idempotent switch.
+     * @param {boolean} suppressed
+     */
+    function setCaptureSuppressed(suppressed) {
+      const hide = suppressed === true
+      if (hide === state.captureSuppressed) return
+      state.captureSuppressed = hide
+      if (hide) {
+        hostDisplayBeforeSuppression = host.style.display
+        host.style.display = 'none'
+      } else {
+        host.style.display = hostDisplayBeforeSuppression ?? ''
+        hostDisplayBeforeSuppression = null
+      }
+    }
+
     return {
       mount() {
         ctx.hud.syncHud()
@@ -225,6 +252,7 @@
       isComposerOpen: ctx.composer.isComposerOpen,
       composerText: ctx.composer.composerText,
       focusComposer: ctx.composer.focusComposer,
+      setCaptureSuppressed,
       destroy() {
         global.removeEventListener('resize', onResize, true)
         global.removeEventListener('scroll', onResize, true)

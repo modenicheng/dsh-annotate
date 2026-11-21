@@ -451,6 +451,36 @@
 
   const markNodes = new Map()
 
+  /**
+   * Whether the highlights are currently painted transparent for a screenshot.
+   * The marks are extension content in the frame like any badge, but they
+   * cannot leave it the way the overlay layer does: `display:none` on a mark
+   * would pull its words out of the line and reflow the paragraph the agent is
+   * about to be shown. Suppression paints the tint away instead, and the text
+   * keeps its exact layout.
+   */
+  let marksSuppressed = false
+
+  /**
+   * Switch the tint of every painted mark. Idempotent; the caller owns the
+   * depth counting across concurrent captures.
+   * @param {boolean} suppressed
+   */
+  function setMarksSuppressed(suppressed) {
+    const value = suppressed === true
+    if (value === marksSuppressed) return
+    marksSuppressed = value
+    for (const nodes of markNodes.values()) {
+      for (const mark of nodes) {
+        try {
+          mark.style.setProperty('background', value ? 'transparent' : MARK_STYLE.background, 'important')
+        } catch {
+          // A mark the page detached: the next paint pass rebuilds it.
+        }
+      }
+    }
+  }
+
   function unwrapMark(mark) {
     const parent = mark.parentNode
     if (!parent) return
@@ -491,7 +521,8 @@
     // any `mark { background: yellow }`) from deforming it.
     for (const key of Object.keys(MARK_STYLE)) {
       try {
-        mark.style.setProperty(key, MARK_STYLE[key], 'important')
+        const value = key === 'background' && marksSuppressed ? 'transparent' : MARK_STYLE[key]
+        mark.style.setProperty(key, value, 'important')
       } catch {
         // A style property the page's engine rejected: skip it.
       }
@@ -648,6 +679,7 @@
     applyMarks,
     clearMarks,
     markLineBoxes,
+    setMarksSuppressed,
     createScheduler,
     MIN_ELEMENT_SCORE,
   }

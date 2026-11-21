@@ -47,6 +47,8 @@
       pickCancel: 'anno.pick.cancel',
       event: 'anno.event',
       activate: 'anno.activate',
+      captureHide: 'anno.capture.hide',
+      captureRestore: 'anno.capture.restore',
     },
     prefs: 'anno.prefs',
   }
@@ -1647,6 +1649,62 @@
 
   // ── background → content ───────────────────────────────────────────────────
 
+  /**
+   * How long the layer stays suppressed without a matching restore. The
+   * background answers every hide with a restore, but a killed event page
+   * mid-capture would otherwise leave the user staring at a page with no HUD
+   * and no composer; the watchdog puts the layer back on its own.
+   */
+  const CAPTURE_WATCHDOG_MS = 3000
+
+  /** Captures in flight that asked the layer to step out of the frame. */
+  let captureDepth = 0
+  /** The watchdog above, while a suppression is outstanding. */
+  let captureWatchdog = 0
+
+  /**
+   * Hide the annotation layer while a screenshot reads the frame, and answer
+   * only after the browser has presented two frames of the now-clean page —
+   * `captureVisibleTab` photographs the compositor's surface, so acking before
+   * a paint would ship the pre-hide frame, layer and all.
+   * @returns {Promise<{ ok: boolean }>} the ack the capture waits for
+   */
+  function suppressOwnLayer() {
+    captureDepth += 1
+    if (captureDepth === 1) {
+      ui.setCaptureSuppressed(true)
+      ns.hydrate.setMarksSuppressed(true)
+      if (captureWatchdog) global.clearTimeout(captureWatchdog)
+      captureWatchdog = global.setTimeout(() => {
+        captureWatchdog = 0
+        // A restore that arrived first already reset the depth; its clearTimeout
+        // cannot reach a timer queued before it, so the fired watchdog no-ops.
+        if (captureDepth === 0) return
+        captureDepth = 0
+        ui.setCaptureSuppressed(false)
+        ns.hydrate.setMarksSuppressed(false)
+      }, CAPTURE_WATCHDOG_MS)
+    }
+    return new Promise((resolve) => {
+      global.requestAnimationFrame(() => {
+        global.requestAnimationFrame(() => resolve({ ok: true }))
+      })
+    })
+  }
+
+  /** Counterpart of `suppressOwnLayer`; unmatched restores are ignored. */
+  function restoreOwnLayer() {
+    if (captureDepth === 0) return
+    captureDepth -= 1
+    if (captureDepth > 0) return
+    if (captureWatchdog) {
+      global.clearTimeout(captureWatchdog)
+      captureWatchdog = 0
+    }
+    ui.setCaptureSuppressed(false)
+    ns.hydrate.setMarksSuppressed(false)
+  }
+
   function handleRecordsMessage(message) {
     const list = Array.isArray(message.records) ? message.records : []
     replaceRecords(list)
@@ -1757,6 +1815,11 @@
     }
     if (type === MSG.content.activate) {
       handleActivate(flat)
+      return Promise.resolve({ ok: true })
+    }
+    if (type === MSG.content.captureHide) return suppressOwnLayer()
+    if (type === MSG.content.captureRestore) {
+      restoreOwnLayer()
       return Promise.resolve({ ok: true })
     }
     return undefined

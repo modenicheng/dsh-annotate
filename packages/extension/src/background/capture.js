@@ -9,6 +9,15 @@
  * image - rather than trusting `devicePixelRatio` - keeps the crop correct at
  * any browser zoom level and if the platform pads the capture.
  *
+ * The capture reads the *composited* tab, so the annotation layer itself would
+ * ship in the image: the composer card, the HUD pill, the locked outline, the
+ * numbered badges and the toasts are all painted over the page when the user
+ * is mid-gesture. Before every capture the page is asked to step its own layer
+ * out of the frame (`anno.capture.hide`), the ack comes back after the browser
+ * presented the now-clean frame, and the layer is restored afterwards
+ * (`anno.capture.restore`). The same dance covers the outbox's late crop
+ * retries, because both paths funnel through `captureRequest`.
+ *
  * Capture can legitimately fail: `captureVisibleTab` requires the `activeTab`
  * grant (the user must have invoked the extension for *this* tab) and the tab
  * must be the visible one. A failure is reported to the caller so the outbox
@@ -31,6 +40,14 @@
   const MAX_DOWNSCALE_ROUNDS = 5
   /** Never downscale below this edge; a 16 px crop tells the agent nothing. */
   const MIN_DOWNSCALE_EDGE = 16
+  /**
+   * How long the page may take to confirm its layer is out of the frame. The
+   * content script acks after two presented frames (~33 ms at 60 Hz); the
+   * remainder absorbs a busy main thread. Past the deadline the capture
+   * proceeds as before the fix - a shot that may carry the layer beats no
+   * shot, and the layer still comes back.
+   */
+  const HIDE_ACK_TIMEOUT_MS = 500
 
   /** @param {number} value @param {number} min @param {number} max */
   function clamp(value, min, max) {
@@ -334,6 +351,38 @@
   }
 
   /**
+   * Ask the page to move the extension's own layer out of the frame. Best
+   * effort by design: a tab with no receiver (restricted page, a document that
+   * predates the install) simply captures as it always did.
+   * @param {number} tabId
+   * @returns {Promise<boolean>} whether the page confirmed the hide
+   */
+  async function suppressOwnLayer(tabId) {
+    try {
+      const acked = await ns.withTimeout(
+        ns.notifyTab(tabId, ns.msg.TO_CONTENT.captureHide),
+        HIDE_ACK_TIMEOUT_MS,
+        'the capture-hide acknowledgement',
+      )
+      return acked === true
+    } catch (error) {
+      ns.log.debug(`the page did not confirm hiding its layer: ${ns.describeError(error)}`)
+      return false
+    }
+  }
+
+  /**
+   * Give the layer back. Sent unconditionally after the capture - also when
+   * the hide timed out, in case the ack was merely late - and the content
+   * script tolerates a restore with no matching hide (its watchdog covers the
+   * converse, a hide whose restore never lands).
+   * @param {number} tabId
+   */
+  function restoreOwnLayer(tabId) {
+    void ns.notifyTab(tabId, ns.msg.TO_CONTENT.captureRestore)
+  }
+
+  /**
    * Capture the visible tab and crop it.
    *
    * Resolves with one of:
@@ -348,7 +397,6 @@
    */
   async function captureRequest(request) {
     const tabId = Number(request?.tabId)
-    const windowId = Number(request?.windowId)
     if (!Number.isInteger(tabId)) return { ok: false, code: 'bad-request', error: 'the capture request has no tab id' }
 
     let tab
@@ -368,6 +416,24 @@
         error: 'the tab is not the visible tab in its window; the crop is retried the next time it is',
       }
     }
+
+    await suppressOwnLayer(tabId)
+    try {
+      return await captureAndCrop(tab, request)
+    } finally {
+      restoreOwnLayer(tabId)
+    }
+  }
+
+  /**
+   * The capture itself, run with the page's layer already out of the frame.
+   * Split from `captureRequest` so the hide/restore bracket has one `finally`
+   * around every outcome, including the error returns below.
+   * @param {{ windowId?: unknown }} tab
+   * @param {{ windowId?: unknown, cropRect?: unknown, viewport?: unknown }} request
+   */
+  async function captureAndCrop(tab, request) {
+    const windowId = Number(request?.windowId)
 
     let dataUrl
     try {
