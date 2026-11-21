@@ -1,0 +1,28 @@
+name: 'Node toolchain'
+description: >
+  pnpm 10 + Node 24 + a frozen-lockfile install: the shared setup of the draft
+  and verify jobs (docs/DISTRIBUTION.md §4.6 — no bundler, one runtime
+  dependency, so this stays four steps). The caller checks out the repository
+  first: `pnpm install` needs the workspace files on disk.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
+        run_install: false
+
+    - name: Set up Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+
+    - name: Enable corepack
+      shell: bash
+      run: corepack enable
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

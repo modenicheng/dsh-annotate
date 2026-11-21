@@ -1,0 +1,189 @@
+name: 'Build and draft the release'
+description: >
+  Phase 1 of the release pipeline (docs/DISTRIBUTION.md §4.3): run the CI gate
+  on the tag, build both store zips and the npm tarball once, checksum every
+  asset, write the git-cliff notes, and open the DRAFT release that carries
+  them. This action never touches a registry or a store; the Publish click on
+  the draft is the human gate. The caller has already verified the tag names
+  the package version and is an ancestor of main, and has installed the
+  toolchain (.github/actions/toolchain) with the full history checked out —
+  the notes read the log.
+
+inputs:
+  version:
+    description: The package version the tag was verified to name.
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    # The same gate the CI job runs. A tag can point at any commit, so the
+    # checks are repeated here rather than assumed from the branch.
+    - name: Check generated protocol copies
+      shell: bash
+      run: node scripts/check-sync.mjs
+
+    - name: Check JavaScript syntax
+      shell: bash
+      run: node scripts/check-syntax.mjs
+
+    - name: Run unit tests
+      shell: bash
+      run: node --test "packages/*/test/*.test.js"
+
+    - name: Validate the extension manifest
+      shell: bash
+      run: node scripts/check-manifest.mjs
+
+    - name: Check the icons match their geometry
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f scripts/build-icons.mjs ]; then
+          echo "::error::scripts/build-icons.mjs is missing from this tag; the icons in the store artifact cannot be verified"
+          exit 1
+        fi
+        node scripts/build-icons.mjs --check
+
+    # Both store targets are built here, once. The submit lanes download these
+    # exact bytes and submit them; nothing ever rebuilds (§4.9). A tag can
+    # point at any commit, so the build is validated from the generated
+    # directories, not from the source tree (§4.10).
+    - name: Build the extension targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        node scripts/build-extension.mjs
+        for target in firefox chromium; do
+          if [ ! -f "dist/$target/manifest.json" ]; then
+            echo "::error::node scripts/build-extension.mjs did not write dist/$target/manifest.json; refusing to attach an unverified artifact"
+            exit 1
+          fi
+        done
+
+    - name: Validate the built manifests
+      shell: bash
+      run: |
+        set -euo pipefail
+        node scripts/check-manifest.mjs dist/firefox
+        node scripts/check-manifest.mjs dist/chromium
+
+    - name: Read the artifact versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        ff_version="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
+        cr_version="$(node -p "String(require('./dist/chromium/manifest.json').version ?? '')")"
+        product_version="${{ inputs.version }}"
+        if [ -z "$ff_version" ] || [ -z "$cr_version" ]; then
+          echo "::error::a built manifest declares no version"
+          exit 1
+        fi
+        # D16/§4.2: a store receives finals only. Chrome accepts one to four
+        # dot-separated integers and nothing else; AMO keeps a monotonic
+        # sequence per add-on ID, so a prerelease number would outrank the
+        # final forever.
+        if ! printf '%s' "$ff_version" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
+          echo "::error::dist/firefox/manifest.json version '$ff_version' is not numeric; D16 keeps prereleases off the stores"
+          exit 1
+        fi
+        if ! printf '%s' "$cr_version" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
+          echo "::error::dist/chromium/manifest.json version '$cr_version' is not 1-4 dot-separated integers; CWS rejects it (D16/§4.2)"
+          exit 1
+        fi
+        # §4.1: one product version. The artifacts are still attached so a
+        # human can inspect them, and this warning is the last chance to
+        # notice before Publish; the verify job refuses the mismatch for
+        # every lane at once once the release is published.
+        if [ "$ff_version" != "$product_version" ] || [ "$cr_version" != "$product_version" ]; then
+          echo "::warning::the artifacts carry version $ff_version/$cr_version but the release is v$product_version. §4.1 wants them bumped atomically; the verify job will refuse to submit them."
+        fi
+
+    # The zips sit at the root of each archive, which is what both stores
+    # expect. `-X` drops extra file attributes; there is no bundler (D1).
+    - name: Package the store zips
+      shell: bash
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        version="${{ inputs.version }}"
+        # §4.4: package.json, amo-metadata.json and test/ must not ship.
+        # build-extension.mjs skips their contents and can leave an empty
+        # test/ directory behind; drop that, and stop loudly if any of them
+        # would actually end up in a target.
+        for target in firefox chromium; do
+          for stray in package.json amo-metadata.json; do
+            if [ -e "dist/$target/$stray" ]; then
+              echo "::error::dist/$target/$stray must not be packaged (§4.4)"
+              exit 1
+            fi
+          done
+          if [ -d "dist/$target/test" ]; then
+            if ! rmdir "dist/$target/test" 2>/dev/null; then
+              echo "::error::dist/$target/test still contains files; the store artifact must exclude test/ (§4.4)"
+              exit 1
+            fi
+          fi
+        done
+        rm -rf "$assets"
+        mkdir -p "$assets"
+        (cd dist/firefox && zip -q -r -X "$assets/dsh-marker-firefox-$version.zip" .)
+        (cd dist/chromium && zip -q -r -X "$assets/dsh-marker-chromium-$version.zip" .)
+        ls -l "$assets"
+
+    # Pack once, here. The npm lane publishes this exact tarball instead of
+    # packing again, so the release asset and the registry entry are provably
+    # the same bytes. The checksum file covers every asset the draft carries,
+    # so a manual store upload can verify the zip against the same file.
+    - name: Pack the bundle and checksum every asset
+      shell: bash
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        npm pack ./packages/plugin --pack-destination "$assets"
+        (cd "$assets" && sha256sum ./*.tgz ./*.zip > checksums.txt && cat checksums.txt)
+
+    # GitHub's --generate-notes only categorises merged pull requests, and
+    # this repository commits to main directly, so it produced nothing but a
+    # compare link (v0.1.4's first draft shipped that way). The commits are
+    # strict Conventional Commits, so git-cliff reads the notes off the log
+    # using cliff.toml; the compare link is appended here so a first release
+    # works too. A first release with no earlier tag falls back to
+    # --generate-notes rather than inventing a range.
+    - name: Install git-cliff
+      uses: taiki-e/install-action@v2
+      with:
+        tool: git-cliff@2
+
+    - name: Write the release notes
+      shell: bash
+      env:
+        # The first-release fallback below calls `gh api`, and gh reads its
+        # token from the environment: GH_TOKEN must be set on this step.
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        previous="$(git describe --tags --match 'v*' --abbrev=0 "$GITHUB_REF_NAME^1" 2>/dev/null || true)"
+        if [ -n "$previous" ]; then
+          repo_url="$(git remote get-url origin | sed -e 's|^git@github.com:|https://github.com/|' -e 's|\.git$||')"
+          git-cliff --config cliff.toml --latest --strip all > "$RUNNER_TEMP/release-notes.md"
+          printf '\n**Full Changelog**: %s/compare/%s...%s\n' "$repo_url" "$previous" "$GITHUB_REF_NAME" >> "$RUNNER_TEMP/release-notes.md"
+        else
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body > "$RUNNER_TEMP/release-notes.md"
+        fi
+        cat "$RUNNER_TEMP/release-notes.md"
+
+    - name: Open a draft release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        gh release create "$GITHUB_REF_NAME" \
+          --draft \
+          --verify-tag \
+          --title "$GITHUB_REF_NAME" \
+          --notes-file "$RUNNER_TEMP/release-notes.md" \
+          "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt

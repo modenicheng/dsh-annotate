@@ -1,0 +1,144 @@
+name: 'Publish to npm'
+description: >
+  The npm lane (docs/DISTRIBUTION.md §6.1): download the tarball the draft
+  attached, prove it is the checksummed bytes, publish those exact bytes with
+  provenance, and prove the registry holds them. The verify job has already
+  gated the tag; this lane trusts its outputs.
+
+  Authentication is OIDC trusted publishing: no NPM_TOKEN exists anywhere in
+  this repository. Three details are easy to get wrong and fail as E404 on
+  PUT instead of as an auth error, so they are pinned here:
+    * `registry-url` is deliberately absent from setup-node. With it,
+      setup-node writes an `_authToken` line into .npmrc and npm keeps using
+      a credential instead of exchanging the OIDC token.
+    * npm must be 11.5.1 or newer; the runner image can ship an older one.
+    * package.json `repository.url` must name this repository, or the
+      provenance check rejects the publish with E422.
+
+inputs:
+  tag:
+    description: The release tag whose assets are being published.
+    required: true
+  version:
+    description: The package version the verify job read from the tag.
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        # No registry-url on purpose: see the description above.
+
+    - name: Require npm 11.5.1 for trusted publishing
+      shell: bash
+      run: |
+        set -euo pipefail
+        npm install -g npm@^11.5.1
+        npm --version
+
+    - name: Download the released tarball
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        # This lane checks out nothing, so gh cannot resolve the repository
+        # from a git remote; name it explicitly.
+        GH_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        mkdir -p dist
+        gh release download "${{ inputs.tag }}" --dir dist --pattern '*.tgz' --pattern 'checksums.txt'
+
+    - name: The bytes must be the ones the draft hashed
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd dist
+        # Phase 1 wrote SHA-256 lines for the tarball and both store zips; the
+        # AMO lane may append a signed-XPI line to the same asset. This lane
+        # only downloaded the tarball, so it verifies the tarball lines and
+        # leaves the store lines to the store lanes. Still refuse a checksums
+        # file that names no tarball at all: an empty grep must not pass a
+        # check.
+        tarball_lines="$(grep -E '^[0-9a-f]{64}  .*\.tgz$' checksums.txt || true)"
+        if [ -z "$tarball_lines" ]; then
+          echo "::error::checksums.txt does not name the npm tarball"
+          exit 1
+        fi
+        printf '%s\n' "$tarball_lines" > "$RUNNER_TEMP/tarball-checksums.txt"
+        sha256sum --check "$RUNNER_TEMP/tarball-checksums.txt"
+
+    # npm records sha512 in dist.integrity; computing it here is what lets the
+    # lane prove, after the fact, that the registry holds these exact bytes.
+    - name: Record the expected integrity
+      id: integrity
+      shell: bash
+      run: |
+        set -euo pipefail
+        tarball="$(ls dist/*.tgz)"
+        integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
+        echo "value=$integrity" >> "$GITHUB_OUTPUT"
+
+    # curl, not `npm view`: npm caches the packument it fetched while the
+    # version did not exist yet, so every later `npm view` in the same job
+    # keeps reporting the fresh version as missing. That is how 0.1.2 was
+    # published successfully and then failed its own verification.
+    # A rerun after a partial failure must not fail on "version exists"; it
+    # must agree that the registry already holds this tarball, or stop loudly.
+    - name: Skip when this version is already on the registry
+      id: exists
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        EXPECTED: ${{ steps.integrity.outputs.value }}
+      run: |
+        set -euo pipefail
+        published="$(curl -fsS --max-time 20 "https://registry.npmjs.org/dsh-marker/$VERSION" 2>/dev/null | jq -r '.dist.integrity // empty' || true)"
+        if [ -z "$published" ]; then
+          echo "value=no" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ "$published" != "$EXPECTED" ]; then
+          echo "::error::dsh-marker@$VERSION is already published with $published, but this release carries $EXPECTED"
+          exit 1
+        fi
+        echo "::notice::dsh-marker@$VERSION is already published with these exact bytes; nothing to do"
+        echo "value=yes" >> "$GITHUB_OUTPUT"
+
+    # Publishing the tarball, not the directory, is what makes the release
+    # asset and the registry entry provably the same artifact. If npm ever
+    # refuses provenance for a tarball, the fallback is to publish the
+    # directory and compare dist.integrity afterwards — but then the bytes
+    # published are the ones npm packed, not the ones this lane hashed.
+    - name: Publish with provenance
+      shell: bash
+      if: steps.exists.outputs.value == 'no'
+      run: |
+        set -euo pipefail
+        npm publish ./dist/*.tgz --provenance --access public
+
+    # Anonymous by construction: no token is configured in this lane, so this
+    # is the view a stranger gets. A fresh publish is eventually consistent
+    # across replicas — v0.1.3 took over a minute to appear and failed this
+    # check while the publish had actually succeeded — so the window is five
+    # minutes, not one.
+    - name: Verify the registry holds these bytes
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        EXPECTED: ${{ steps.integrity.outputs.value }}
+      run: |
+        set -euo pipefail
+        for attempt in $(seq 1 20); do
+          published="$(curl -fsS --max-time 20 "https://registry.npmjs.org/dsh-marker/$VERSION" 2>/dev/null | jq -r '.dist.integrity // empty' || true)"
+          if [ "$published" = "$EXPECTED" ]; then
+            echo "registry holds dsh-marker@$VERSION ($EXPECTED)"
+            exit 0
+          fi
+          echo "attempt $attempt: registry has '${published:-nothing}' yet"
+          sleep 15
+        done
+        echo "::error::dsh-marker@$VERSION did not appear with $EXPECTED"
+        exit 1
