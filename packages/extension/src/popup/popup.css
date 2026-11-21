@@ -176,13 +176,6 @@ body {
   gap: 6px;
 }
 
-.field__note {
-  color: var(--muted);
-  font-size: var(--micro);
-  line-height: var(--text-label-lh);
-  text-align: right;
-}
-
 .field-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 88px;
@@ -409,11 +402,6 @@ button:focus-visible {
 .segmented__option:has(input:checked) input {
   border-color: var(--paper);
   background: var(--accent);
-}
-
-.segmented__note {
-  color: var(--muted);
-  font-size: var(--micro);
 }
 
 /* ── discovery ──────────────────────────────────────────────────────────── */
