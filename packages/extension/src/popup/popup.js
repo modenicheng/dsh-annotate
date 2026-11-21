@@ -95,6 +95,10 @@
     shortcut: SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.DEFAULT,
     /** True while the shortcut button is waiting for a recorded combination. */
     recording: false,
+    /** Leave annotation mode after a successful send (off by default). */
+    exitAfterSend: false,
+    /** Leave annotation mode on a page right-click (on by default). */
+    exitOnRightClick: true,
   }
 
   /** @type {Record<string, HTMLElement>} */
@@ -189,6 +193,8 @@
       'shortcut-record',
       'shortcut-reset',
       'annotate',
+      'exit-after-send',
+      'exit-on-right-click',
     ]
     for (const id of ids) {
       const node = document.getElementById(id)
@@ -205,6 +211,12 @@
     if (el['shortcut-record'] !== undefined) el['shortcut-record'].addEventListener('click', onShortcutRecordClick)
     if (el['shortcut-reset'] !== undefined) el['shortcut-reset'].addEventListener('click', () => void resetShortcut())
     if (el.annotate !== undefined) el.annotate.addEventListener('click', () => void annotateCurrentPage())
+    if (el['exit-after-send'] !== undefined) {
+      el['exit-after-send'].addEventListener('change', () => void saveExitAfterSend())
+    }
+    if (el['exit-on-right-click'] !== undefined) {
+      el['exit-on-right-click'].addEventListener('change', () => void saveExitOnRightClick())
+    }
 
     // The mode control, the host list, the scan action, and the endpoint drop
     // zone belong to the discovery panel, which wires its own listeners.
@@ -284,6 +296,10 @@
     if (el.port !== undefined) el.port.value = String(port)
     if (el.token !== undefined && document.activeElement !== el.token) el.token.value = token
     state.shortcut = SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.normalize(prefs?.shortcut) || SHORTCUT.DEFAULT
+    state.exitAfterSend = prefs?.exitAfterSend === true
+    state.exitOnRightClick = prefs?.exitOnRightClick !== false
+    if (el['exit-after-send'] !== undefined) el['exit-after-send'].checked = state.exitAfterSend
+    if (el['exit-on-right-click'] !== undefined) el['exit-on-right-click'].checked = state.exitOnRightClick
     updateShortcutButton()
     // The panel owns the mode radios and their hint: it adopts a stored choice
     // and otherwise leaves its current paint (the default) alone.
@@ -507,6 +523,16 @@
     }
     feedback(t('annotateReady'), 'ok')
     window.close()
+  }
+
+  async function saveExitAfterSend() {
+    state.exitAfterSend = el['exit-after-send'] === undefined ? false : el['exit-after-send'].checked
+    await savePrefsPatch({ exitAfterSend: state.exitAfterSend })
+  }
+
+  async function saveExitOnRightClick() {
+    state.exitOnRightClick = el['exit-on-right-click'] === undefined ? true : el['exit-on-right-click'].checked
+    await savePrefsPatch({ exitOnRightClick: state.exitOnRightClick })
   }
 
   // ── background state ──────────────────────────────────────────────────────

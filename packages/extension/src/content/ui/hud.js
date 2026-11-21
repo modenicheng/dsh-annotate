@@ -19,6 +19,8 @@
     const { t, state, handlers, dom } = ctx
     const { createElement, setVisible, fill } = dom
 
+    /** Whether a page right-click also leaves the mode (a preference). */
+    let rightClickExits = true
     const hud = createElement('div', 'hud')
     const hudDot = createElement('span', 'hud-dot')
     const hudMode = createElement('span', 'hud-mode')
@@ -63,7 +65,7 @@
       hudToggle.textContent = state.hidden ? t('showLayers') : t('hideLayers')
       hudToggle.setAttribute('aria-pressed', state.hidden ? 'true' : 'false')
       hudToggle.title = hudToggle.textContent
-      hudExit.title = t('exit')
+      hudExit.title = rightClickExits ? t('exitRightClick') : t('exit')
       syncClearButtons()
     }
 
@@ -245,6 +247,12 @@
     // root; `showToast` is the one that writes into the toast. Handing the
     // function to `append()` instead of the element does not throw — it
     // stringifies the body into the page — so the two names stay distinct.
+    /** Adopt the exit preferences; the tooltip must not advertise a dead gesture. */
+    function setExitGestures(options) {
+      rightClickExits = !options || options.rightClickExit !== false
+      hudExit.title = rightClickExits ? t('exitRightClick') : t('exit')
+    }
+
     return {
       node: hud,
       pick,
@@ -255,6 +263,7 @@
       setClearBusy,
       setClearProgress,
       disarmClear,
+      setExitGestures,
       showToast,
       hide,
     }

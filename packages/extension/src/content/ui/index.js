@@ -224,6 +224,7 @@
       setClearBusy: ctx.hud.setClearBusy,
       setClearProgress: ctx.hud.setClearProgress,
       setPickBanner: ctx.hud.setPickBanner,
+      setExitGestures: ctx.hud.setExitGestures,
       toast: ctx.hud.showToast,
       openComposer: ctx.composer.openComposer,
       closeComposer: ctx.composer.closeComposer,

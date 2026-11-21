@@ -686,3 +686,30 @@ code {
   background: var(--accent);
   color: var(--accent-text);
 }
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-label);
+  line-height: var(--text-label-lh);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.switch input {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.switch input:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--surface-raised);
+}

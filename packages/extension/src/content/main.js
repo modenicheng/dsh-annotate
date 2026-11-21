@@ -101,6 +101,10 @@
     /** Shift is held, so the next drag selects text instead of an element. */
     shiftArmed: false,
     selectionGesture: false,
+    /** Leave annotation mode after a successful send (pref, default off). */
+    exitAfterSend: false,
+    /** Leave annotation mode on a page right-click (pref, default on). */
+    exitOnRightClick: true,
     consoleErrors: [],
     observer: null,
     scheduler: null,
@@ -1186,6 +1190,10 @@
       // An annotation without a comment is the mark alone; say which one was
       // sent instead of implying words the user never wrote.
       ui.toast(draft.comment === '' ? t('savedMark') : t('saved'), 'ok')
+      // "Exit after sending" is opt-in: most people mark several things in a
+      // row, and leaving the mode after the first one would break that flow.
+      // It runs only here, after the host acknowledged the annotation.
+      if (state.exitAfterSend) leaveMode('sent')
     })
   }
 
@@ -1605,6 +1613,21 @@
     event.preventDefault()
   }
 
+  /**
+   * A right click on the page is a way out of annotation mode. It is disabled
+   * while the composer is open, where the context menu belongs to the textarea
+   * (paste, spellcheck), and inside our own chrome.
+   */
+  function onContextMenu(event) {
+    if (!state.active || !ui) return
+    if (!state.exitOnRightClick) return
+    if (ns.text.isOurs(event.target)) return
+    if (ui.isComposerOpen()) return
+    event.preventDefault()
+    event.stopPropagation()
+    leaveMode('contextmenu')
+  }
+
   /** Shift means "select text", so it gets a pointer guide of its own. */
   function isShiftKey(event) {
     return event.key === 'Shift' || event.code === 'ShiftLeft' || event.code === 'ShiftRight'
@@ -1752,6 +1775,7 @@
         const prefs = stored && stored[MSG.prefs]
         if (!prefs || typeof prefs !== 'object') return
         state.prefs = prefs
+        applyPrefs(prefs)
         if (prefs.hidden === true) {
           // The single path that hides the layer also drops the page's marks:
           // setting `state.hidden` here would short-circuit applyHidden and leave
@@ -1767,7 +1791,21 @@
     const next = changes[MSG.prefs].newValue
     if (!next || typeof next !== 'object') return
     state.prefs = next
+    applyPrefs(next)
     applyHidden(next.hidden === true, false)
+  }
+
+  /**
+   * Mirror the popup-owned prefs into the gesture layer: the exit choices apply
+   * immediately, and the HUD tooltip must not advertise a gesture that is off.
+   * @param {any} prefs
+   */
+  function applyPrefs(prefs) {
+    state.exitAfterSend = prefs?.exitAfterSend === true
+    state.exitOnRightClick = prefs?.exitOnRightClick !== false
+    if (ui && typeof ui.setExitGestures === 'function') {
+      ui.setExitGestures({ rightClickExit: state.exitOnRightClick })
+    }
   }
 
   // ── background → content ───────────────────────────────────────────────────
@@ -1992,6 +2030,7 @@
     global.addEventListener('mousedown', onMouseDownCapture, true)
     global.addEventListener('click', onClickCapture, true)
     global.addEventListener('dragstart', onDragStart, true)
+    global.addEventListener('contextmenu', onContextMenu, true)
     global.addEventListener('scroll', onViewportChange, true)
     global.addEventListener('resize', onViewportChange, true)
     if (api && api.runtime && api.runtime.onMessage) {
