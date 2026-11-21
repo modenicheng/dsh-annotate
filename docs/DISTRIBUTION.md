@@ -426,10 +426,13 @@ pending target.
   the rename is what makes `npm publish` possible and `dsh plugin add dsh-marker`
   unambiguous.
 - **The package carries its own metadata.** `repository`, `homepage`, `bugs`,
-  and `engines.dsh: ^0.2.0` are set. An `engines.dsh` range is the install-time
+  and `engines.dsh: >=0.2.0` are set. An `engines.dsh` range is the install-time
   admission check and decides alone — when it is present, DSH ignores
   `peerDependencies` — and it is evaluated with prereleases included, so a
-  `0.2.x-rc` runtime passes while an older one is refused before install.
+  `0.2.x-rc` runtime passes while an older one is refused before install. The
+  range is a floor on purpose: an upper bound would lock every installed copy
+  out the day DSH ships a newer minor, and `^0.2.0` carried exactly that
+  hidden `<0.3.0` ceiling.
 - **Display metadata ships inside the package.** `meta.title`,
   `meta.description`, `docs/DETAIL.md`, and `icon.svg` are read from the
   installed copy and from the registry copy before installation, so every one of
