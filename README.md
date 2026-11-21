@@ -123,11 +123,8 @@ updates the browser command on Firefox, which is what keeps the screenshot's
 there the recorded key works on pages and the toolbar path may still be needed
 for screenshots. The popup follows the browser UI language (English and
 Simplified Chinese ship today). If **Annotate this page** reports that the
-background did not answer, the popup is newer than the extension loaded in this
-browser session: click **Reload** in `about:debugging` and refresh the page. The
-popup's **Diagnostics** panel records the activation path (active tab, delivery,
-injection) for the cases where the background does answer but the overlay stays
-away.
+extension did not answer, the popup is newer than the extension loaded in this
+browser session: click **Reload** in `about:debugging` and refresh the page.
 
 ## Tools
 
