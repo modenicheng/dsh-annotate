@@ -953,6 +953,8 @@
   /**
    * Selection anchor. `rect` is in document coordinates (the validator requires
    * it), while the composer's crop rect is kept in viewport pixels separately.
+   * The geometry is scoped to the same block as the quote: a selection that
+   * ends in a later block is anchored, cropped and banded as its first block.
    */
   function selectionState(selection) {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
@@ -991,12 +993,31 @@
     const exact = quoteText.slice(0, LIMITS.quoteChars)
     if (exact.trim() === '') return null
 
-    let viewportRect = unionRangeRects(range)
+    // The quote, the dom paths and the text position all describe the part of
+    // the selection inside the start block: `nodesInRange` only walks that
+    // block. The geometry must describe the same span, or a drag that ends in
+    // a later block stores a rect whose crop and composer band cover text the
+    // quote never mentions, and a reload paints a smaller mark than the one
+    // that was made.
+    let geometryRange = range
+    try {
+      const owner = block.ownerDocument || global.document
+      if (owner && typeof owner.createRange === 'function') {
+        const clamped = owner.createRange()
+        clamped.setStart(first, startOffset)
+        clamped.setEnd(last, endOffset)
+        geometryRange = clamped
+      }
+    } catch {
+      // Without a usable range constructor the raw range stands in: the
+      // geometry may overhang the block, the anchor still holds.
+    }
+    let viewportRect = unionRangeRects(geometryRange)
     if (viewportRect.w === 0 && viewportRect.h === 0) viewportRect = rectOf(block.getBoundingClientRect())
     // The line boxes are what the overlay paints over the marked words: the
     // composer takes focus, and with it the browser's own selection highlight,
     // so without them the user could not see what the annotation is about.
-    const lineRects = markLineRects(range)
+    const lineRects = markLineRects(geometryRange)
 
     const anchor = {
       kind: 'selection',
@@ -1015,7 +1036,7 @@
       textPosition: { start: startPosition, end: endPosition },
       rect: roundRect(viewportToPage(viewportRect)),
     }
-    return { anchor, viewportRect, lineRects, live: { kind: 'range', range } }
+    return { anchor, viewportRect, lineRects, live: { kind: 'range', range: geometryRange } }
   }
 
   /** Element anchor: selectors, a fingerprint for re-finding it, diagnostics. */
