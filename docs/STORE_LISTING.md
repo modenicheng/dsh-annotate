@@ -274,7 +274,13 @@ Support URL:    https://github.com/modenicheng/dsh-annotate/issues
 
 ## 3. Microsoft Edge Add-ons
 
-Edge also installs CWS items, so this listing is optional ([DISTRIBUTION.md](DISTRIBUTION.md) §4.6).
+The first store this project can actually ship to: registration is free, a Microsoft account is
+enough, and the package is the same Chromium zip the CWS listing takes. Edge also installs CWS items,
+so once CWS exists this listing is additive rather than the only Chromium route.
+
+Two fields are **not** pasted in the dashboard. Edge reads `name` and `description` from the
+manifest — `__MSG_extName__` / `__MSG_extDescription__` in `_locales/` — and shows them read-only.
+Changing either needs a new package, not a listing edit.
 
 ### Name — limit 45 characters
 
@@ -284,16 +290,84 @@ dsh-marker
 
 ### Short description — limit 132 characters
 
-Use the English CWS short description in §2 verbatim (105 characters).
+Comes from the manifest, read-only: `_locales/en/messages.json` (`extDescription`) and
+`_locales/zh_CN/messages.json`. Edit the locale files and rebuild, not the dashboard.
 
-### Description — limit 10,000 characters
+### Description — 250 to 10,000 characters
 
-Use the CWS detailed description in §2 verbatim. It is 1,726 characters; the Chinese listing uses
-the Chinese description from §1 (724 characters).
+Do **not** paste the CWS description here: Edge policy 1.1.2 says a listing "must not reference other
+browsers", and the CWS block names Firefox. Use the block below, which names Microsoft Edge,
+discloses the DSH dependency that policy 1.2.3 requires, and stays above the 250-character floor.
+
+English:
+
+```
+dsh-marker hands part of a web page to DeepSeek Harness (DSH), the assistant you run on your own computer, as context for your conversation.
+
+Mark text, an element, or a region in Microsoft Edge, and the mark arrives in the DSH session you are using, with a cropped screenshot and the page context around it. When a request is ambiguous, the model can ask you to point at something.
+
+HOW IT WORKS
+- Press Alt+Shift+A to enter annotation mode. Select text with Shift+drag, click an element, or drag a region.
+- A numbered marker stays pinned to what you marked, and is re-anchored as the page re-renders.
+- The comment is optional; leaving it empty sends the mark alone, and the send button is disabled with a hint while the host is not connected.
+- Pick the DSH Session that should receive it. The annotation is inserted into that Session's composer as a chip you can remove; nothing reaches the model until you send the message.
+- The model may call annotate_pick; a banner appears on the page and waits for your click until it times out.
+
+WHAT YOU NEED
+- DeepSeek Harness with the dsh-marker bundle enabled, on the same computer. The extension connects over loopback (127.0.0.1:3080 by default) after you paste the bridge token from $DSH_HOME/ext-bridge-token into the popup once. This is the product's one non-integrated dependency, and it runs on your machine, not on a server of ours.
+- Microsoft Edge 88 or newer on desktop. The extension is Manifest V3.
+
+WHAT IT DOES NOT DO
+- No account, no developer server, no telemetry, no analytics.
+- Nothing leaves your machine: annotations go to your local DSH host, which stores them under $DSH_HOME.
+- No remote code, no third-party requests, no ads.
+
+PRIVACY
+The privacy policy linked on this listing states what is read, where it goes, and what is stored: https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md
+
+FEEDBACK
+https://github.com/modenicheng/dsh-annotate/issues
+```
+
+Chinese:
+
+```
+dsh-marker 把网页上标记的内容发给本机的 DeepSeek Harness（DSH），作为对话的上下文。
+
+在 Microsoft Edge 里划词、点元素或拖框选一块区域；标记连同裁剪截图和周边页面信息，送进你正在用的 DSH 会话。请求含糊时，模型也可以请你指一下。
+
+怎么用
+- 按 Alt+Shift+A 进入批注模式：Shift+划词选文字，点一下选元素，拖动选框选区域。
+- 标记以编号钉在选区或元素上，页面重绘后会重新找位置。
+- 评论可以不写，留空即只发送标记；未连接宿主时发送按钮禁用，框下有提示。
+- 选择送给哪个会话：批注以引用的形式插进那个会话的输入框，随时可以删掉；消息发不发，由你决定。
+- 模型可以调用 annotate_pick 请你指一个位置，页面上会出现提示条等你的点击。
+
+需要什么
+- 本机装了 DeepSeek Harness 并启用了 dsh-marker 插件；在扩展弹窗里粘贴一次 $DSH_HOME/ext-bridge-token 里的令牌。这是产品唯一的外部依赖，它跑在你的机器上，不在我们的服务器上。
+- 桌面版 Microsoft Edge（Manifest V3）。
+
+不做什么
+- 没有账号，没有开发者服务器，没有遥测和统计。
+- 数据不出本机：批注只发给本机的 DSH 宿主，存在 $DSH_HOME 下。
+- 不加载远程代码，不请求第三方资源，没有广告。
+
+隐私
+读什么、发到哪里、存什么，见本 listing 链接的隐私政策：https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md
+
+反馈
+https://github.com/modenicheng/dsh-annotate/issues
+```
 
 ### Category
 
 **Developer tools.**
+
+### Privacy policy
+
+`https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md`. Edge policy 1.5.2 asks that
+the policy primarily refer to Microsoft Edge rather than another browser; the policy's opening line
+now names Edge first and the rest is engine-neutral.
 
 ## 4. What's new — overwritten per version
 
@@ -377,8 +451,10 @@ each heading above.
 | Name (all three stores) | 10 | 45 (CWS, Edge) / 50 (AMO) |
 | AMO summary, English | 142 | 250 |
 | AMO summary, Chinese | 54 | 250 |
-| Description, English | 1,726 | 16,000 (CWS) / 10,000 (Edge) |
+| Description, English | 1,726 | 16,000 (CWS) |
 | Description, Chinese | 724 | free text on AMO |
+| Edge description, English | 1,938 | 10,000 (min 250) |
+| Edge description, Chinese | 776 | 10,000 (min 250) |
 | CWS short description, English | 105 | 132 |
 | CWS short description, Chinese | 49 | 132 |
 | Single purpose | 232 | 1,000 |
@@ -525,3 +601,109 @@ https://github.com/modenicheng/dsh-annotate
 | Privacy policy URL choice | A repository setting (§7.5) |
 | Screenshots | Real captures of the real UI, re-shot per version (§5) |
 | Submit for review | The irreversible click |
+
+## 8. First submission (Microsoft Edge Add-ons)
+
+§3 is the copy; this is the order of operations. Everything here is one-time: once the product
+exists, the Edge Publish API can take later versions (§8.9), but the first item cannot be created
+through it.
+
+### 8.1 Account
+
+- A Microsoft account, then Partner Center: <https://partner.microsoft.com/dashboard/microsoftedge/public/login>.
+- The Edge program is free — no card, no fee. An individual account is enough; the publisher name is
+  public on the listing.
+- Registration asks for a contact address. Chinese addresses work, but the province field wants the
+  code (`GD`, `ZJ`, …) rather than the name; a Chinese province name is the most common reason the
+  form refuses to submit.
+
+### 8.2 The artifact
+
+The package is the Chromium zip, not a separate build:
+
+```
+node scripts/build-extension.mjs --target chromium
+```
+
+Zip the **contents** of `dist/chromium`, so `manifest.json` sits at the archive root and there is no
+top-level folder. The candidate built on 2026-11-21 from `chore(release): bump the product to
+0.1.4`:
+
+| Property | Value |
+|---|---|
+| File | `dist/edge/dsh-marker-chromium-0.1.4.zip` |
+| Size | 175,911 bytes |
+| SHA-256 | `bc971b6ba71253aabac0762df6519e70b86ef739669318f09d7fff2d63571076` |
+| Contents | 39 files; `manifest.json` at the root; no `test/`, no `package.json` |
+
+A rebuild will not reproduce that hash (the zip tool differs), so verify the version inside the
+manifest instead of the bytes. At the time of writing the 0.1.4 tag is not pushed and the GitHub
+release is still 0.1.3; the Edge listing can lead, but the tag should follow before the listing URL
+is announced anywhere.
+
+### 8.3 Create the extension and upload
+
+1. Partner Center → **Edge** workspace → **Create new extension**.
+2. Upload the zip. The package is validated on the spot; a manifest error appears here, not at
+   certification.
+3. **Packages** → **Continue**.
+
+### 8.4 Availability
+
+`Public`, all markets. Edge's default covers all current and future markets; leave it.
+
+### 8.5 Properties
+
+| Field | Value |
+|---|---|
+| Category | Developer tools |
+| Website | https://github.com/modenicheng/dsh-annotate |
+| Support contact | https://github.com/modenicheng/dsh-annotate/issues |
+| Mature content | No |
+
+### 8.6 Privacy
+
+| Section | Paste |
+|---|---|
+| Single Purpose | §2 Single purpose |
+| Permission justification | §2, one block per permission Edge lists (`storage`, `alarms`, `tabs`, `activeTab`, `scripting`, and the `<all_urls>` host permission) |
+| Are you using remote code? | No |
+| Data usage | No data types selected; nothing is sent to the developer or a third party. Page content and the cropped screenshot go only to a host on the same machine. |
+| Privacy policy URL | §7.5 |
+
+The justifications are read from the uploaded manifest, so a permission that appears without a
+justification is a form error, not a later review surprise.
+
+### 8.7 Store listing, per language
+
+The package declares `en` and `zh_CN`, so Partner Center shows one row per language and requires a
+Description and a logo for **each**.
+
+| Field | Value |
+|---|---|
+| Extension name | from the manifest, read-only |
+| Short description | from the manifest, read-only |
+| Description | §3 English / Chinese; the form requires at least 250 characters |
+| Extension logo | `dist/store/edge-logo-300.png` (300×300, 1:1) |
+| Screenshots | `dist/store/shot-*.png`, 1280×800, at most 6 |
+| Search terms | `annotation`, `deepseek`, `dsh`, `mark`, `screenshot`, `context` (max 7 terms, 21 words total) |
+
+The logo is rendered from `packages/extension/icon/icon.svg` at 300×300 with transparent corners,
+which is what the store card expects. Use **Duplicate** to copy the logo and screenshots to the
+second language instead of uploading twice.
+
+### 8.8 Notes for certification
+
+Paste §7.6, with the first line changed to name this Edge listing. The point that decides the
+review is that the overlay is testable without the host: install, open any page, press `Alt+Shift+A`,
+mark a sentence. The DSH host is needed only for the sending path, and §3 discloses it, which is
+the dependency disclosure Edge policy 1.2.3 asks for.
+
+### 8.9 Submit, and after
+
+**Publish** moves the item to certification; the docs cap it at seven business days. When it passes,
+the listing is live and Partner Center shows **In the Store**.
+
+For later versions, the Edge Publish API takes over: a client ID, an API key, and the product ID from
+the extension's Publish API page. The first submission is manual because the product must exist
+before the API can name it — the same bootstrap as CWS (§7.3), minus the fee.
