@@ -374,7 +374,9 @@ export function createTools({ store, bridge }) {
         const query = /** @type {any} */ (args)
         const status = query.status ?? 'resolved'
         const before = typeof query.before_iso === 'string' ? Date.parse(query.before_iso) : Number.NaN
-        const doomed = store.list({ status: 'all', limit: LIMITS.listLimit }).filter((record) => {
+        // deleteWhere scans the whole store; the old list()-windowed candidate
+        // set silently missed anything older than LIMITS.listLimit.
+        const doomed = await store.deleteWhere((record) => {
           if (status !== 'all' && record.state !== status) return false
           if (!Number.isNaN(before) && Date.parse(record.createdAt) >= before) return false
           return true
