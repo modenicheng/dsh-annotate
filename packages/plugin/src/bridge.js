@@ -15,6 +15,7 @@ import {
   HELLO_TIMEOUT_MS,
   HEALTH_PATH,
   LIMITS,
+  MIN_PROTOCOL_VERSION,
   PICK_TIMEOUT_MS,
   PING_INTERVAL_MS,
   PROTOCOL_VERSION,
@@ -23,12 +24,19 @@ import {
   newPickId,
   normalizeRecord,
   parseClientFrame,
+  protocolInRange,
   sameDocument,
 } from './protocol.js'
 
 const CLOSE_UNAUTHORIZED = 4401
 const CLOSE_FORBIDDEN = 4403
 const CLOSE_PROTOCOL = 4400
+
+/**
+ * What this host can do, advertised identically in `hello.ok` and in the
+ * health body so a client can learn the caps before it connects (D15).
+ */
+const CAPS = Object.freeze({ pick: true, query: true, mutate: true })
 
 /**
  * Constant-time token comparison. Hashing first gives both sides the same
@@ -145,11 +153,13 @@ export function createBridge({ store, token, saveImage, onCreated, logger = {}, 
         client.connection.close(CLOSE_FORBIDDEN, 'bad token')
         return
       }
-      if (frame.version !== PROTOCOL_VERSION) {
+      // D15: the accepted versions are a window, not one number, so a client
+      // left behind by a slow store review keeps working after a wire change.
+      if (!protocolInRange(frame.version)) {
         send(client, {
           t: 'error',
           code: 'protocol-version',
-          message: `host speaks protocol ${PROTOCOL_VERSION}, client sent ${String(frame.version)}`,
+          message: `host speaks protocols ${MIN_PROTOCOL_VERSION}..${PROTOCOL_VERSION}, client sent ${String(frame.version)}`,
         })
         client.connection.close(CLOSE_PROTOCOL, 'protocol version')
         return
@@ -160,10 +170,11 @@ export function createBridge({ store, token, saveImage, onCreated, logger = {}, 
       send(client, {
         t: 'hello.ok',
         version: PROTOCOL_VERSION,
+        minProtocol: MIN_PROTOCOL_VERSION,
         wsPath: WS_PATH,
         openCount: store.count((record) => record.state === 'open'),
         activeSessions: [],
-        caps: { pick: true, query: true, mutate: true },
+        caps: CAPS,
       })
       log.debug(`annotations: client ${client.clientId || '(anon)'} connected`)
       return
@@ -412,6 +423,10 @@ export function createBridge({ store, token, saveImage, onCreated, logger = {}, 
         const body = JSON.stringify({
           ok: true,
           version: PROTOCOL_VERSION,
+          // D15: the accepted window and the caps, so a client can explain a
+          // mismatch before it opens a socket at all.
+          minProtocol: MIN_PROTOCOL_VERSION,
+          caps: CAPS,
           // The locator's `instanceId` must equal this one: it is how the
           // extension drops a stale answer, or an origin another process has
           // since taken over, instead of connecting to the wrong host.

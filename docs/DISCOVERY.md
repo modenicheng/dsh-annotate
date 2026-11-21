@@ -125,6 +125,7 @@ instance; with three, two live instances still both get one.
 {
   "app": "dsh-marker",
   "version": 1,
+  "minProtocol": 1,
   "instanceId": "9f1c0b7a5e2d4c31",
   "origin": "http://127.0.0.1:51234",
   "wsUrl": "ws://127.0.0.1:51234/ext/anno",
@@ -134,7 +135,12 @@ instance; with three, two live instances still both get one.
 }
 ```
 
-- `version` is `PROTOCOL_VERSION`; a client ignores an unknown version.
+- `version` is `PROTOCOL_VERSION` — the newest protocol this host speaks.
+- `minProtocol` is the oldest the host still accepts (D15), so the two are the
+  host's window. A client drops a host whose window cannot receive the version
+  the client offers, and connects to a newer host whose floor reaches back —
+  a body without `minProtocol` is a pre-window host and speaks exactly its
+  `version`. `hello` is checked against the same window.
 - `instanceId` is 16 lowercase hex characters, fresh per process. It is what
   ties a locator answer to a health answer (§7).
 - `focusAt` is the time of the latest Client focus report, or `null`. It is the
@@ -174,6 +180,7 @@ Path: `$DSH_HOME/ext-bridge-endpoint.json` (next to `ext-bridge-token`).
 ```json
 {
   "version": 1,
+  "minProtocol": 1,
   "app": "dsh-marker",
   "instanceId": "9f1c0b7a5e2d4c31",
   "pid": 23144,
@@ -183,6 +190,9 @@ Path: `$DSH_HOME/ext-bridge-endpoint.json` (next to `ext-bridge-token`).
   "startedAt": "2026-11-19T13:59:00.000Z"
 }
 ```
+
+- `version` and `minProtocol` are the host's protocol window, read for the
+  same D15 check as the locator answer's and not copied out of the parser.
 
 - **No secret.** The record never contains the token; it is no more sensitive
   than the origin, which `netstat` already shows. The token stays in
@@ -231,6 +241,11 @@ Rules:
   same rules (§8), so having both open does not depend on probe order.
 - **`instanceId` must match between locator and health.** A stale locator answer
   or a different process reusing the origin is dropped instead of connected to.
+- **The health window is the gate.** `/ext/anno/health` carries `version`,
+  `minProtocol`, and `caps`; a host whose window cannot receive the extension's
+  `PROTOCOL_VERSION` is not connected to, and the failure says which half is
+  older with both numbers (D15). A health body without `version` is a pre-window
+  host and is probed the way it always was.
 - **A typed address is an explicit override.** When `host`/`port` differ from the
   default pair, auto is skipped and the popup's fields are used exactly as today.
 - **A rejected token (close 4403) stops discovery**; it is a token problem, not

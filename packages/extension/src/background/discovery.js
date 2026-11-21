@@ -212,17 +212,19 @@
    * Validate one `/ext/anno/locate` body.
    *
    * `app` is the discriminator: something else listening on 30810 is a failure,
-   * not a host. `version` is checked so a future protocol is ignored rather
-   * than half-read. The origin's port is the only port believed — a body that
-   * names one port in `origin` and another in `wsUrl` disagrees with itself, so
-   * it is stale or confused and is dropped.
+   * not a host. The protocol check is a window (D15): a host newer than this
+   * extension still counts when its floor reaches back to us, and one that
+   * cannot receive our version is dropped rather than half-read. The origin's
+   * port is the only port believed — a body that names one port in `origin`
+   * and another in `wsUrl` disagrees with itself, so it is stale or confused
+   * and is dropped.
    * @param {unknown} body
    * @returns {Host | null}
    */
   function parseLocate(body) {
     if (!PROTOCOL.isPlainObject(body)) return null
     if (body.app !== PROTOCOL.DISCOVERY_APP) return null
-    if (body.version !== PROTOCOL.PROTOCOL_VERSION) return null
+    if (!PROTOCOL.protocolCompatibleWith(body.version, body.minProtocol)) return null
     if (!PROTOCOL.isInstanceId(body.instanceId)) return null
     const where = loopbackOrigin(body.origin)
     if (where === null) return null
@@ -243,17 +245,18 @@
    *
    * The file reaches the extension through a user pick, so it is untrusted in a
    * different way than a locator answer: it may have been hand-edited, and it
-   * may carry fields the host would never write. Only the five documented keys
-   * leave this function — a stray `token` above all — so nothing downstream can
-   * log it, store it, or show it. `wsUrl` is intentionally not copied either:
-   * health remains the authority for the scheme.
+   * may carry fields the host would never write. Only the five keys that leave
+   * this function are copied out — a stray `token` above all — so nothing
+   * downstream can log it, store it, or show it. `version` and `minProtocol`
+   * are read for the D15 window check and not copied; `wsUrl` is intentionally
+   * not copied either: health remains the authority for the scheme.
    * @param {unknown} body
    * @returns {EndpointImport | null}
    */
   function parseEndpointRecord(body) {
     if (!PROTOCOL.isPlainObject(body)) return null
     if (body.app !== PROTOCOL.DISCOVERY_APP) return null
-    if (body.version !== PROTOCOL.PROTOCOL_VERSION) return null
+    if (!PROTOCOL.protocolCompatibleWith(body.version, body.minProtocol)) return null
     if (!PROTOCOL.isInstanceId(body.instanceId)) return null
     const where = loopbackOrigin(body.origin)
     if (where === null) return null

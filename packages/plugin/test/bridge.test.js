@@ -20,7 +20,7 @@ import WsClient from 'ws'
 
 import { createBridge } from '../src/bridge.js'
 import { AnnotationStore } from '../src/store.js'
-import { HEALTH_PATH, PROTOCOL_VERSION, WS_PATH } from '../src/protocol.js'
+import { HEALTH_PATH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, WS_PATH } from '../src/protocol.js'
 
 const TOKEN = 'bridge-test-token'
 const silent = { debug() {}, info() {}, warn() {} }
@@ -413,6 +413,7 @@ test('the handshake refuses a bad token, accepts a good one and rejects traffic 
   guest.send({ t: 'hello', token: TOKEN, version: PROTOCOL_VERSION, clientId: 'guest' })
   const hello = await guest.waitFor((frame) => frame.t === 'hello.ok')
   assert.equal(hello.version, PROTOCOL_VERSION)
+  assert.equal(hello.minProtocol, MIN_PROTOCOL_VERSION)
   assert.equal(hello.wsPath, WS_PATH)
   assert.equal(hello.openCount, 1, 'only the open record counts')
 
@@ -424,15 +425,30 @@ test('the handshake refuses a bad token, accepts a good one and rejects traffic 
   assert.equal((await eager.closed()).code, 4401)
 })
 
-test('a hello with the wrong protocol version is refused with an error frame and close 4400', async (t) => {
+test('a hello outside the protocol window is refused with both numbers and close 4400', async (t) => {
   const host = await openHost(t, 'version')
-  const client = await host.client()
+  const window = `${MIN_PROTOCOL_VERSION}..${PROTOCOL_VERSION}`
 
-  client.send({ t: 'hello', token: TOKEN, version: PROTOCOL_VERSION + 1, clientId: 'stale' })
-  const error = await client.waitFor((frame) => frame.t === 'error')
-  assert.equal(error.code, 'protocol-version')
-  assert.match(error.message, new RegExp(String(PROTOCOL_VERSION)))
-  assert.equal((await client.closed()).code, 4400)
+  const above = await host.client()
+  above.send({ t: 'hello', token: TOKEN, version: PROTOCOL_VERSION + 1, clientId: 'from-the-future' })
+  const aboveError = await above.waitFor((frame) => frame.t === 'error')
+  assert.equal(aboveError.code, 'protocol-version')
+  assert.match(aboveError.message, new RegExp(`protocols ${window}`), 'the error names the window')
+  assert.equal((await above.closed()).code, 4400)
+
+  const below = await host.client()
+  below.send({ t: 'hello', token: TOKEN, version: MIN_PROTOCOL_VERSION - 1, clientId: 'from-the-past' })
+  const belowError = await below.waitFor((frame) => frame.t === 'error')
+  assert.equal(belowError.code, 'protocol-version')
+  assert.match(belowError.message, new RegExp(`protocols ${window}`))
+  assert.equal((await below.closed()).code, 4400)
+
+  // The window is real, not a restatement of one number: while the floor holds,
+  // an older client is authenticated exactly as a current one.
+  const older = await host.client()
+  const hello = await authenticate(older, { version: MIN_PROTOCOL_VERSION, clientId: 'floor' })
+  assert.equal(hello.version, PROTOCOL_VERSION)
+  assert.equal(hello.minProtocol, MIN_PROTOCOL_VERSION)
 })
 
 test('anno.create acks the assigned seq, fans out to other clients and stays idempotent on replay', async (t) => {
@@ -603,6 +619,8 @@ test('the health route advertises the bridge, its scheme, and allows cross-origi
   const body = JSON.parse(response.text)
   assert.equal(body.ok, true)
   assert.equal(body.version, PROTOCOL_VERSION)
+  assert.equal(body.minProtocol, MIN_PROTOCOL_VERSION, 'the accepted window is advertised (D15)')
+  assert.deepEqual(body.caps, { pick: true, query: true, mutate: true })
   assert.equal(body.wsPath, WS_PATH)
   assert.equal(body.openCount, 1)
   assert.equal(body.clients, 1)

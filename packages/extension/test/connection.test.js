@@ -155,3 +155,36 @@ test('invalidate clears the storage key through the ns shim', async () => {
   await connection.resolve(ADDRESS, { mode: 'manual' })
   assert.equal(fetched.length, 1, 'the next attempt probes again')
 })
+
+test('a host whose floor is above this build is refused with both numbers (D15)', async () => {
+  const { connection, fetched } = await loadConnection({
+    health: [{ ...HEALTH_BODY, version: 2, minProtocol: 2 }],
+  })
+  const found = await connection.resolve(ADDRESS, { mode: 'manual' })
+  assert.equal(fetched.length, 2, 'both scheme candidates were probed and refused')
+  assert.equal(found.wsUrl, 'ws://127.0.0.1:3080/ext/anno', 'the configured address stays the fallback')
+  assert.match(found.error, /needs protocol 2 or newer/)
+  assert.match(found.error, /speaks 2\.\.2/)
+  assert.match(found.error, /this extension speaks 1/)
+  assert.match(found.error, /Update the dsh-marker extension/)
+})
+
+test('a host that cannot receive this build is refused with the plugin direction', async () => {
+  const { connection } = await loadConnection({
+    health: [{ ...HEALTH_BODY, version: 0 }],
+  })
+  const found = await connection.resolve(ADDRESS, { mode: 'manual' })
+  assert.match(found.error, /speaks protocol 0/)
+  assert.match(found.error, /cannot receive this extension's protocol 1/)
+  assert.match(found.error, /Update the dsh-marker plugin/)
+})
+
+test('a newer host whose floor reaches back to this build connects normally', async () => {
+  const { connection, fetched } = await loadConnection({
+    health: [{ ...HEALTH_BODY, version: 2, minProtocol: 1 }],
+  })
+  const found = await connection.resolve(ADDRESS, { mode: 'manual' })
+  assert.equal(fetched.length, 1, 'one probe answered and was accepted')
+  assert.equal(found.error, '')
+  assert.equal(found.instanceId, INSTANCE)
+})

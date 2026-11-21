@@ -16,6 +16,45 @@
 /** Bumped whenever a frame or record shape changes incompatibly. */
 const PROTOCOL_VERSION = 1
 
+/**
+ * The oldest protocol version this build still speaks (D15).
+ *
+ * A host accepts a client whose `hello.version` lies in
+ * `MIN_PROTOCOL_VERSION..PROTOCOL_VERSION`; a client accepts a host whose
+ * advertised window can receive the version the client offers. The window
+ * spans at least the previous protocol version, and shrinking it is an
+ * announced decision, never a side effect of a release — a store review that
+ * takes days must not turn into an outage for every installed half.
+ */
+const MIN_PROTOCOL_VERSION = 1
+
+/**
+ * Whether `version` is a protocol this build can put on the wire, checked
+ * against the window a peer advertised (`min..max`). Called with defaults it
+ * is the host-side check on a client's `hello.version`.
+ * @param {unknown} version
+ * @param {number} [min]
+ * @param {number} [max]
+ */
+function protocolInRange(version, min = MIN_PROTOCOL_VERSION, max = PROTOCOL_VERSION) {
+  if (!Number.isInteger(version) || !Number.isInteger(min) || !Number.isInteger(max)) return false
+  return version >= min && version <= max
+}
+
+/**
+ * Whether a peer that advertises `version` (its newest) with `minProtocol`
+ * (its oldest) can receive this build's own `PROTOCOL_VERSION` — the offer
+ * every client actually sends, so no version is picked inside the window.
+ * A peer that does not advertise a floor is a pre-window build and speaks
+ * exactly its version.
+ * @param {unknown} version
+ * @param {unknown} [minProtocol]
+ */
+function protocolCompatibleWith(version, minProtocol = version) {
+  if (!Number.isInteger(version) || !Number.isInteger(minProtocol)) return false
+  return minProtocol <= PROTOCOL_VERSION && PROTOCOL_VERSION <= version
+}
+
 /** Exact websocket path registered on the DSH host webserver. */
 const WS_PATH = '/ext/anno'
 
@@ -684,5 +723,5 @@ function sameDocument(record, url) {
   }
 }
 
-globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, WS_PATH, HEALTH_PATH, SESSIONS_PATH, SESSION_CREATE_PATH, QUEUE_PATH, QUEUE_ACK_PATH, EVENTS_PATH, FOCUS_PATH, ITEM_PATH, IMAGE_PATH, TOKEN_FILE, DISCOVERY_APP, LOCATE_PATH, LOCATE_PORTS, LOCATE_HOST, ENDPOINT_FILE, isInstanceId, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, SESSION_CREATE_MODES, validateSessionCreateRequest, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateSnapshot, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
+globalThis.__DSH_PROTOCOL__ = { PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, protocolInRange, protocolCompatibleWith, WS_PATH, HEALTH_PATH, SESSIONS_PATH, SESSION_CREATE_PATH, QUEUE_PATH, QUEUE_ACK_PATH, EVENTS_PATH, FOCUS_PATH, ITEM_PATH, IMAGE_PATH, TOKEN_FILE, DISCOVERY_APP, LOCATE_PATH, LOCATE_PORTS, LOCATE_HOST, ENDPOINT_FILE, isInstanceId, HELLO_TIMEOUT_MS, PING_INTERVAL_MS, PICK_TIMEOUT_MS, MAX_CLICK_MOVEMENT_PX, ANCHOR_KINDS, STATES, SOURCES, INTENTS, LIMITS, SESSION_CREATE_MODES, validateSessionCreateRequest, CLIENT_FRAMES, SERVER_FRAMES, newAnnotationId, newPickId, isPlainObject, isRect, validateAnchor, validateSnapshot, validateRecord, normalizeRecord, truncate, describeAnchor, ANNO_SCHEME, formatAnnoMention, parseAnnoText, parseClientFrame, parseServerFrame, encodeFrame, sameDocument }
 })()

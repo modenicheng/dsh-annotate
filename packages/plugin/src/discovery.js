@@ -24,7 +24,14 @@ import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promi
 import { join } from 'node:path'
 
 import { dshHome } from './paths.js'
-import { DISCOVERY_APP, ENDPOINT_FILE, PROTOCOL_VERSION, WS_PATH, isInstanceId } from './protocol.js'
+import {
+  DISCOVERY_APP,
+  ENDPOINT_FILE,
+  MIN_PROTOCOL_VERSION,
+  PROTOCOL_VERSION,
+  WS_PATH,
+  isInstanceId,
+} from './protocol.js'
 
 /**
  * The port a stock `dsh web` binds, and the one the extension already assumes.
@@ -278,6 +285,9 @@ export function createDiscovery({ webServer, focus, home = dshHome(), profile, l
     return {
       app: DISCOVERY_APP,
       version: PROTOCOL_VERSION,
+      // D15: the window this host accepts, so a client can drop or explain a
+      // mismatch before it opens a socket.
+      minProtocol: MIN_PROTOCOL_VERSION,
       instanceId: id,
       origin: endpoint.origin,
       wsUrl: endpoint.wsUrl,
@@ -294,6 +304,7 @@ export function createDiscovery({ webServer, focus, home = dshHome(), profile, l
     // the thing a human reads in a support session.
     return {
       version: PROTOCOL_VERSION,
+      minProtocol: MIN_PROTOCOL_VERSION,
       app: DISCOVERY_APP,
       instanceId: id,
       pid: processId,

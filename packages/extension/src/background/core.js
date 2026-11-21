@@ -356,6 +356,7 @@
       tokenPresent: state.tokenPresent,
       clientId: typeof ns.clientId === 'string' ? ns.clientId : '',
       protocolVersion: PROTOCOL === undefined ? null : PROTOCOL.PROTOCOL_VERSION,
+      minProtocolVersion: PROTOCOL === undefined ? null : PROTOCOL.MIN_PROTOCOL_VERSION,
       attempts: state.attempts,
       nextRetryAt: state.nextRetryAt,
       connectedAt: state.connectedAt,
