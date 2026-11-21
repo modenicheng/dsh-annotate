@@ -61,6 +61,12 @@
 }
 
 body {
+  /* Column layout so the status footer can own the bottom edge: the content
+     area flexes to fill a short popup, and a tall popup scrolls above the
+     pinned footer. */
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   width: 380px;
   margin: 0;
   background: var(--surface);
@@ -68,15 +74,21 @@ body {
   font: var(--text-label) / var(--text-label-lh) var(--font-ui);
 }
 
-/* One row: state on the left, address on the right. The row's height is
-   fixed by the label's line, so status rewrites never resize the popup. */
+/* The popup's status bar owns the bottom edge: sticky bottom keeps it
+   visible while a tall popup scrolls, and the flex column pins it down in
+   a short one. One row - state on the left, address on the right - whose
+   height is fixed by the label's line, so status rewrites never resize
+   the popup. */
 .status-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
   background: var(--surface-raised);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 
 .status-bar__label {
@@ -141,6 +153,7 @@ body {
 }
 
 .content {
+  flex: 1 1 auto;
   display: grid;
   gap: var(--gap);
   padding: 12px 14px;
@@ -407,11 +420,11 @@ code {
   line-height: var(--text-caption-lh);
 }
 
-/* Action and error feedback, directly under the status row. It collapses
-   away when there is nothing to say, so the empty state costs no space;
-   appearing is a deliberate event (a user action or a failure), which may
-   grow the popup by its own line. Sticky keeps a late error readable even
-   when the popup is scrolled. */
+/* Action and error feedback at the top edge, opposite the status footer. It
+   collapses away when there is nothing to say, so the empty state costs no
+   space; appearing is a deliberate event (a user action or a failure),
+   which may grow the popup by its own line. Sticky keeps a late error
+   readable even when the popup is scrolled. */
 .feedback {
   position: sticky;
   top: 0;
