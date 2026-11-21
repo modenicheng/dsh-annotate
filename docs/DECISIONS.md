@@ -121,20 +121,25 @@ Git never enables them automatically. The scripts are POSIX `sh` and keep LF
 endings via `.gitattributes`. Contributors who skip the setup still get the
 same checks in CI.
 
-## D7 — Biome is pinned and fetched with `npx`
+## D7 — Biome is pinned as the workspace's single devDependency
 
 **Decision.** Formatting and linting use Biome at one exact version
-(`2.4.14`), invoked as `npx --yes @biomejs/biome@2.4.14` from the root
-scripts and CI. No devDependency and no lockfile are added.
+(`2.4.14`), declared as the workspace's only devDependency
+(`@biomejs/biome`) and resolved through the local install: the npm scripts
+call `biome` from `node_modules/.bin`, the pre-commit hook prefers
+`node_modules/.bin/biome` and only falls back to a pinned `npx` call on a
+machine that never ran `pnpm install`, and CI runs `pnpm exec biome check .`.
 
-**Why.** The workspace has no dependency graph to install or audit, and adding
-one solely for a formatter would re-create the registry dependency this project
-avoids. Pinning the exact version keeps the formatter's output stable across
-machines and prevents a silent style churn from a floating `latest`.
+**Why.** The exact pin keeps the formatter's output stable across machines
+and prevents silent style churn. Resolving locally keeps every gate — hooks,
+`pnpm run check`, CI — offline after one `pnpm install`, which the earlier
+npx-on-demand scheme (D7's original form) could not: it needed the registry
+the first time on every machine.
 
-**Consequences.** Format and lint commands need network access the first time
-the pinned package is not cached; tests, hooks, and the plugin never do. Bump
-the pin in both `package.json` and `.github/workflows/ci.yml` together.
+**Consequences.** The workspace carries exactly one devDependency; the
+runtime story is unchanged (the plugin still depends only on `ws`). Bump the
+pin in `package.json`, the hook's fallback line, and any CI reference
+together.
 
 ## D8 — The host advertises its scheme; the extension does not guess
 
