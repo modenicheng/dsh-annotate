@@ -1,37 +1,42 @@
 name: 'Submit to the Chrome Web Store'
 description: >
-  The CWS lane (docs/DISTRIBUTION.md §4.6): download the Chromium zip the
-  draft attached, prove it is the checksummed bytes, and submit it through
-  the Chrome Web Store API v2 — `:upload` the zip, then `:publish`, which
-  SUBMITS FOR REVIEW and does not publish. The item must already exist in
-  the CWS dashboard because the API cannot create one. The caller (the cws
-  job in release.yml) provides CWS_CLIENT_ID, CWS_CLIENT_SECRET,
-  CWS_REFRESH_TOKEN, vars.CWS_PUBLISHER_ID, vars.CWS_ITEM_ID and
-  vars.CWS_PUBLISH_TYPE in its environment.
+  The CWS lane (docs/DISTRIBUTION.md §4.6): gate that the release is
+  published, download the Chromium zip it attached, prove it is the
+  checksummed bytes, prove the version inside the zip matches the tag, and
+  submit it through the Chrome Web Store API v2 — `:upload` the zip, then
+  `:publish`, which SUBMITS FOR REVIEW and does not publish. The item must
+  already exist in the CWS dashboard because the API cannot create one. The
+  lane verifies itself; there is no shared verify job, so a failure here
+  never blocks another store lane. The caller (the cws job in release.yml)
+  provides CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN,
+  vars.CWS_PUBLISHER_ID, vars.CWS_ITEM_ID and vars.CWS_PUBLISH_TYPE in its
+  environment, and has checked out the tag (the plugin version is read from
+  that tree).
 
 inputs:
   tag:
     description: The release tag whose Chromium zip is being submitted.
     required: true
-  version:
-    description: The product version the verify job read from the tag.
-    required: true
-  chromium_version:
-    description: The version inside the released Chromium zip.
-    required: true
 
 runs:
   using: 'composite'
   steps:
-    - name: Refuse a version mismatch
+    # The human gate (§4.3): publishing the release is what lets any lane
+    # submit; a draft's assets must not reach a store before the click.
+    - name: Require a published release
       shell: bash
       env:
-        CR_VERSION: ${{ inputs.chromium_version }}
-        PRODUCT_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
       run: |
         set -euo pipefail
-        if [ "$CR_VERSION" != "$PRODUCT_VERSION" ]; then
-          echo "::error::refusing to submit to CWS: the Chromium artifact is version $CR_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+        if ! gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+          echo "::error::no GitHub Release exists for $TAG. Publish the draft release first; a store submission must never happen before the human gate (§4.3)."
+          exit 1
+        fi
+        if [ "$(jq -r '.isDraft' "$RUNNER_TEMP/release.json")" = "true" ]; then
+          echo "::error::release $TAG is still a draft. Publishing the release is the human gate (§4.3)."
           exit 1
         fi
 
@@ -42,14 +47,45 @@ runs:
         tag: ${{ inputs.tag }}
         patterns: 'dsh-marker-chromium-*.zip,checksums.txt'
 
+    # §4.1: the artifact version (§4.10: the zip, not the tree) must equal
+    # the tag's tree version; a store version cannot be withdrawn.
+    - name: Read the versions and refuse a mismatch
+      id: version
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        rm -rf dist/chromium
+        unzip -q "$assets"/dsh-marker-chromium-*.zip -d dist/chromium
+        product_version="$(node -p "String(require('./packages/plugin/package.json').version ?? '')")"
+        cr_version="$(node -p "String(require('./dist/chromium/manifest.json').version ?? '')")"
+        if [ -z "$product_version" ] || [ -z "$cr_version" ]; then
+          echo "::error::the tag or the released zip declares no version"
+          exit 1
+        fi
+        if [ "v$product_version" != "$TAG" ]; then
+          echo "::error::refusing to submit to CWS: the tag's tree is version $product_version but the release is $TAG (§4.1)."
+          exit 1
+        fi
+        if [ "$cr_version" != "$product_version" ]; then
+          echo "::error::refusing to submit to CWS: the Chromium artifact is version $cr_version but the release is v$product_version (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+          exit 1
+        fi
+        {
+          echo "product=$product_version"
+          echo "chromium=$cr_version"
+        } >> "$GITHUB_OUTPUT"
+
     # Everything CWS happens in one step on purpose: the short-lived access
     # token stays a shell variable (masked once printed into a command) and
     # never crosses a step boundary through outputs or files.
     - name: Upload, publish, and confirm
       shell: bash
       env:
-        CR_VERSION: ${{ inputs.chromium_version }}
-        PRODUCT_VERSION: ${{ inputs.version }}
+        CR_VERSION: ${{ steps.version.outputs.chromium }}
+        PRODUCT_VERSION: ${{ steps.version.outputs.product }}
       run: |
         set -euo pipefail
         assets="$GITHUB_WORKSPACE/dist/release-assets"

@@ -234,17 +234,19 @@ entries are live.
 
 The implemented pipeline has exactly this shape. `.github/workflows/release.yml`
 is only the dispatcher; the lane bodies live in `.github/actions/`
-(`build-release-artifacts`, `verify-release`, `npm-publish`, `amo-submit`,
-`cws-submit`). A tag push or the release-please workflow_call runs `draft`.
-Publishing the release runs two jobs
-in parallel — `channels`, which reduces the store credentials and the dry-run
-flag to booleans because secrets may not appear in `if:` conditions, and
-`verify`, the shared pre-flight (published release, tag gates, the CI gate on
-the tag, and the released zips proven against `checksums.txt`) whose outputs
-every lane trusts — and then the four lanes `npm ∥ amo ∥ cws ∥ edge`, each
-gated on its own credentials, each red on its own failure, with a `summary`
-job that fails the run once every lane has had its turn (§4.7). No lane ever
-waits on another lane.
+(`build-release-artifacts`, `npm-publish`, `amo-submit`, `cws-submit`,
+`fetch-verified-asset`). A tag push or the release-please workflow_call runs `draft`.
+Publishing the release runs `channels`, which reduces the store credentials and the
+dry-run flag to booleans because secrets may not appear in `if:` conditions, and
+then the four lanes `npm ∥ amo ∥ cws ∥ edge`, each gated on its own credentials,
+each red on its own failure, with a `summary` job that fails the run once every
+lane has had its turn (§4.7). No lane ever waits on another lane. There is no
+shared verify job on purpose: every lane verifies itself (the release is
+published, its own assets are the checksummed bytes, and the artifact's version
+names the tag), so one lane's red never blocks another lane's submission. The
+version gates that a shared pre-flight used to run once are now each lane's
+first steps; the tag's own CI gate ran at draft time, when the artifacts were
+built and attached.
 
 Triggers:
 
