@@ -46,42 +46,32 @@ Mark text, an element, or a region on a page and send it, with a cropped screens
 English:
 
 ```
-dsh-marker hands part of a web page to DeepSeek Harness (DSH) on your own computer, as context for
-your conversation.
+dsh-marker hands part of a web page to DeepSeek Harness (DSH) on your own computer, as context for your conversation.
 
-Mark text, an element, or a region, and the mark arrives in the DSH session you are using, with a
-cropped screenshot and the page context around it. When a request is ambiguous, the model can ask
-you to point at something.
+Mark text, an element, or a region, and the mark arrives in the DSH session you are using, with a cropped screenshot and the page context around it. When a request is ambiguous, the model can ask you to point at something.
 
 HOW IT WORKS
-- Press Alt+Shift+A to enter annotation mode. Select text with Shift+drag, click an element, or drag
-  a region.
+- Press Alt+Shift+A to enter annotation mode. Select text with Shift+drag, click an element, or drag a region.
 - A numbered marker stays pinned to what you marked, and is re-anchored as the page re-renders.
 - The comment is optional; the button then reads "Send mark".
-- Pick the DSH Session that should receive it. The annotation is inserted into that Session's
-  composer as a chip you can remove; nothing reaches the model until you send the message.
-- The model may call annotate_pick; a banner appears on the page and waits for your click until it
-  times out.
+- Pick the DSH Session that should receive it. The annotation is inserted into that Session's composer as a chip you can remove; nothing reaches the model until you send the message.
+- The model may call annotate_pick; a banner appears on the page and waits for your click until it times out.
 
 WHAT YOU NEED
-- DeepSeek Harness with the dsh-marker bundle enabled, on the same machine. The extension connects
-  over loopback (127.0.0.1:3080 by default) after you paste the bridge token from
-  $DSH_HOME/ext-bridge-token into the popup once.
-- Supported browsers: Firefox (and Zen) and Chromium-based browsers. Firefox needs 128 or newer.
-  Safari is not supported.
+- DeepSeek Harness with the dsh-marker bundle enabled, on the same machine. The extension connects over loopback (127.0.0.1:3080 by default) after you paste the bridge token from $DSH_HOME/ext-bridge-token into the popup once.
+- Supported browsers: Firefox (and Zen) and Chromium-based browsers. Firefox needs 128 or newer. Safari is not supported.
 
 WHAT IT DOES NOT DO
 - No account, no developer server, no telemetry, no analytics.
-- Nothing leaves your machine: annotations go to your local DSH host, which stores them under
-  $DSH_HOME.
+- Nothing leaves your machine: annotations go to your local DSH host, which stores them under $DSH_HOME.
 - No remote code, no third-party requests, no ads.
 
 PRIVACY
-See docs/privacy.md in the repository for what is read, where it goes, and what is stored:
-https://github.com/modenicheng/dsh-annotate.
+See docs/privacy.md in the repository for what is read, where it goes, and what is stored: https://github.com/modenicheng/dsh-annotate.
 
 FEEDBACK
 https://github.com/modenicheng/dsh-annotate/issues
+
 ```
 
 Chinese:
@@ -89,8 +79,7 @@ Chinese:
 ```
 dsh-marker 把网页上标记的内容发给本机的 DeepSeek Harness（DSH），作为对话的上下文。
 
-划词、点元素，或拖框选一块区域；标记连同裁剪截图和周边页面信息，送进你正在用的 DSH 会话。
-请求含糊时，模型也可以请你指一下。
+划词、点元素，或拖框选一块区域；标记连同裁剪截图和周边页面信息，送进你正在用的 DSH 会话。 请求含糊时，模型也可以请你指一下。
 
 怎么用
 - 按 Alt+Shift+A 进入批注模式：Shift+划词选文字，点一下选元素，拖动选框选区域。
@@ -100,8 +89,7 @@ dsh-marker 把网页上标记的内容发给本机的 DeepSeek Harness（DSH）�
 - 模型可以调用 annotate_pick 请你指一个位置，页面上会出现提示条等你的点击。
 
 需要什么
-- 本机装了 DeepSeek Harness 并启用了 dsh-marker 插件；在扩展弹窗里粘贴一次
-  $DSH_HOME/ext-bridge-token 里的令牌。
+- 本机装了 DeepSeek Harness 并启用了 dsh-marker 插件；在扩展弹窗里粘贴一次 $DSH_HOME/ext-bridge-token 里的令牌。
 - 支持的浏览器：Firefox（含 Zen）与 Chromium 内核浏览器；Firefox 需 128 或更高版本。不支持 Safari。
 
 不做什么
@@ -114,6 +102,7 @@ dsh-marker 把网页上标记的内容发给本机的 DeepSeek Harness（DSH）�
 
 反馈
 https://github.com/modenicheng/dsh-annotate/issues
+
 ```
 
 ### Category
@@ -156,9 +145,7 @@ characters); both stay in the same §1 section.
 ### Single purpose — limit 1,000 characters
 
 ```
-dsh-marker has one purpose: turn a text selection, an element, or a region of the current page into a
-structured annotation with a cropped screenshot, and deliver it to a DeepSeek Harness instance the
-user runs on the same computer.
+dsh-marker has one purpose: turn a text selection, an element, or a region of the current page into a structured annotation with a cropped screenshot, and deliver it to a DeepSeek Harness instance the user runs on the same computer.
 ```
 
 ### Permission justifications — limit 1,000 characters each
@@ -166,11 +153,7 @@ user runs on the same computer.
 #### `storage`
 
 ```
-Stores the bridge token the user pastes once, the host address and connection preferences, the queue
-of unsent annotations, and the last connection status, in browser.storage.local. The queue holds at
-most 40 marks with their crops; it is written before sending and cleared only when the DSH host
-acknowledges the mark, so an annotation written before a tab closes or the background page is
-suspended is not lost. No other storage area is used.
+Stores the bridge token the user pastes once, the host address and connection preferences, the queue of unsent annotations, and the last connection status, in browser.storage.local. The queue holds at most 40 marks with their crops; it is written before sending and cleared only when the DSH host acknowledges the mark, so an annotation written before a tab closes or the background page is suspended is not lost. No other storage area is used.
 ```
 
 Source: `src/shared/messages.js:71` (keys), `src/background/outbox.js:33` (cap),
@@ -179,11 +162,7 @@ Source: `src/shared/messages.js:71` (keys), `src/background/outbox.js:33` (cap),
 #### `alarms`
 
 ```
-Creates exactly one repeating alarm. On Firefox it fires every 20 seconds and is the keepalive: it
-sends a ping on the bridge socket, retries a dropped connection, and flushes queued annotations. On
-Chromium the platform floor is 30 seconds, so the same alarm fires once a minute and only reconnects
-and refreshes; a 20-second WebSocket ping is what keeps the service worker alive there. No other
-alarm is created, and nothing is scheduled or tracked for any other purpose.
+Creates exactly one repeating alarm. On Firefox it fires every 20 seconds and is the keepalive: it sends a ping on the bridge socket, retries a dropped connection, and flushes queued annotations. On Chromium the platform floor is 30 seconds, so the same alarm fires once a minute and only reconnects and refreshes; a 20-second WebSocket ping is what keeps the service worker alive there. No other alarm is created, and nothing is scheduled or tracked for any other purpose.
 ```
 
 Source: `src/background/main.js:36` (period per engine), `main.js:43` (Chromium heartbeat),
@@ -192,11 +171,7 @@ Source: `src/background/main.js:36` (period per engine), `main.js:43` (Chromium 
 #### `tabs`
 
 ```
-Reads the URL and title of open tabs to deliver each annotation event to the tab whose document owns
-it, to refresh the numbered badges on the right pages, to choose which tab shows a pick request from
-the agent, and to show the current page in the popup. A mark's screenshot calls tabs.get and
-tabs.captureVisibleTab on the tab the user is on. Page content is never read through this
-permission; text and DOM come from the content script.
+Reads the URL and title of open tabs to deliver each annotation event to the tab whose document owns it, to refresh the numbered badges on the right pages, to choose which tab shows a pick request from the agent, and to show the current page in the popup. A mark's screenshot calls tabs.get and tabs.captureVisibleTab on the tab the user is on. Page content is never read through this permission; text and DOM come from the content script.
 ```
 
 Source: `src/background/routing.js:257-267`, `routing.js:301-313`, `routing.js:320-341`,
@@ -214,11 +189,7 @@ Source: `src/background/routing.js:257-267`, `routing.js:301-313`, `routing.js:3
 #### `activeTab`
 
 ```
-Grants access to the tab the user is looking at after they invoke the extension: the Alt+Shift+A
-shortcut, the toolbar button, or the popup. That grant is what makes the captureVisibleTab call that
-produces a mark's screenshot legal, and what lets the popup inject the annotation overlay into a page
-that has no content script yet. No screenshot is taken except for a mark, and no page is captured
-without the user's own invocation.
+Grants access to the tab the user is looking at after they invoke the extension: the Alt+Shift+A shortcut, the toolbar button, or the popup. That grant is what makes the captureVisibleTab call that produces a mark's screenshot legal, and what lets the popup inject the annotation overlay into a page that has no content script yet. No screenshot is taken except for a mark, and no page is captured without the user's own invocation.
 ```
 
 Source: `src/background/capture.js:12-15`, `capture.js:374`, `src/popup/popup.js:601-620`.
@@ -226,11 +197,7 @@ Source: `src/background/capture.js:12-15`, `capture.js:374`, `src/popup/popup.js
 #### `scripting`
 
 ```
-Injects the extension's own content-script files into the tab the user invoked, when that tab was
-already open before the extension was installed or updated and therefore has no annotation overlay.
-The file list comes from the manifest's content_scripts array; there is no remote code and no
-user-supplied script. Injection is attempted only after a message to that tab found no content
-script, and at most once a minute per tab.
+Injects the extension's own content-script files into the tab the user invoked, when that tab was already open before the extension was installed or updated and therefore has no annotation overlay. The file list comes from the manifest's content_scripts array; there is no remote code and no user-supplied script. Injection is attempted only after a message to that tab found no content script, and at most once a minute per tab.
 ```
 
 Source: `src/background/routing.js:196-211` (file list from the manifest, 60 s cooldown),
@@ -239,11 +206,7 @@ Source: `src/background/routing.js:196-211` (file list from the manifest, 60 s c
 #### `<all_urls>` host access
 
 ```
-The content script is declared for <all_urls> so the annotation overlay is available on any page the
-user chooses to mark; it reads page text only for the mark being made, or to keep marks already
-stored for that page in place. It does not run on about:, extension pages, the PDF viewer,
-view-source: or data: URLs. The overlay and the numbered marks are DOM nodes the extension adds to
-the page, which is the "change" half of the permission.
+The content script is declared for <all_urls> so the annotation overlay is available on any page the user chooses to mark; it reads page text only for the mark being made, or to keep marks already stored for that page in place. It does not run on about:, extension pages, the PDF viewer, view-source: or data: URLs. The overlay and the numbered marks are DOM nodes the extension adds to the page, which is the "change" half of the permission.
 ```
 
 Source: `manifest.json` `content_scripts[0].matches`, `src/content/main.js:166-187` (restricted
@@ -328,6 +291,7 @@ The privacy policy linked on this listing states what is read, where it goes, an
 
 FEEDBACK
 https://github.com/modenicheng/dsh-annotate/issues
+
 ```
 
 Chinese:
@@ -358,6 +322,7 @@ dsh-marker 把网页上标记的内容发给本机的 DeepSeek Harness（DSH）�
 
 反馈
 https://github.com/modenicheng/dsh-annotate/issues
+
 ```
 
 ### Category
@@ -677,70 +642,43 @@ manifest. Paste from here, not from §2: the `alarms` block is different because
 #### Single purpose description (232 characters)
 
 ```
-dsh-marker has one purpose: turn a text selection, an element, or a region of the current page into a
-structured annotation with a cropped screenshot, and deliver it to a DeepSeek Harness instance the
-user runs on the same computer.
+dsh-marker has one purpose: turn a text selection, an element, or a region of the current page into a structured annotation with a cropped screenshot, and deliver it to a DeepSeek Harness instance the user runs on the same computer.
 ```
 
 #### `storage justification`
 
 ```
-Stores the bridge token the user pastes once, the host address and connection preferences, the queue
-of unsent annotations, and the last connection status, in browser.storage.local. The queue holds at
-most 40 marks with their crops; it is written before sending and cleared only when the DSH host
-acknowledges the mark, so an annotation written before a tab closes or the background page is
-suspended is not lost. No other storage area is used.
+Stores the bridge token the user pastes once, the host address and connection preferences, the queue of unsent annotations, and the last connection status, in browser.storage.local. The queue holds at most 40 marks with their crops; it is written before sending and cleared only when the DSH host acknowledges the mark, so an annotation written before a tab closes or the background page is suspended is not lost. No other storage area is used.
 ```
 
 #### `alarms justification`
 
 ```
-Creates exactly one repeating alarm. Microsoft Edge clamps alarm periods to 30 seconds, so it fires
-once a minute and only reconnects and refreshes the connection; a 20-second WebSocket ping is what
-keeps the service worker alive while the user is connected. No other alarm is created, and nothing is
-scheduled or tracked for any other purpose.
+Creates exactly one repeating alarm. Microsoft Edge clamps alarm periods to 30 seconds, so it fires once a minute and only reconnects and refreshes the connection; a 20-second WebSocket ping is what keeps the service worker alive while the user is connected. No other alarm is created, and nothing is scheduled or tracked for any other purpose.
 ```
 
 #### `tabs justification`
 
 ```
-Reads the URL and title of open tabs to deliver each annotation event to the tab whose document owns
-it, to refresh the numbered badges on the right pages, to choose which tab shows a pick request from
-the agent, and to show the current page in the popup. A mark's screenshot calls tabs.get and
-tabs.captureVisibleTab on the tab the user is on. Page content is never read through this
-permission; text and DOM come from the content script.
+Reads the URL and title of open tabs to deliver each annotation event to the tab whose document owns it, to refresh the numbered badges on the right pages, to choose which tab shows a pick request from the agent, and to show the current page in the popup. A mark's screenshot calls tabs.get and tabs.captureVisibleTab on the tab the user is on. Page content is never read through this permission; text and DOM come from the content script.
 ```
 
 #### `activeTab justification`
 
 ```
-Grants access to the tab the user is looking at after they invoke the extension: the Alt+Shift+A
-shortcut, the toolbar button, or the popup. That grant is what makes the captureVisibleTab call that
-produces a mark's screenshot legal, and what lets the popup inject the annotation overlay into a page
-that has no content script yet. No screenshot is taken except for a mark, and no page is captured
-without the user's own invocation.
+Grants access to the tab the user is looking at after they invoke the extension: the Alt+Shift+A shortcut, the toolbar button, or the popup. That grant is what makes the captureVisibleTab call that produces a mark's screenshot legal, and what lets the popup inject the annotation overlay into a page that has no content script yet. No screenshot is taken except for a mark, and no page is captured without the user's own invocation.
 ```
 
 #### `scripting justification`
 
 ```
-Injects the extension's own content-script files into the tab the user invoked, when that tab was
-already open before the extension was installed or updated and therefore has no annotation overlay.
-The file list comes from the manifest's content_scripts array; there is no remote code and no
-user-supplied script. Injection is attempted only after a message to that tab found no content
-script, and at most once a minute per tab.
+Injects the extension's own content-script files into the tab the user invoked, when that tab was already open before the extension was installed or updated and therefore has no annotation overlay. The file list comes from the manifest's content_scripts array; there is no remote code and no user-supplied script. Injection is attempted only after a message to that tab found no content script, and at most once a minute per tab.
 ```
 
 #### Host permission justification
 
 ```
-The content script is declared for <all_urls> so the annotation overlay is available on any page the
-user chooses to mark; it reads page text only for the mark being made, or to keep marks already
-stored for that page in place. It does not run on about:, extension pages, the PDF viewer,
-view-source: or data: URLs. The overlay and the numbered marks are DOM nodes the extension adds to
-the page, which is the "change" half of the permission. The host permissions also name
-127.0.0.1 and localhost only, which is where the local DSH bridge listens; no other origin is
-reachable.
+The content script is declared for <all_urls> so the annotation overlay is available on any page the user chooses to mark; it reads page text only for the mark being made, or to keep marks already stored for that page in place. It does not run on about:, extension pages, the PDF viewer, view-source: or data: URLs. The overlay and the numbered marks are DOM nodes the extension adds to the page, which is the "change" half of the permission. The host permissions also name 127.0.0.1 and localhost only, which is where the local DSH bridge listens; no other origin is reachable.
 ```
 
 The justifications are read from the uploaded manifest, so a permission that appears without a
