@@ -55,6 +55,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
+      build_draft: true
     permissions:
       # Job-level permissions replace the workflow-level grant entirely, so
       # everything the called workflow's jobs declare must be repeated here.

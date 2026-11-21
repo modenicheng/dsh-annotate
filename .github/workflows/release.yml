@@ -48,12 +48,22 @@ on:
         description: Existing tag to verify, build, and attach (the release-please path)
         required: true
         type: string
+      build_draft:
+        description: Run the draft job only (build the tag, attach to its release); the release-please caller sets this
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       tag:
         description: Existing tag to publish, for example v0.2.0
         required: true
         type: string
+      build_draft:
+        description: Replay only the draft phase for the tag (attach artifacts to its release); no publish lane runs
+        required: false
+        default: false
+        type: boolean
       dry_run:
         description: Build and validate without uploading anything (release assets, npm, or stores)
         required: false
@@ -74,7 +84,12 @@ jobs:
     name: build and draft
     # Only the release-please workflow reaches this job, through its
     # workflow_call after release-please tagged and drafted the release.
-    if: github.event_name == 'workflow_call'
+    # github.event_name inside a called workflow is the CALLER's event (push
+    # here), never 'workflow_call' - an event_name gate can never match - so
+    # the gate is the explicit build_draft input. The same input lets a
+    # workflow_dispatch replay the draft phase alone when its build was
+    # skipped or failed; every publish lane stays off.
+    if: inputs.build_draft == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -129,7 +144,10 @@ jobs:
   # replayed without burning a new tag.
   channels:
     name: detect store channels
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    if: >-
+      (github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && inputs.tag != '')) &&
+      inputs.build_draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
@@ -172,7 +190,10 @@ jobs:
   # the release's zips verified against checksums.txt.
   verify:
     name: verify the released artifacts
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    if: >-
+      (github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && inputs.tag != '')) &&
+      inputs.build_draft != true
     needs: channels
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -345,7 +366,8 @@ jobs:
     if: >-
       always() &&
       (github.event_name == 'release' ||
-       (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
+       (github.event_name == 'workflow_dispatch' && inputs.tag != '')) &&
+      inputs.build_draft != true
     needs: [channels, verify, npm, amo, cws, edge]
     runs-on: ubuntu-latest
     timeout-minutes: 5
