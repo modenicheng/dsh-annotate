@@ -68,7 +68,13 @@ by CI; nothing is built on your machine.
    `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
    and select the unzipped folder. The extension stays installed across
    restarts. Two costs: the browser shows a developer-mode notice, and updates
-   are manual — download the next release and replace the folder.
+   are manual — download the next release and replace the folder. **On
+   Chromium, also set the keyboard shortcut by hand**: open
+   `chrome://extensions/shortcuts`, find **Annotate the current page**, and
+   assign `Alt+Shift+A` (or your preferred combination). Chromium does not let
+   extensions register or change their own commands, so without this step the
+   in-page fallback still enters annotate mode, but the browser never grants
+   `activeTab` — and without that grant the screenshot is skipped.
 3. **Firefox / Zen**: release Firefox installs add-ons signed by AMO only. The
    release zip is unsigned, so load it as a temporary add-on —
    `about:debugging#/runtime/this-firefox` (Zen: `about:debugging`), **Load
@@ -119,9 +125,16 @@ What the extension reads, where it sends it and what it keeps locally is
 The popup's **Annotate** section can also make a successful send leave the mode
 (off by default) and turn the right-click exit off. Recording a shortcut
 updates the browser command on Firefox, which is what keeps the screenshot's
-`activeTab` grant working; Chromium does not let extensions write commands, so
-there the recorded key works on pages and the toolbar path may still be needed
-for screenshots. The popup follows the browser UI language (English and
+`activeTab` grant working. Chromium does not let extensions write commands, so
+there are two paths to the same mode: the browser command (set once in
+`chrome://extensions/shortcuts` — see the install step above) and the in-page
+matcher that the popup records for the page. Only the browser command carries
+the `activeTab` grant, so on Chromium the browser command is the path that
+produces screenshots; if you record a key that differs from the one registered
+in the browser, the in-page matcher still fires, but the mark goes out without
+its screenshot. Keep both on the same combination, or use **Annotate this
+page** in the popup, which always grants `activeTab`. The popup follows the
+browser UI language (English and
 Simplified Chinese ship today). If **Annotate this page** reports that the
 extension did not answer, the popup is newer than the extension loaded in this
 browser session: click **Reload** in `about:debugging` and refresh the page.
