@@ -8,7 +8,7 @@
     "description": "Must fit the 132-character store summary limit."
   },
   "actionTitle": {
-    "message": "Annotate this page (Alt+Shift+A)",
+    "message": "Annotate this page",
     "description": "Toolbar button tooltip."
   }
 }

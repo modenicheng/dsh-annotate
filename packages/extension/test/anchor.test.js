@@ -264,3 +264,28 @@ test('whitespace is normalised and our own marks stay invisible to extraction', 
   assert.equal(ns.text.isMark(mark), true)
   assert.equal(ns.text.isOurs(new FakeText('plain')), false)
 })
+
+test('the element chain promotes inline nodes and stops before the page body', async () => {
+  const { document, body } = createDocument()
+  const outer = new FakeElement('div', { class: 'card' })
+  const inner = new FakeElement('p')
+  const span = new FakeElement('span')
+  span.display = 'inline'
+  inner.append(span)
+  outer.append(inner)
+  body.append(outer)
+  document.pointStack = () => [span, inner, outer, body]
+
+  const { ns } = await bootContent({ document })
+  const chain = ns.anchor.elementChainAt(10, 10)
+  assert.deepEqual(
+    plain(chain.map((node) => node.tagName)),
+    ['P', 'DIV'],
+    'the inline span is promoted away and the body is not a target',
+  )
+  assert.equal(chain[0], inner)
+  assert.equal(chain[1], outer)
+
+  document.pointStack = () => [body]
+  assert.deepEqual(plain(ns.anchor.elementChainAt(10, 10)), [], 'the page background offers no level')
+})

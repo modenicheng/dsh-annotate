@@ -67,6 +67,8 @@ export const TO_BACKGROUND_POPUP = {
   chooseHost: 'anno.popup.choose',
   /** Seed the address from a picked endpoint record; never the token. */
   importRecord: 'anno.popup.import',
+  /** Enter annotation mode in the active tab (the popup's toolbar path). */
+  activate: 'anno.popup.activate',
 }
 
 /**

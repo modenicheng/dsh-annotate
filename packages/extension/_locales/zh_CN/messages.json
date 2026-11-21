@@ -8,7 +8,7 @@
     "description": "需符合商店 132 字符摘要上限。"
   },
   "actionTitle": {
-    "message": "标注当前页面（Alt+Shift+A）",
+    "message": "标注当前页面",
     "description": "工具栏按钮的提示文字。"
   }
 }

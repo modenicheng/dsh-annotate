@@ -42,7 +42,7 @@
    */
   function create(handlers) {
     const document = global.document
-    const language = strings.pickLanguage(global.navigator && global.navigator.language)
+    const language = strings.language || strings.pickLanguage(global.navigator && global.navigator.language)
     const t = (key) => {
       const table = strings.STRINGS[language] || strings.STRINGS.en
       return Object.hasOwn(table, key) ? table[key] : strings.STRINGS.en[key] || key
@@ -147,6 +147,7 @@
     // would otherwise stringify it into the page as text.
     shadow.append(
       ctx.hud.node,
+      ctx.hud.launcher,
       ctx.hud.pick,
       ctx.overlay.hoverBox,
       ctx.overlay.hoverChip,
@@ -212,6 +213,7 @@
         ctx.hud.syncHud()
       },
       setHud: ctx.hud.setHud,
+      setLauncher: ctx.hud.setLauncher,
       setHover: ctx.overlay.setHover,
       setLocked: ctx.overlay.setLocked,
       clearLocked: ctx.overlay.clearLocked,

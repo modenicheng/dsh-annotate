@@ -735,6 +735,8 @@
         return popupChooseHost(message)
       case MSG.TO_BACKGROUND_POPUP.importRecord:
         return popupImportRecord(message)
+      case MSG.TO_BACKGROUND_POPUP.activate:
+        return activateCurrentPage('auto')
       default:
         return undefined
     }

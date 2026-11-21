@@ -835,6 +835,36 @@
     return null
   }
 
+  /** A deep page can nest dozens of containers; the picker never needs them all. */
+  const MAX_LEVEL_CHAIN = 12
+
+  /**
+   * The meaningful element under a point and its containers, deepest first.
+   *
+   * `meaningfulAt` answers "what did the pointer hit"; this answers "what else
+   * could it have meant". The picker indexes the chain with Tab/Shift+Tab, so
+   * an inline glyph promoted to its block still lets the user widen to the
+   * card, the list, and the page section without aiming at a border.
+   * @param {number} x @param {number} y
+   */
+  function elementChainAt(x, y) {
+    const start = meaningfulAt(x, y)
+    if (!start) return []
+    const chain = []
+    let node = start
+    while (
+      node &&
+      node.nodeType === 1 &&
+      node !== document.body &&
+      node !== document.documentElement &&
+      chain.length < MAX_LEVEL_CHAIN
+    ) {
+      chain.push(node)
+      node = node.parentElement
+    }
+    return chain
+  }
+
   /**
    * Caret position under a viewport point. Gecko has `caretPositionFromPoint`;
    * `caretRangeFromPoint` is the older spelling Chromium still uses. Returns
@@ -1169,6 +1199,7 @@
     element: elementState,
     region: regionState,
     meaningfulAt,
+    elementChainAt,
     caretPosition,
     chipLabel,
     liveViewportRect,

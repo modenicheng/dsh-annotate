@@ -74,6 +74,7 @@ function createUi() {
     },
     mount() {},
     setHud() {},
+    setLauncher() {},
     setHidden() {},
     setCaptureSuppressed(value) {
       calls.captureSuppressed.push(value === true)
@@ -172,6 +173,13 @@ async function bootContentScript() {
     nodeName: 'P',
     getBoundingClientRect: () => ({ left: 100, top: 40, width: 120, height: 20 }),
   }
+  // One container above the hovered element, so Tab/Shift+Tab have a level to
+  // walk to.
+  const outerElement = {
+    nodeType: 1,
+    nodeName: 'DIV',
+    getBoundingClientRect: () => ({ left: 40, top: 20, width: 300, height: 200 }),
+  }
   // Two line boxes, the shape a two-line selection reports. A test can blank
   // them to model a range the page re-rendered before it could be measured.
   const lineRects = [
@@ -249,6 +257,7 @@ async function bootContentScript() {
           return caret
         },
         meaningfulAt: () => element,
+        elementChainAt: () => [element, outerElement],
         element: () => ({ anchor: { kind: 'element' }, viewportRect }),
         region: (rect) => ({ anchor: { kind: 'region', pageRect: rect }, viewportRect: rect }),
         selection: (value) => (value && value.isCollapsed ? null : capture(viewportRect)),
@@ -763,4 +772,40 @@ test('a hide whose restore never arrives un-hides itself', async () => {
   // The late restore (or a duplicate) must not mis-count on the reset state.
   harness.deliver({ type: 'anno.capture.restore' })
   assert.deepEqual(harness.ui.calls.captureSuppressed, [true, false])
+})
+
+test('Shift+Tab widens the element picker and Tab narrows it again', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.hover.length = 0
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+
+  const inner = harness.ui.calls.hover.at(-1)
+  assert.ok(inner, 'the pointer outlines the deepest element')
+  assert.match(inner.label, /1\/2$/, 'the chip reports the level it is on')
+
+  const widened = harness.fire('keydown', { key: 'Tab', code: 'Tab', shiftKey: true })
+  assert.equal(widened.defaultPrevented, true, 'Tab belongs to the picker while annotating')
+  const parent = harness.ui.calls.hover.at(-1)
+  assert.match(parent.label, /2\/2$/, 'Shift+Tab moved to the container')
+  assert.deepEqual(parent.rect, { x: 40, y: 20, w: 300, h: 200 }, 'and the outline follows it')
+
+  harness.fire('keydown', { key: 'Tab', code: 'Tab', shiftKey: false })
+  assert.match(harness.ui.calls.hover.at(-1).label, /1\/2$/, 'Tab walks back towards the child')
+})
+
+test('Shift+Tab still walks levels after Shift armed a text selection', async () => {
+  const harness = await bootContentScript()
+  // The first Shift keydown is what arms the text drop; the chord arrives as a
+  // second keydown while that state is still set.
+  harness.fire('keydown', { key: 'Shift', code: 'ShiftLeft', shiftKey: true })
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0, shiftKey: true })
+  harness.flushFrames()
+  assert.equal(harness.ui.calls.hover.at(-1), null, 'the text drop replaces the element outline')
+
+  const event = harness.fire('keydown', { key: 'Tab', code: 'Tab', shiftKey: true })
+  assert.equal(event.defaultPrevented, true, 'the level chord is not left to the page')
+  const parent = harness.ui.calls.hover.at(-1)
+  assert.ok(parent, 'Shift+Tab disarms the text drop and outlines the parent')
+  assert.match(parent.label, /2\/2$/)
 })

@@ -60,6 +60,7 @@
       scan: 'anno.popup.scan',
       chooseHost: 'anno.popup.choose',
       importRecord: 'anno.popup.import',
+      activate: 'anno.popup.activate',
     },
     STORAGE_KEYS: {
       token: 'anno.token',

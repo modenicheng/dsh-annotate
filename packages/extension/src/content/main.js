@@ -63,6 +63,9 @@
    * documents.
    */
   const platform = global.__DSH_PLATFORM__
+  const SHORTCUT_API = global.__DSH_SHORTCUT__
+  /** Used only when `src/shared/shortcut.js` did not load (older inject list). */
+  const SHORTCUT_DEFAULT = SHORTCUT_API && SHORTCUT_API.DEFAULT ? SHORTCUT_API.DEFAULT : 'Alt+Shift+A'
   const document = global.document
   const REHYDRATE_INTERVAL_MS = 250 // ≤ 4 re-anchor passes per second
   // Route changes share the hydrator's coalescing budget: an SPA router can
@@ -97,6 +100,13 @@
     pointer: { down: false, dragging: false, startX: 0, startY: 0, startScroll: { x: 0, y: 0 } },
     /** Shift is held, so the next drag selects text instead of an element. */
     shiftArmed: false,
+    /** Canonical shortcut, mirrored from `anno.prefs.shortcut`. */
+    shortcut: SHORTCUT_DEFAULT,
+    /** Whether the in-page launcher button is offered (prefs, unless disabled). */
+    launcher: true,
+    /** Element ancestors under the pointer, deepest first; Tab/Shift+Tab index it. */
+    hoverChain: [],
+    hoverDepth: 0,
     selectionGesture: false,
     consoleErrors: [],
     observer: null,
@@ -171,11 +181,31 @@
 
   function t(key) {
     const tables = (ns.ui && ns.ui.STRINGS) || {}
-    const language =
-      ns.ui && ns.ui.pickLanguage ? ns.ui.pickLanguage(global.navigator && global.navigator.language) : 'en'
+    const language = (ns.ui && ns.ui.strings && ns.ui.strings.language) || 'en'
     const table = tables[language] || tables.en || {}
     const english = tables.en || {}
     return Object.hasOwn(table, key) ? table[key] : english[key] || key
+  }
+
+  /** The stored shortcut, normalized; the default when the preference is absent. */
+  function shortcutSpec() {
+    if (!SHORTCUT_API || typeof SHORTCUT_API.normalize !== 'function') return SHORTCUT_DEFAULT
+    return SHORTCUT_API.normalize(state.prefs && state.prefs.shortcut) || SHORTCUT_DEFAULT
+  }
+
+  /**
+   * Firefox consumes a command's key before the page sees it, so this matcher is
+   * the fallback that makes a custom shortcut work on engines that cannot update
+   * a command (Chromium) and the door that stays open if the browser rejected a
+   * combination. With no parser loaded it reproduces the original Alt+Shift+A.
+   * @param {KeyboardEvent} event
+   */
+  function isShortcutEvent(event) {
+    if (SHORTCUT_API && typeof SHORTCUT_API.matches === 'function') {
+      return SHORTCUT_API.matches(event, shortcutSpec())
+    }
+    const key = String(event.key || '').toLowerCase()
+    return event.altKey === true && event.shiftKey === true && (event.code === 'KeyA' || key === 'a')
   }
 
   /** Replace `{name}` placeholders in a translated template. */
@@ -725,6 +755,9 @@
     state.activeSource = source || 'user'
     if (!state.active) {
       state.active = true
+      state.hoverChain = []
+      state.hoverDepth = 0
+      syncLauncher()
       ui.setHud({ visible: true, mode: activeMode(), connected: state.connected })
       // A selection made before activation goes straight to the composer. It is
       // read *before* the repaint below: leaving annotation mode is what makes
@@ -757,8 +790,11 @@
     // button down must still leave the page without a leftover highlight.
     resetPointer()
     state.shiftArmed = false
+    state.hoverChain = []
+    state.hoverDepth = 0
     clearAnchor()
     if (ui) {
+      syncLauncher()
       if (ui.isComposerOpen()) ui.closeComposer()
       ui.clearLocked()
       ui.setHover(null)
@@ -857,6 +893,8 @@
     ui.setMarquee(null)
     ui.setCursor(null)
     ui.setShiftDrop(null)
+    state.hoverChain = []
+    state.hoverDepth = 0
     // Keep the target outlined while the comment is written: the outline is the
     // subject of the sentence, and losing it forces the user to remember which
     // of five similar buttons they clicked. A marked text is drawn as its line
@@ -1307,13 +1345,79 @@
       return
     }
     ui.setCursor({ x, y })
-    const element = ns.anchor.meaningfulAt(x, y)
-    if (!element) {
+    const chain =
+      ns.anchor.elementChainAt && typeof ns.anchor.elementChainAt === 'function'
+        ? ns.anchor.elementChainAt(x, y)
+        : [ns.anchor.meaningfulAt(x, y)].filter(Boolean)
+    const previous = state.hoverChain[0]
+    state.hoverChain = Array.isArray(chain) ? chain : []
+    // A new subject starts at the most specific element; a jitter inside the
+    // same element keeps the level the user picked with Shift+Tab.
+    if (state.hoverChain[0] !== previous) state.hoverDepth = 0
+    if (state.hoverChain.length === 0) {
+      ui.setHover(null)
+      return
+    }
+    state.hoverDepth = Math.min(state.hoverDepth, state.hoverChain.length - 1)
+    paintHover()
+  }
+
+  /** Draw the chain entry at `state.hoverDepth`. */
+  function paintHover() {
+    if (!ui) return
+    if (ui.isComposerOpen() || activeMode() === 'selection') {
+      ui.setHover(null)
+      return
+    }
+    const element = state.hoverChain[state.hoverDepth]
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
       ui.setHover(null)
       return
     }
     const rect = ns.geom.rectOf(element.getBoundingClientRect())
-    ui.setHover({ rect, label: ns.anchor.chipLabel(element, rect) })
+    const level = state.hoverChain.length > 1 ? `  ${state.hoverDepth + 1}/${state.hoverChain.length}` : ''
+    ui.setHover({ rect, label: `${ns.anchor.chipLabel(element, rect)}${level}` })
+  }
+
+  /**
+   * Move the element picker through the ancestor chain under the pointer
+   * without touching the page: Tab goes one level deeper (narrower), Shift+Tab
+   * one level wider. The chain is rebuilt only when there is none yet, so a
+   * held key walks levels at keyboard repeat speed.
+   * @param {number} direction +1 widens, -1 narrows
+   */
+  function changeHoverLevel(direction) {
+    if (!ui || !state.active || ui.isComposerOpen()) return
+    if (state.selectionGesture || activeMode() === 'selection') return
+    // Shift alone arms a native text selection, and the chord Shift+Tab starts
+    // with exactly that keydown. The chord wins: it is a deliberate request for
+    // the element ladder, so the text drop is disarmed while it is in effect.
+    if (state.shiftArmed) setShiftArmed(false)
+    if (state.hoverChain.length === 0) {
+      if (!state.hoverPoint) return
+      updateHover(state.hoverPoint.x, state.hoverPoint.y)
+      if (state.hoverChain.length === 0) return
+    }
+    const next = Math.max(0, Math.min(state.hoverChain.length - 1, state.hoverDepth + direction))
+    if (next === state.hoverDepth) return
+    state.hoverDepth = next
+    paintHover()
+  }
+
+  /**
+   * Recompute the chain at a point and return the level the picker claims. Used
+   * on press/release, where the hover frame may lag behind the pointer.
+   * @param {number} x @param {number} y
+   */
+  function hoveredElementAt(x, y) {
+    const chain =
+      ns.anchor.elementChainAt && typeof ns.anchor.elementChainAt === 'function'
+        ? ns.anchor.elementChainAt(x, y)
+        : [ns.anchor.meaningfulAt(x, y)].filter(Boolean)
+    if (!Array.isArray(chain) || chain.length === 0) return null
+    state.hoverChain = chain
+    state.hoverDepth = Math.min(state.hoverDepth, chain.length - 1)
+    return chain[state.hoverDepth] || null
   }
 
   function onPointerDown(event) {
@@ -1447,7 +1551,7 @@
       if (mode === 'region') return
     }
     if (mode === 'auto' || mode === 'element') {
-      const element = ns.anchor.meaningfulAt(event.clientX, event.clientY)
+      const element = hoveredElementAt(event.clientX, event.clientY)
       if (!element) return
       const captured = ns.anchor.element(element)
       if (captured) openComposerFor(captured)
@@ -1500,9 +1604,29 @@
   }
 
   function onKeyDown(event) {
-    if (!event || event.repeat) return
-    const key = String(event.key || '').toLowerCase()
-    if (event.altKey && event.shiftKey && (event.code === 'KeyA' || key === 'a')) {
+    if (!event) return
+    // Level picking owns Tab while annotation mode is on and no composer is
+    // typing: otherwise Tab would walk the page's focus order instead of the
+    // element under the pointer.
+    if (
+      event.key === 'Tab' &&
+      state.active &&
+      ui &&
+      !ui.isComposerOpen() &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !state.selectionGesture &&
+      activeMode() !== 'selection'
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      // Shift+Tab widens to a parent; Tab narrows back towards the child.
+      changeHoverLevel(event.shiftKey === true ? 1 : -1)
+      return
+    }
+    if (event.repeat) return
+    if (isShortcutEvent(event)) {
       event.preventDefault()
       event.stopPropagation()
       toggleMode()
@@ -1629,6 +1753,7 @@
         const prefs = stored && stored[MSG.prefs]
         if (!prefs || typeof prefs !== 'object') return
         state.prefs = prefs
+        applyPrefs(prefs)
         if (prefs.hidden === true) {
           // The single path that hides the layer also drops the page's marks:
           // setting `state.hidden` here would short-circuit applyHidden and leave
@@ -1644,7 +1769,29 @@
     const next = changes[MSG.prefs].newValue
     if (!next || typeof next !== 'object') return
     state.prefs = next
+    applyPrefs(next)
     applyHidden(next.hidden === true, false)
+  }
+
+  /**
+   * Mirror the popup-owned prefs into the gesture layer. The language is read
+   * once at load, so changing it needs a page reload; the shortcut and the
+   * launcher apply immediately.
+   * @param {any} prefs
+   */
+  function applyPrefs(prefs) {
+    state.shortcut =
+      SHORTCUT_API && typeof SHORTCUT_API.normalize === 'function'
+        ? SHORTCUT_API.normalize(prefs && prefs.shortcut) || SHORTCUT_API.DEFAULT
+        : SHORTCUT_DEFAULT
+    state.launcher = !prefs || prefs.launcher !== false
+    syncLauncher()
+  }
+
+  /** Show the floating launcher only while annotation mode is off. */
+  function syncLauncher() {
+    if (!ui) return
+    ui.setLauncher({ visible: state.launcher && !state.active, shortcut: state.shortcut })
   }
 
   // ── background → content ───────────────────────────────────────────────────
@@ -1838,6 +1985,7 @@
       onCancel: handleCancel,
       onToggleHidden: () => applyHidden(!state.hidden, true),
       onExit: () => leaveMode('hud'),
+      onLauncher: () => toggleMode(),
       onDelete: handleDelete,
       onClear: handleClear,
       onTargetRequest: () => void loadTargets(),
@@ -1852,6 +2000,7 @@
     })
     ui.mount()
     ui.setHidden(state.hidden)
+    syncLauncher()
     installConsoleHook()
     global.addEventListener('message', onPageMessage, false)
     global.addEventListener('keydown', onKeyDown, true)
