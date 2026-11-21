@@ -68,6 +68,50 @@ test('mode default asks the controller for its own default location', async () =
   assert.deepEqual(svc.__created, [{}])
 })
 
+test('mode default joins the deployment default workspace when the registry has it', async () => {
+  const svc = services({
+    workspaceRegistry: {
+      list: () => [
+        { id: 'w-alpha', title: 'alpha', path: 'D:/coding/alpha', sessionIds: [] },
+        {
+          id: 'w-default',
+          title: 'default-workspace',
+          path: 'D:/documents/deepseek-harness/default-workspace',
+          sessionIds: [],
+        },
+      ],
+      create: async () => {
+        throw new Error('mode default must not register a workspace')
+      },
+    },
+  })
+  const value = await provisionerOf(svc).createSession({ mode: 'default' })
+
+  // A bare create lands in no Workspace row and never shows in the sidebar's
+  // 默认工作区 group; the fixed-title join is what makes the row appear there.
+  assert.deepEqual(value.workspace, {
+    id: 'w-default',
+    title: 'default-workspace',
+    path: 'D:/documents/deepseek-harness/default-workspace',
+  })
+  assert.deepEqual(svc.__created, [{ workspaceId: 'w-default' }])
+})
+
+test('mode default reuses the default workspace blank session', async () => {
+  const svc = services({
+    workspaceRegistry: {
+      list: () => [{ id: 'w-default', title: 'default-workspace', path: 'D:/d', sessionIds: [] }],
+      create: async () => {
+        throw new Error('unexpected')
+      },
+    },
+  })
+  const catalog = catalogOf([{ id: 'blank-1', blank: true, updatedAt: 10, workspace: { id: 'w-default' } }])
+  await createProvisioner({ get: lookup(svc), catalog, logger: { warn() {} } }).createSession({ mode: 'default' })
+
+  assert.deepEqual(svc.__created, [{ workspaceId: 'w-default', sessionId: 'blank-1' }])
+})
+
 test('mode existing joins the named workspace', async () => {
   const svc = services()
   const value = await provisionerOf(svc).createSession({ mode: 'existing', workspaceId: 'w-beta' })

@@ -6,7 +6,9 @@
  * Host can honour, because only it owns `sessionController.create` and the
  * workspace registry. Three workspace modes:
  *
- *   - `default`  no location, exactly what the Client's own new-session button does;
+ *   - `default`  the deployment's first-use Workspace ("默认工作区"), joined by
+ *                its fixed title when the registry has it; a bare no-location
+ *                create otherwise;
  *   - `existing` one registered workspace by id, the Session joins it;
  *   - `new`      an absolute path (and optional title), registered first — a
  *                missing directory is created here (the registry itself will
@@ -26,6 +28,12 @@ import { LIMITS, SESSION_CREATE_PATH, validateSessionCreateRequest } from './pro
 
 /** The Client picks its workspace rows per open; a second of staleness is invisible. */
 const WORKSPACES_TTL_MS = 1_000
+
+/**
+ * Fixed first-use Workspace title (DSH's `DEFAULT_WORKSPACE_DIRECTORY`, on the
+ * Documents path). Language-neutral by design, so a title comparison is enough.
+ */
+const DEFAULT_WORKSPACE_TITLE = 'default-workspace'
 
 /**
  * @param {object} options
@@ -84,9 +92,21 @@ export function createProvisioner({ get, catalog, onCreated, logger, now = Date.
     } else if (body.mode === 'new') {
       workspace = await registerWorkspace(String(body.path), typeof body.title === 'string' ? body.title : undefined)
       request = await requestFor(workspace)
+    } else {
+      // `default` is the row the Client labels "默认工作区": the deployment's
+      // first-use Workspace, recognised by its fixed title. A Session created
+      // without it belongs to no Workspace row and never shows in that group,
+      // so join it when the registry has it. A registry that cannot be read
+      // (missing, or a failed scan) keeps the bare no-location create: this
+      // mode has always worked without one.
+      try {
+        const items = await listWorkspaces()
+        workspace = items.find((item) => item.title === DEFAULT_WORKSPACE_TITLE) ?? null
+      } catch {
+        workspace = null
+      }
+      if (workspace !== null) request = await requestFor(workspace)
     }
-    // `default` sends no location: the controller resolves the deployment's
-    // default, the same path the Client's own new-session button takes.
 
     const value = await controller.create(request)
     const sessionId = typeof value?.sessionId === 'string' ? value.sessionId : ''
