@@ -628,8 +628,10 @@ dsh-marker-chromium-<version>.zip     on the GitHub Release for the tag
 checksums.txt                         same release; verify the zip's SHA-256
 ```
 
-The tag build may still be a **draft**: its assets are attached and downloadable before the release
-is published, so the first store submission does not have to publish the release (and npm) first.
+The artifact appears when the draft release is **published**: the `stores` job builds both zips,
+appends their SHA-256 lines to `checksums.txt`, and attaches all of it to the release. Publishing is
+the human gate and it also publishes the npm half, so the store package and the plugin come from one
+tag.
 
 Before uploading, unzip the asset and check it: `manifest.json` at the archive root, no `test/`, no
 `package.json`, `node scripts/check-manifest.mjs <unzipped-dir>` passing, and the version inside
