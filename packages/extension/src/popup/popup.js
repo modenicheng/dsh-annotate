@@ -99,6 +99,8 @@
     exitAfterSend: false,
     /** Leave annotation mode on a page right-click (on by default). */
     exitOnRightClick: true,
+    /** Background lifecycle lines, newest last; shown by the diagnostics panel. */
+    diagnostics: [],
   }
 
   /** @type {Record<string, HTMLElement>} */
@@ -195,6 +197,9 @@
       'annotate',
       'exit-after-send',
       'exit-on-right-click',
+      'diagnostics-log',
+      'diagnostics-refresh',
+      'diagnostics-copy',
     ]
     for (const id of ids) {
       const node = document.getElementById(id)
@@ -216,6 +221,18 @@
     }
     if (el['exit-on-right-click'] !== undefined) {
       el['exit-on-right-click'].addEventListener('change', () => void saveExitOnRightClick())
+    }
+    if (el['diagnostics-refresh'] !== undefined) {
+      el['diagnostics-refresh'].addEventListener('click', () => void refreshState())
+    }
+    if (el['diagnostics-copy'] !== undefined) {
+      el['diagnostics-copy'].addEventListener('click', () => void copyDiagnostics())
+    }
+    const diagnosticsPanel = document.getElementById('diagnostics-panel')
+    if (diagnosticsPanel !== null) {
+      diagnosticsPanel.addEventListener('toggle', (event) => {
+        if (event.target === diagnosticsPanel && diagnosticsPanel.open) void refreshState()
+      })
     }
 
     // The mode control, the host list, the scan action, and the endpoint drop
@@ -545,6 +562,10 @@
     }
     if (response.status !== undefined) applyStatus(response.status)
     if (response.outbox !== undefined) applyOutbox(response.outbox)
+    if (Array.isArray(response.diagnostics)) {
+      state.diagnostics = response.diagnostics.slice()
+      renderDiagnostics()
+    }
     state.records = Array.isArray(response.records) ? response.records : []
     state.activeTab = response.activeTab ?? null
     renderPage()
@@ -602,6 +623,26 @@
             (pendingImages === 0 ? '' : t('outboxWaitingImages', { n: pendingImages }))
     }
   }
+  function renderDiagnostics() {
+    if (el['diagnostics-log'] === undefined) return
+    const lines = state.diagnostics
+    el['diagnostics-log'].textContent = lines.length === 0 ? t('diagnosticsEmpty') : lines.join('\n')
+  }
+
+  async function copyDiagnostics() {
+    const text = state.diagnostics.join('\n')
+    if (text === '') {
+      feedback(t('diagnosticsEmpty'), 'warn')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      feedback(t('diagnosticsCopied'), 'ok')
+    } catch (error) {
+      feedback(t('diagnosticsCopyFailed', { reason: describeError(error) }), 'error')
+    }
+  }
+
   // ── page and records ──────────────────────────────────────────────────────
 
   function renderPage() {

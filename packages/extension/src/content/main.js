@@ -39,6 +39,7 @@
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
       createSession: 'anno.session.create',
+      debug: 'anno.content.debug',
     },
     content: {
       records: 'anno.records',
@@ -219,6 +220,11 @@
     }
     const key = String(event.key || '').toLowerCase()
     return event.altKey === true && event.shiftKey === true && (event.code === 'KeyA' || key === 'a')
+  }
+
+  /** Lifecycle diagnostics, mirrored to the popup's Diagnostics panel. */
+  function logInfo(message) {
+    void send(MSG.background.debug, { message: String(message) })
   }
 
   // ── restricted documents ───────────────────────────────────────────────────
@@ -750,6 +756,7 @@
 
   function enterMode(source, options) {
     const config = options || {}
+    logInfo(`enterMode source=${source || 'user'} restricted=${state.restricted}`)
     if (state.restricted) return
     if (state.hidden) {
       // An explicit activation always reveals the layers: activating while
@@ -784,6 +791,7 @@
   }
 
   function leaveMode(reason) {
+    logInfo(`leaveMode reason=${reason}`)
     if (!state.active) return
     state.active = false
     state.activeSource = ''
@@ -1645,6 +1653,7 @@
   function onKeyDown(event) {
     if (!event || event.repeat) return
     if (isShortcutEvent(event)) {
+      logInfo('shortcut matched')
       event.preventDefault()
       event.stopPropagation()
       toggleMode()
@@ -1981,6 +1990,7 @@
       return Promise.resolve({ ok: true })
     }
     if (type === MSG.content.activate) {
+      logInfo('activate received')
       handleActivate(flat)
       return Promise.resolve({ ok: true })
     }
@@ -2000,6 +2010,7 @@
       state.restricted = reason
       return
     }
+    logInfo(`content boot ${String(global.location && global.location.href).slice(0, 120)}`)
     ui = ns.ui.create({
       onSend: handleSend,
       onCancel: handleCancel,
@@ -2075,6 +2086,7 @@
       // Say so once and stay out of the page's way: the background reports the
       // limitation to the host instead of the user staring at a dead shortcut.
       state.restricted = reason
+      logInfo(`restricted: ${reason}`)
       void send(MSG.background.ready, {
         url: String((global.location && global.location.href) || ''),
         title: String((document && document.title) || ''),

@@ -35,6 +35,8 @@
       <span id="pending-badge" class="badge" hidden></span>
     </header>
 
+    <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+
     <main class="content">
       <section class="panel" aria-labelledby="annotation-heading">
         <h2 id="annotation-heading" class="panel__title" data-i18n="annotationHeading">Annotate</h2>
@@ -188,8 +190,20 @@
         <ul id="records" class="records" aria-label="Annotations on this page"></ul>
         <p id="records-empty" class="empty" data-i18n="noAnnotations">No annotations on this page.</p>
       </section>
+
+      <details id="diagnostics-panel" class="panel diagnostics-panel">
+        <summary class="panel__title" data-i18n="diagnosticsTitle">Diagnostics</summary>
+        <pre id="diagnostics-log" class="diagnostics"></pre>
+        <div class="form__actions">
+          <button id="diagnostics-refresh" class="button button--secondary" type="button" data-i18n="diagnosticsRefresh">
+            Refresh
+          </button>
+          <button id="diagnostics-copy" class="button button--secondary" type="button" data-i18n="diagnosticsCopy">
+            Copy
+          </button>
+        </div>
+      </details>
     </main>
 
-    <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
   </body>
 </html>
