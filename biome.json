@@ -12,7 +12,8 @@
       "!**/.agents",
       "!packages/plugin/src/protocol.js",
       "!packages/extension/src/shared/protocol.js",
-      "!packages/extension/src/shared/protocol.global.js"
+      "!packages/extension/src/shared/protocol.global.js",
+      "!packages/extension/manifest.json"
     ]
   },
   "formatter": {
