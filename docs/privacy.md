@@ -1,6 +1,6 @@
 # Privacy policy
 
-**dsh-marker** — browser extension for Firefox (and Zen) and Chromium-based browsers. Last updated: 2026-11-20.
+**dsh-marker** — browser extension for Microsoft Edge, Chrome, Firefox (and Zen), and other Chromium-based browsers. Last updated: 2026-11-21.
 
 dsh-marker marks text, an element, or a region of a page and hands it to a DeepSeek Harness (DSH)
 instance running on your own computer. No account, no developer server, no service behind it. This
@@ -83,7 +83,7 @@ that reads a page is the code that is running.
 
 ## 中文
 
-**dsh-marker** — Firefox（含 Zen）与 Chromium 内核浏览器扩展。最后更新：2026-11-20。
+**dsh-marker** — Microsoft Edge、Chrome、Firefox（含 Zen）等浏览器的扩展。最后更新：2026-11-21。
 
 dsh-marker 把网页上的一段文字、一个元素或一块区域变成批注，交给本机的 DeepSeek Harness（DSH）。
 没有账号，没有开发者服务器，也没有任何后台服务。下面是它读什么、发到哪里、存什么、不做什么。
