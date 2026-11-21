@@ -1,6 +1,6 @@
 {
   "name": "dsh-marker-workspace",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "Visual annotation and context bridge between a daily browser (Firefox/Zen) and DeepSeek Harness",
