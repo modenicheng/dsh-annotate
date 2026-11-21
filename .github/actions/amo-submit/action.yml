@@ -1,14 +1,18 @@
 name: 'Submit to AMO (listed)'
 description: >
-  The AMO lane (docs/DISTRIBUTION.md §4.6): download the Firefox zip the
-  draft attached, prove it is the checksummed bytes, and submit it for review
-  with web-ext sign --channel listed using packages/extension/amo-metadata.json
-  for the listing. A listed upload is a submission for review, not a
+  The AMO lane (docs/DISTRIBUTION.md §4.6): gate that the release is
+  published, download the Firefox zip it attached, prove it is the
+  checksummed bytes, prove the version inside the zip matches the tag, and
+  submit it for review with web-ext sign --channel listed using
+  packages/extension/amo-metadata.json for the listing. The lane verifies
+  itself; there is no shared verify job, so a failure here never blocks
+  another store lane. A listed upload is a submission for review, not a
   publication: this lane reports "submitted, pending review" and never
   "live"; the only unambiguous success is web-ext returning a signed XPI,
   which is attached to the release when it does. The caller (the amo job in
   release.yml) provides AMO_JWT_ISSUER, AMO_JWT_SECRET and GH_TOKEN in its
-  environment, and the verify job's outputs as inputs.
+  environment, and has checked out the tag (the listing metadata and the
+  plugin version are read from that tree).
 
   The listing metadata must be in the AMO v5 wire format: `categories` is an
   object keyed by application slug with valid category slugs (the list is
@@ -22,15 +26,6 @@ inputs:
   tag:
     description: The release tag whose Firefox zip is being submitted.
     required: true
-  version:
-    description: The product version the verify job read from the tag.
-    required: true
-  firefox_version:
-    description: The version inside the released Firefox zip.
-    required: true
-  addon_id:
-    description: The gecko add-on id inside the released Firefox zip.
-    required: true
 
 runs:
   using: 'composite'
@@ -40,24 +35,31 @@ runs:
       with:
         node-version: '24'
 
-    - name: Refuse a version mismatch or a missing add-on id
+    # The human gate (§4.3): publishing the release is what lets any lane
+    # submit; a draft's assets must not reach a store before the click.
+    - name: Require a published release
       shell: bash
       env:
-        ADDON_ID: ${{ inputs.addon_id }}
-        FF_VERSION: ${{ inputs.firefox_version }}
-        PRODUCT_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        if ! gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+          echo "::error::no GitHub Release exists for $TAG. Publish the draft release first; a store submission must never happen before the human gate (§4.3)."
+          exit 1
+        fi
+        if [ "$(jq -r '.isDraft' "$RUNNER_TEMP/release.json")" = "true" ]; then
+          echo "::error::release $TAG is still a draft. Publishing the release is the human gate (§4.3)."
+          exit 1
+        fi
+
+    - name: Refuse a tag without listing metadata
+      shell: bash
       run: |
         set -euo pipefail
         if [ ! -f packages/extension/amo-metadata.json ]; then
           echo "::error::packages/extension/amo-metadata.json is missing from this tag, so a listed upload has no listing metadata. Add the file and re-run; skipping silently would let a listing drift."
-          exit 1
-        fi
-        if [ -z "$ADDON_ID" ]; then
-          echo "::error::dist/firefox/manifest.json declares no browser_specific_settings.gecko.id; AMO cannot identify the add-on"
-          exit 1
-        fi
-        if [ "$FF_VERSION" != "$PRODUCT_VERSION" ]; then
-          echo "::error::refusing to submit to AMO: the Firefox artifact is version $FF_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
           exit 1
         fi
 
@@ -68,18 +70,43 @@ runs:
         tag: ${{ inputs.tag }}
         patterns: 'dsh-marker-firefox-*.zip,checksums.txt'
 
-    - name: Re-read the version inside the verified zip
+    # Both the product version (the tag's tree) and the artifact version
+    # (§4.10: the zip itself, not the tree) are read here; §4.1 keeps them
+    # one version, and a store version cannot be withdrawn.
+    - name: Read the versions and refuse a mismatch
+      id: version
       shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
       run: |
         set -euo pipefail
         assets="$GITHUB_WORKSPACE/dist/release-assets"
         rm -rf dist/firefox
         unzip -q "$assets"/dsh-marker-firefox-*.zip -d dist/firefox
-        unzipped="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
-        if [ "$unzipped" != "${{ inputs.firefox_version }}" ]; then
-          echo "::error::the zip on the release says $unzipped but the verify job read ${{ inputs.firefox_version }}; the asset changed under us"
+        product_version="$(node -p "String(require('./packages/plugin/package.json').version ?? '')")"
+        ff_version="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
+        addon_id="$(node -p "String(require('./dist/firefox/manifest.json').browser_specific_settings?.gecko?.id ?? '')")"
+        if [ -z "$product_version" ] || [ -z "$ff_version" ]; then
+          echo "::error::the tag or the released zip declares no version"
           exit 1
         fi
+        if [ "v$product_version" != "$TAG" ]; then
+          echo "::error::refusing to submit to AMO: the tag's tree is version $product_version but the release is $TAG (§4.1)."
+          exit 1
+        fi
+        if [ -z "$addon_id" ]; then
+          echo "::error::dist/firefox/manifest.json declares no browser_specific_settings.gecko.id; AMO cannot identify the add-on"
+          exit 1
+        fi
+        if [ "$ff_version" != "$product_version" ]; then
+          echo "::error::refusing to submit to AMO: the Firefox artifact is version $ff_version but the release is v$product_version (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+          exit 1
+        fi
+        {
+          echo "product=$product_version"
+          echo "firefox=$ff_version"
+          echo "addon_id=$addon_id"
+        } >> "$GITHUB_OUTPUT"
 
     # Idempotency, before web-ext runs. AMO's public v5 API lists a listed
     # add-on's versions without auth: GET
@@ -96,8 +123,8 @@ runs:
       id: probe
       shell: bash
       env:
-        ADDON_ID: ${{ inputs.addon_id }}
-        FF_VERSION: ${{ inputs.firefox_version }}
+        ADDON_ID: ${{ steps.version.outputs.addon_id }}
+        FF_VERSION: ${{ steps.version.outputs.firefox }}
       run: |
         set -euo pipefail
         echo "already=false" >> "$GITHUB_OUTPUT"
@@ -139,9 +166,9 @@ runs:
       if: steps.probe.outputs.already != 'true'
       shell: bash
       env:
-        ADDON_ID: ${{ inputs.addon_id }}
-        FF_VERSION: ${{ inputs.firefox_version }}
-        PRODUCT_VERSION: ${{ inputs.version }}
+        ADDON_ID: ${{ steps.version.outputs.addon_id }}
+        FF_VERSION: ${{ steps.version.outputs.firefox }}
+        PRODUCT_VERSION: ${{ steps.version.outputs.product }}
         TAG: ${{ inputs.tag }}
         GH_TOKEN: ${{ github.token }}
       run: |

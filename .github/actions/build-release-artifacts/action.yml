@@ -101,10 +101,10 @@ runs:
         fi
         # §4.1: one product version. The artifacts are still attached so a
         # human can inspect them, and this warning is the last chance to
-        # notice before Publish; the verify job refuses the mismatch for
-        # every lane at once once the release is published.
+        # notice before Publish; every publish lane refuses the mismatch
+        # for its own artifact once the release is published.
         if [ "$ff_version" != "$product_version" ] || [ "$cr_version" != "$product_version" ]; then
-          echo "::warning::the artifacts carry version $ff_version/$cr_version but the release is v$product_version. §4.1 wants them bumped atomically; the verify job will refuse to submit them."
+          echo "::warning::the artifacts carry version $ff_version/$cr_version but the release is v$product_version. §4.1 wants them bumped atomically; every publish lane will refuse to submit them."
         fi
 
     # The zips sit at the root of each archive, which is what both stores
@@ -149,7 +149,11 @@ runs:
         set -euo pipefail
         assets="$GITHUB_WORKSPACE/dist/release-assets"
         npm pack ./packages/plugin --pack-destination "$assets"
-        (cd "$assets" && sha256sum ./*.tgz ./*.zip > checksums.txt && cat checksums.txt)
+        # Bare names: the checksums are written without the `./` prefix the
+        # `./`-globs produce, so checksums.txt names its files exactly as
+        # fetch-verified-asset downloads them (releases up to v1.0.4 carried
+        # the prefix; the fetcher normalizes both shapes).
+        ( cd "$assets" && sha256sum ./*.tgz ./*.zip | sed 's/  \.\//  /' > checksums.txt && cat checksums.txt )
 
     # release-please opened the draft release — with the changelog as its
     # body — before this job ran; attach the built artifacts to it. The

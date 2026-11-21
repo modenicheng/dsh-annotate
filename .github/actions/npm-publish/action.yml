@@ -1,9 +1,11 @@
 name: 'Publish to npm'
 description: >
-  The npm lane (docs/DISTRIBUTION.md §6.1): download the tarball the draft
-  attached, prove it is the checksummed bytes, publish those exact bytes with
-  provenance, and prove the registry holds them. The verify job has already
-  gated the tag; this lane trusts its outputs.
+  The npm lane (docs/DISTRIBUTION.md §6.1): gate that the release is
+  published, download the tarball it attached, prove it is the checksummed
+  bytes, prove the version inside the tarball names the tag, publish those
+  exact bytes with provenance, and prove the registry holds them. The lane
+  verifies itself; there is no shared verify job, so a failure here never
+  blocks another store lane.
 
   Authentication is OIDC trusted publishing: no NPM_TOKEN exists anywhere in
   this repository. Three details are easy to get wrong and fail as E404 on
@@ -18,9 +20,6 @@ description: >
 inputs:
   tag:
     description: The release tag whose assets are being published.
-    required: true
-  version:
-    description: The package version the verify job read from the tag.
     required: true
 
 runs:
@@ -42,6 +41,26 @@ runs:
         npm install -g npm@11.5.1
         npm --version
 
+    # The human gate (§4.3): publishing the release is what lets any lane
+    # submit. A draft release's assets may be perfectly fine; submitting
+    # them before the Publish click is what this step refuses.
+    - name: Require a published release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        if ! gh release view "$TAG" --json isDraft > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+          echo "::error::no GitHub Release exists for $TAG. Publish the draft release first; a store submission must never happen before the human gate (§4.3)."
+          exit 1
+        fi
+        if [ "$(jq -r '.isDraft' "$RUNNER_TEMP/release.json")" = "true" ]; then
+          echo "::error::release $TAG is still a draft. Publishing the release is the human gate (§4.3)."
+          exit 1
+        fi
+
     - name: Download the released tarball and prove its checksum
       uses: ./.github/actions/fetch-verified-asset
       with:
@@ -49,6 +68,27 @@ runs:
         # The tarball plus the checksums file; the store zips stay with the
         # store lanes.
         patterns: '*.tgz,checksums.txt'
+
+    # The version comes from the tarball itself (§4.10: the artifact, not a
+    # tree), and must name the tag being published (§4.1).
+    - name: Read the version from the tarball and refuse a mismatch
+      id: version
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        tarball="$(ls dist/release-assets/*.tgz)"
+        version="$(tar -xzOf "$tarball" package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(s).version ?? "")))')"
+        if [ -z "$version" ]; then
+          echo "::error::the released tarball declares no version"
+          exit 1
+        fi
+        if [ "v$version" != "$TAG" ]; then
+          echo "::error::refusing to publish to npm: the tarball is version $version but the release is $TAG (§4.1). Bump packages/plugin/package.json and tag a new version; a registry version cannot be withdrawn."
+          exit 1
+        fi
+        echo "value=$version" >> "$GITHUB_OUTPUT"
 
     # npm records sha512 in dist.integrity; computing it here is what lets the
     # lane prove, after the fact, that the registry holds these exact bytes.
@@ -71,7 +111,7 @@ runs:
       id: exists
       shell: bash
       env:
-        VERSION: ${{ inputs.version }}
+        VERSION: ${{ steps.version.outputs.value }}
         EXPECTED: ${{ steps.integrity.outputs.value }}
       run: |
         set -euo pipefail
@@ -107,7 +147,7 @@ runs:
     - name: Verify the registry holds these bytes
       shell: bash
       env:
-        VERSION: ${{ inputs.version }}
+        VERSION: ${{ steps.version.outputs.value }}
         EXPECTED: ${{ steps.integrity.outputs.value }}
       run: |
         set -euo pipefail
