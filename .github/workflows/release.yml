@@ -85,7 +85,7 @@ jobs:
       TAG: ${{ inputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history: the ancestor gate reads the log.
           fetch-depth: 0
@@ -184,7 +184,7 @@ jobs:
       addon_id: ${{ steps.verified.outputs.addon_id }}
     steps:
       - name: Checkout the released tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 
@@ -236,7 +236,7 @@ jobs:
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
     steps:
       - name: Checkout the released tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # amo-metadata.json is read from the tag being released.
           ref: ${{ needs.verify.outputs.tag }}
@@ -327,7 +327,7 @@ jobs:
       # business days (docs/STORE_LISTING.md §8.9). Pinned to a major tag
       # like every other action in this file.
       - name: Submit the released Chromium zip
-        uses: wdzeng/edge-addon@v2
+        uses: wdzeng/edge-addon@9881f57720358040d079eaa06a4596dc9c273eb6 # v2
         with:
           product-id: ${{ vars.EDGE_PRODUCT_ID }}
           zip-path: dist/release-assets/dsh-marker-chromium-${{ needs.verify.outputs.version }}.zip
