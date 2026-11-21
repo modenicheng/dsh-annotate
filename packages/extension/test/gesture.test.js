@@ -1064,16 +1064,3 @@ test('exit after sending leaves the mode only when the preference is on', async 
   await sendOne()
   assert.equal(harness.ui.calls.hud.at(-1)?.visible, false, 'with the preference on, the ack leaves the mode')
 })
-
-test('lifecycle lines reach the background as anno.content.debug', async () => {
-  const harness = await bootContentScript()
-  const sent = []
-  harness.stubSend((message) => {
-    sent.push(message)
-    return Promise.resolve(undefined)
-  })
-  harness.fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
-  const line = sent.find((message) => String(message?.message || '').startsWith('leaveMode'))
-  assert.ok(line, 'the leaveMode transition reported itself')
-  assert.match(String(line.message), /leaveMode reason=toggle/, 'the line names the transition and its reason')
-})

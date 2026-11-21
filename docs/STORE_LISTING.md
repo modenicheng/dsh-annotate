@@ -402,10 +402,10 @@ listings would need a browser-locale change, not a new build.
 
 - The popup on its own, floating over an out-of-focus capture of the same page: nothing in the frame
   claims to be browser chrome, so no fake toolbar is implied.
-- The status line reads **Connected to the host** with `Automatic · 127.0.0.1:3099 (anno) · token
-  saved · advertised by the host` — the "it found the host itself" claim, visible.
+- The status line reads **Connected** with `127.0.0.1:3099 (anno)` — the address is the whole story;
+  the line carries no mode or token commentary.
 - Host and port fields at their defaults, and the token field showing dots only.
-- Crop the popup above the `Save and reconnect` row: the popup scrolls, and a half-cut button reads as
+- Crop the popup above the `Save and connect` row: the popup scrolls, and a half-cut button reads as
   a broken screenshot rather than a scrollable panel.
 
 ## 6. Measured lengths

@@ -10,8 +10,11 @@
          the message listener for it. -->
     <script src="../shared/platform.js"></script>
     <script src="../shared/protocol.global.js"></script>
-    <!-- The popup's language table. The English text in the markup below is the
-         no-script fallback; every visible label is painted from this table. -->
+    <!-- The popup's language table: data first (`popup-strings.js`), the logic
+         that picks a locale and substitutes placeholders second. The English
+         text in the markup below is the no-script fallback; every visible
+         label is painted from the table. -->
+    <script src="../shared/popup-strings.js"></script>
     <script src="../shared/i18n.js"></script>
     <!-- The shortcut parser, shared with the content script's keydown matcher. -->
     <script src="../shared/shortcut.js"></script>
@@ -38,46 +41,46 @@
     <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
 
     <main class="content">
-      <section class="panel" aria-labelledby="annotation-heading">
+      <section class="panel panel--annotate" aria-labelledby="annotation-heading">
         <h2 id="annotation-heading" class="panel__title" data-i18n="annotationHeading">Annotate</h2>
         <div class="field">
-          <span id="shortcut-label" data-i18n="shortcutLabel">Shortcut</span>
-          <div class="shortcut-row">
-            <button id="shortcut-record" class="shortcut-key" type="button" aria-labelledby="shortcut-label">
-              Alt+Shift+A
-            </button>
-            <button id="shortcut-reset" class="button button--secondary" type="button" data-i18n="resetShortcut">
+          <div class="field__label-row">
+            <span id="shortcut-label" class="field__label" data-i18n="shortcutLabel">Shortcut</span>
+            <button id="shortcut-reset" class="link-button" type="button" data-i18n="resetShortcut">
               Reset
             </button>
           </div>
-          <p class="hint" data-i18n="shortcutHint">
-            Click, then press a combination. The browser command is updated so screenshots keep working.
-          </p>
+          <button id="shortcut-record" class="shortcut-key" type="button" aria-labelledby="shortcut-label">
+            Alt+Shift+A
+          </button>
+          <p class="hint" data-i18n="shortcutHint">Click the button, then press the new combination.</p>
         </div>
         <div class="field">
           <label class="switch" for="exit-after-send">
             <input id="exit-after-send" type="checkbox">
+            <span class="switch__track" aria-hidden="true"></span>
             <span data-i18n="exitAfterSendLabel">Exit annotate mode after sending</span>
           </label>
           <p class="hint" data-i18n="exitAfterSendHint">
-            Off by default: staying in the mode lets you mark several things in a row.
+            Off by default, so you can mark several places in one go.
           </p>
         </div>
         <div class="field">
           <label class="switch" for="exit-on-right-click">
             <input id="exit-on-right-click" type="checkbox" checked>
+            <span class="switch__track" aria-hidden="true"></span>
             <span data-i18n="exitOnRightClickLabel">Right-click leaves annotate mode</span>
           </label>
         </div>
         <div class="form__actions">
-          <button id="annotate" class="button" type="button" data-i18n="annotateNow">
+          <button id="annotate" class="button button--block" type="button" data-i18n="annotateNow">
             Annotate this page
           </button>
         </div>
       </section>
 
       <section class="panel" aria-labelledby="bridge-heading">
-        <h2 id="bridge-heading" class="panel__title" data-i18n="bridgeTitle">Host bridge</h2>
+        <h2 id="bridge-heading" class="panel__title" data-i18n="bridgeTitle">Connection settings</h2>
         <form id="settings-form" class="form" autocomplete="off" novalidate>
           <fieldset class="mode-field" aria-describedby="mode-hint">
             <legend data-i18n="connection">Connection</legend>
@@ -91,7 +94,7 @@
                 <span data-i18n="manual">Manual</span>
               </label>
             </div>
-            <p id="mode-hint" class="hint" data-i18n="modeManualHint">Uses the address below exactly as typed.</p>
+            <p id="mode-hint" class="hint" data-i18n="modeManualHint">Uses the address below.</p>
           </fieldset>
 
           <div id="discovered" class="discovered" hidden>
@@ -101,8 +104,7 @@
 
           <div id="discovery-actions" class="discovery-actions" hidden>
             <p id="discovery-hint" class="hint" data-i18n="discoveryHint" hidden>
-              A host on 127.0.0.1:3080 is tried too, but the locator only runs when the port is not 3080 — if
-              neither answered, import $DSH_HOME/ext-bridge-endpoint.json below.
+              Nothing answered automatically. You can import $DSH_HOME/ext-bridge-endpoint.json below.
             </p>
             <button id="scan-again" class="button button--secondary" type="button" data-i18n="scanAgain">
               Scan again
@@ -128,8 +130,7 @@
             </div>
           </div>
           <p id="host-hint" class="hint" data-i18n="hostHint">
-            A host and port, or a full URL such as wss://anno.example.com when the host is behind HTTPS. Without
-            a scheme, the extension asks the host which one to use.
+            Host and port, or a full wss:// address when the host is behind HTTPS.
           </p>
 
           <div id="drop-zone" class="dropzone" tabindex="0" aria-describedby="import-hint">
@@ -140,13 +141,12 @@
             <input id="import-file" class="visually-hidden" type="file" accept="application/json,.json">
           </div>
           <p id="import-hint" class="hint" data-i18n="importHint">
-            Reads only the address from the record the host writes; the token below still comes from
-            $DSH_HOME/ext-bridge-token.
+            Reads the address from the file the host writes.
           </p>
 
           <div class="field">
             <div class="field__label-row">
-              <label for="token" data-i18n="tokenLabel">Bridge token</label>
+              <label for="token" data-i18n="tokenLabel">Token</label>
               <button
                 id="toggle-token"
                 class="link-button"
@@ -169,17 +169,17 @@
               data-i18n-placeholder="tokenPlaceholder"
             >
             <p id="token-hint" class="hint" data-i18n="tokenHint">
-              Contents of $DSH_HOME/ext-bridge-token. The host writes that file on its first run.
+              The contents of $DSH_HOME/ext-bridge-token; the host creates that file on its first run.
             </p>
           </div>
 
           <div class="form__actions">
-            <button id="save" class="button" type="submit" data-i18n="save">Save and reconnect</button>
+            <button id="save" class="button" type="submit" data-i18n="save">Save and connect</button>
             <button id="flush" class="button button--secondary" type="button" data-i18n="flush">
-              Flush outbox
+              Send queued marks
             </button>
           </div>
-          <p id="outbox-summary" class="hint" data-i18n="outboxEmpty">Outbox empty.</p>
+          <p id="outbox-summary" class="hint" data-i18n="outboxEmpty">Nothing waiting to be sent.</p>
         </form>
       </section>
 
@@ -190,19 +190,6 @@
         <ul id="records" class="records" aria-label="Annotations on this page"></ul>
         <p id="records-empty" class="empty" data-i18n="noAnnotations">No annotations on this page.</p>
       </section>
-
-      <details id="diagnostics-panel" class="panel diagnostics-panel">
-        <summary class="panel__title" data-i18n="diagnosticsTitle">Diagnostics</summary>
-        <pre id="diagnostics-log" class="diagnostics"></pre>
-        <div class="form__actions">
-          <button id="diagnostics-refresh" class="button button--secondary" type="button" data-i18n="diagnosticsRefresh">
-            Refresh
-          </button>
-          <button id="diagnostics-copy" class="button button--secondary" type="button" data-i18n="diagnosticsCopy">
-            Copy
-          </button>
-        </div>
-      </details>
     </main>
 
   </body>

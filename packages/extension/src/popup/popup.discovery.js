@@ -201,7 +201,7 @@
         // blocks are mode-dependent, and the background's next broadcast may
         // still describe the previous mode.
         if (lastStatus !== null) applyShellStatus(lastStatus)
-        feedback(mode === MODE_AUTO ? 'Automatic discovery on.' : 'Manual address on.', 'ok')
+        feedback(t('saved'), 'ok')
         // The background reconnects on the storage change; give it a moment.
         setTimeout(() => {
           void refreshShellState()
@@ -211,7 +211,7 @@
         state.modeKnown = previousKnown
         renderConnectionMode()
         if (lastStatus !== null) applyShellStatus(lastStatus)
-        feedback(`Could not save the connection mode: ${describeError(error)}`, 'error')
+        feedback(t('saveFailed', { reason: describeError(error) }), 'error')
       }
     }
 
@@ -272,48 +272,32 @@
     }
 
     /**
-     * The detail line: the discovery source first, then the address, the number
-     * of hosts found, and the token state. Every field is read defensively,
-     * because an older background sends none of the discovery fields.
+     * The detail line: the address the extension talks to, and nothing else.
+     * A connected user needs the address and no commentary; the failure states
+     * say what went wrong in the shortest words that still point at a fix.
+     * Every field is read defensively, because an older background sends none
+     * of the discovery fields.
      */
     function connectionDetail(status) {
       const mode = modeOf(status)
       const connection = typeof status.connection === 'string' ? status.connection : 'idle'
-      const tokenState = status.tokenPresent === true ? t('tokenSaved') : t('tokenMissing')
-      const advertised = status.wsUrlSource === 'health' ? t('advertisedByHost') : ''
-      const parts = [mode === MODE_AUTO ? t('automatic') : t('manual')]
-      if (mode !== MODE_AUTO) {
-        parts.push(wsUrlOf(status), tokenState)
-        return `${parts.join(' · ')}${advertised}`
-      }
+      if (mode !== MODE_AUTO) return configuredAuthority(status) || hostAuthority(wsUrlOf(status))
       const hosts = state.discovered
       if (hosts.length > 0) {
         const row = currentHost(status) ?? hosts[0]
-        parts.push(withProfile(hostAuthority(row.origin), row.profile))
-        if (hosts.length > 1) parts.push(t('hostsFound', { n: hosts.length }))
-        parts.push(tokenState)
-        return `${parts.join(' · ')}${advertised}`
+        const address = withProfile(hostAuthority(row.origin), row.profile)
+        return hosts.length > 1 ? `${address} · ${t('hostsFound', { n: hosts.length })}` : address
       }
-      if (connection === 'connected' || connection === 'open' || connection === 'no-token') {
+      const live = connection === 'connected' || connection === 'open' || connection === 'no-token'
+      if (live) {
         const address = configuredAuthority(status) || hostAuthority(wsUrlOf(status))
-        if (address !== '') {
-          parts.push(address, tokenState)
-          return `${parts.join(' · ')}${advertised}`
-        }
+        if (address !== '') return address
       }
       if (state.failures.length > 0 || connection === 'offline' || connection === 'error') {
-        parts.push(t('noHostFound'))
-        // In auto mode with an explicit address, this is the one place the
-        // address can be shown: no host was discovered to name instead.
         const explicit = configuredAuthority(status)
-        if (explicit !== '') parts.push(explicit)
-        const tried = state.failures.length
-        if (tried > 0) parts.push(`${tried} port${tried === 1 ? '' : 's'} tried`)
-        parts.push(tokenState)
-        return parts.join(' · ')
+        return explicit !== '' ? `${t('noHostFound')} · ${explicit}` : t('noHostFound')
       }
-      parts.push('searching…', tokenState)
-      return parts.join(' · ')
+      return t('searchingHost')
     }
 
     /**
@@ -724,7 +708,14 @@
       if (!state.modeKnown && (status.discoveryMode === MODE_AUTO || status.discoveryMode === MODE_MANUAL)) {
         state.mode = status.discoveryMode
       }
-      if (el['connection-detail'] !== undefined) el['connection-detail'].textContent = connectionDetail(status)
+      if (el['connection-detail'] !== undefined) {
+        const detail = connectionDetail(status)
+        // The line is clamped to one CSS line, so a long address is truncated
+        // on screen; the title carries the whole value for hover and screen
+        // readers.
+        el['connection-detail'].textContent = detail
+        el['connection-detail'].title = detail
+      }
       renderConnectionMode()
       renderDiscovered()
     }
