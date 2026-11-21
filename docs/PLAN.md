@@ -49,8 +49,8 @@ even with no browser connected yet.
   `/ext/anno`, plus `/ext/anno/health`; ping/pong heartbeat and clean shutdown.
 - Append-only JSONL store with in-memory fold, torn-line tolerance, idempotent
   creates, and compaction; screenshots stored through DSH's attachment service.
-- Tools `annotate_list`, `annotate_get`, `annotate_resolve`, `annotate_clear`
-  with JSON Schema output and renderers. The host-side `annotate_pick` core
+- Tools `annotate_list`, `annotate_get`, `annotate_resolve`, `annotate_delete`,
+  `annotate_clear` with JSON Schema output and renderers. The host-side `annotate_pick` core
   exists too, but it only becomes usable once the browser side lands in M2/M3.
 - Unit tests for store and bridge.
 

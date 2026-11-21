@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -86,6 +86,25 @@ test('prune drops entries whose annotation no longer exists', async (t) => {
   )
   const onDisk = JSON.parse(await readFile(join(dir, 'pending-mentions.json'), 'utf8'))
   assert.equal(onDisk.length, 1)
+})
+
+test('a failed save rejects its caller and the next save still reaches disk', async (t) => {
+  const { dir, queue } = await fixture()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  // A directory where the temp file should be makes the write fail once.
+  await mkdir(join(dir, 'pending-mentions.json.tmp'))
+  await assert.rejects(queue.enqueue({ id: 'an-1', sessionId: 's-1', mention: '@[a](dsh-anno:an-1)' }))
+
+  await rm(join(dir, 'pending-mentions.json.tmp'), { recursive: true })
+  await queue.enqueue({ id: 'an-2', sessionId: 's-1', mention: '@[b](dsh-anno:an-2)' })
+  // The failed first entry is still queued in memory, so the recovered write
+  // persists both: a poisoned chain would have written neither.
+  const onDisk = JSON.parse(await readFile(join(dir, 'pending-mentions.json'), 'utf8'))
+  assert.deepEqual(
+    onDisk.map((entry) => entry.id),
+    ['an-1', 'an-2'],
+  )
 })
 
 /** Capture both registered handlers. */
