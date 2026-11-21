@@ -94,7 +94,8 @@ bring-up 验证——加载、service worker、content script、弹窗（popup�
    保持 *Automatic*、地址保持默认 `127.0.0.1` / `3080`；即使宿主端口变
    了，扩展也会自己找到。
 2. 在页面上按 `Alt+Shift+A`：选择文字、点击元素或框选区域，然后按
-   Enter。备注可选——留空时只发送标记本身（按钮显示 **Send mark** /
+   Enter。悬停元素时 `Tab` 逐层扩大到父元素、`Shift+Tab` 逐层收回，点击
+   锁定当前层。备注可选——留空时只发送标记本身（按钮显示 **Send mark** /
    **只发标记**）。
 3. 如果找不到宿主：切到 *Manual* 手输地址——完整 URL（如
    `wss://anno.example.com`）两种模式都支持，不写 scheme 时扩展会询问宿

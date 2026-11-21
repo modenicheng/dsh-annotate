@@ -167,11 +167,31 @@ async function bootContentScript() {
     removeEventListener() {},
   }
 
+  // A three-deep chain for the Tab expansion: `bodyNode` ends the walk the
+  // way a real document's shell does, and `hit` is what `meaningfulAt`
+  // answers with — a test points it wherever its pointer is meant to be.
+  const bodyNode = { nodeType: 1, nodeName: 'BODY', parentElement: null }
+  const mainElement = {
+    nodeType: 1,
+    nodeName: 'MAIN',
+    parentElement: bodyNode,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+  }
+  const sectionElement = {
+    nodeType: 1,
+    nodeName: 'SECTION',
+    parentElement: mainElement,
+    getBoundingClientRect: () => ({ left: 80, top: 0, width: 400, height: 200 }),
+  }
   const element = {
     nodeType: 1,
     nodeName: 'P',
+    parentElement: sectionElement,
     getBoundingClientRect: () => ({ left: 100, top: 40, width: 120, height: 20 }),
   }
+  let hit = element
+  /** Elements the gesture layer asked to capture, in order. */
+  const elementCaptures = []
   // Two line boxes, the shape a two-line selection reports. A test can blank
   // them to model a range the page re-rendered before it could be measured.
   const lineRects = [
@@ -248,8 +268,33 @@ async function bootContentScript() {
           seeked.push({ x, y })
           return caret
         },
-        meaningfulAt: () => element,
-        element: () => ({ anchor: { kind: 'element' }, viewportRect }),
+        meaningfulAt: () => hit,
+        // Mirrors `anchor.js`: one parentElement per level, body ends the walk.
+        ancestorAt(el, level) {
+          let node = el
+          let remaining = Math.max(0, Math.trunc(Number(level) || 0))
+          while (node && remaining > 0) {
+            const parent = node.parentElement
+            if (!parent || parent.nodeName === 'BODY' || parent.nodeName === 'HTML') break
+            node = parent
+            remaining -= 1
+          }
+          return node
+        },
+        stepsTo(node, ancestor) {
+          let current = node
+          let steps = 0
+          while (current) {
+            if (current === ancestor) return steps
+            current = current.parentElement
+            steps += 1
+          }
+          return -1
+        },
+        element: (captured) => {
+          elementCaptures.push(captured)
+          return { anchor: { kind: 'element' }, viewportRect }
+        },
         region: (rect) => ({ anchor: { kind: 'region', pageRect: rect }, viewportRect: rect }),
         selection: (value) => (value && value.isCollapsed ? null : capture(viewportRect)),
         validate: () => [],
@@ -398,6 +443,13 @@ async function bootContentScript() {
     seeked,
     listeners,
     lineRects,
+    elementCaptures,
+    section: sectionElement,
+    main: mainElement,
+    /** Point the fake `elementsFromPoint` at a different deepest element. */
+    pointAt(next) {
+      hit = next
+    },
     /** Scroll the page mid-gesture, the way a wheel event during a drag would. */
     scrollTo(x, y) {
       sandbox.scrollX = x
@@ -763,4 +815,167 @@ test('a hide whose restore never arrives un-hides itself', async () => {
   // The late restore (or a duplicate) must not mis-count on the reset state.
   harness.deliver({ type: 'anno.capture.restore' })
   assert.deepEqual(harness.ui.calls.captureSuppressed, [true, false])
+})
+
+test('Tab widens the outline one ancestor at a time; Shift+Tab comes back down', async () => {
+  const harness = await bootContentScript()
+  harness.ui.calls.hover.length = 0
+
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  assert.deepEqual(
+    { ...harness.ui.calls.hover.at(-1).rect },
+    { x: 100, y: 40, w: 120, h: 20 },
+    'the outline starts on the deepest element',
+  )
+  assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20', 'with no level marker')
+
+  // Tab steps up the chain, and the chip says how far.
+  const first = harness.fire('keydown', { key: 'Tab' })
+  assert.equal(first.defaultPrevented, true, 'the pick owns Tab while a subject is outlined')
+  assert.deepEqual({ ...harness.ui.calls.hover.at(-1).rect }, { x: 80, y: 0, w: 400, h: 200 })
+  assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20 · ↑1')
+
+  harness.fire('keydown', { key: 'Tab' })
+  assert.deepEqual({ ...harness.ui.calls.hover.at(-1).rect }, { x: 0, y: 0, w: 800, h: 600 }, 'second Tab: the wrapper')
+  assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20 · ↑2')
+
+  // Past the outermost wrapper the level just stays put — but the key is still
+  // swallowed, so the browser focus cannot escape the page mid-pick.
+  const top = harness.fire('keydown', { key: 'Tab' })
+  assert.equal(top.defaultPrevented, true)
+  assert.deepEqual({ ...harness.ui.calls.hover.at(-1).rect }, { x: 0, y: 0, w: 800, h: 600 })
+
+  // Shift+Tab walks back down, and stops at the deepest element the same way.
+  harness.fire('keydown', { key: 'Tab', shiftKey: true })
+  assert.deepEqual({ ...harness.ui.calls.hover.at(-1).rect }, { x: 80, y: 0, w: 400, h: 200 })
+  harness.fire('keydown', { key: 'Tab', shiftKey: true })
+  assert.deepEqual({ ...harness.ui.calls.hover.at(-1).rect }, { x: 100, y: 40, w: 120, h: 20 })
+  assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20', 'back at level zero the marker is gone')
+  const bottom = harness.fire('keydown', { key: 'Tab', shiftKey: true })
+  assert.equal(bottom.defaultPrevented, true)
+  assert.deepEqual({ ...harness.ui.calls.hover.at(-1).rect }, { x: 100, y: 40, w: 120, h: 20 })
+})
+
+test('a click locks the widened level, not the deepest element under the crosshair', async () => {
+  const harness = await bootContentScript()
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  harness.fire('keydown', { key: 'Tab' })
+
+  harness.fire('pointerdown', { clientX: 120, clientY: 50 })
+  harness.fire('pointerup', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushTimers()
+  assert.equal(harness.ui.composerOpen, true, 'the click still opens the composer')
+  assert.equal(harness.elementCaptures.at(-1), harness.section, 'the captured element is the widened one')
+})
+
+test('the widened outline survives pointer travel inside it and collapses outside', async () => {
+  const harness = await bootContentScript()
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  harness.fire('keydown', { key: 'Tab' })
+
+  // A different deepest element, still inside the widened subject: the outline
+  // must not flicker to a sibling of the chain the level was taken from.
+  const sibling = {
+    nodeType: 1,
+    nodeName: 'SPAN',
+    parentElement: harness.section,
+    getBoundingClientRect: () => ({ left: 90, top: 10, width: 50, height: 12 }),
+  }
+  harness.pointAt(sibling)
+  harness.fire('pointermove', { clientX: 95, clientY: 15, buttons: 0 })
+  harness.flushFrames()
+  assert.deepEqual(
+    { ...harness.ui.calls.hover.at(-1).rect },
+    { x: 80, y: 0, w: 400, h: 200 },
+    'the subject stays the widened wrapper',
+  )
+  assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20 · ↑1')
+
+  // Outside the subject the level is gone, and Tab widens the new chain.
+  const stranger = {
+    nodeType: 1,
+    nodeName: 'ASIDE',
+    parentElement: harness.main,
+    getBoundingClientRect: () => ({ left: 10, top: 300, width: 60, height: 40 }),
+  }
+  harness.pointAt(stranger)
+  harness.fire('pointermove', { clientX: 20, clientY: 310, buttons: 0 })
+  harness.flushFrames()
+  assert.deepEqual({ ...harness.ui.calls.hover.at(-1).rect }, { x: 10, y: 300, w: 60, h: 40 })
+  assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20', 'no marker: the chain restarted')
+
+  harness.fire('keydown', { key: 'Tab' })
+  assert.deepEqual(
+    { ...harness.ui.calls.hover.at(-1).rect },
+    { x: 0, y: 0, w: 800, h: 600 },
+    'Tab widens from the new chain',
+  )
+})
+
+test('a new mark starts at the deepest element again after one was sent', async () => {
+  const harness = await bootContentScript()
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  harness.fire('keydown', { key: 'Tab' })
+  harness.fire('pointerdown', { clientX: 120, clientY: 50 })
+  harness.fire('pointerup', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushTimers()
+  harness.ui.handlers.onCancel('escape')
+
+  // Same spot, same deepest element: the previous level must not leak in.
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  assert.deepEqual(
+    { ...harness.ui.calls.hover.at(-1).rect },
+    { x: 100, y: 40, w: 120, h: 20 },
+    'the level died with the mark it belonged to',
+  )
+})
+
+test('Tab keeps serving the composer card while it is open', async () => {
+  const harness = await bootContentScript()
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  harness.fire('pointerdown', { clientX: 120, clientY: 50 })
+  harness.fire('pointerup', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushTimers()
+  assert.equal(harness.ui.composerOpen, true)
+
+  // The card's own focus cycle needs Tab; the gesture layer must let it go.
+  const tab = harness.fire('keydown', { key: 'Tab' })
+  assert.equal(tab.defaultPrevented, false)
+  const shrink = harness.fire('keydown', { key: 'Tab', shiftKey: true })
+  assert.equal(shrink.defaultPrevented, false)
+})
+
+test('Tab is left alone when no element is outlined', async () => {
+  const harness = await bootContentScript()
+  harness.pointAt(null)
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  assert.equal(harness.ui.calls.hover.at(-1), null)
+
+  const tab = harness.fire('keydown', { key: 'Tab' })
+  assert.equal(tab.defaultPrevented, false, 'the browser keeps Tab when there is nothing to widen')
+})
+
+test('Shift+Tab stands the text-selection drop down instead of drawing both guides', async () => {
+  const harness = await bootContentScript()
+  harness.fire('pointermove', { clientX: 120, clientY: 50, buttons: 0 })
+  harness.flushFrames()
+  harness.fire('keydown', { key: 'Tab' })
+  harness.fire('keydown', { key: 'Shift', shiftKey: true })
+  assert.deepEqual(harness.ui.calls.shiftDrop.at(-1), { x: 120, y: 50 }, 'Shift arms the drop first')
+
+  harness.fire('keydown', { key: 'Tab', shiftKey: true })
+  assert.deepEqual(
+    { ...harness.ui.calls.hover.at(-1).rect },
+    { x: 100, y: 40, w: 120, h: 20 },
+    'Shift+Tab narrows from the armed pointer position',
+  )
+  assert.equal(harness.ui.calls.shiftDrop.at(-1), null, 'the drop leaves: element picking won the pointer')
+  assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20', 'back at the deepest element, no marker')
 })
