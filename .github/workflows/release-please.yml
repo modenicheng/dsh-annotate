@@ -55,4 +55,7 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
     permissions:
+      # Job-level permissions replace the workflow-level grant entirely, so
+      # everything the called workflow's jobs declare must be repeated here.
       contents: write
+      id-token: write
