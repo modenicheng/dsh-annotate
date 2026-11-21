@@ -583,7 +583,7 @@
 .badge[data-pending="1"] { opacity: 0.6; }
 .badge-card-text { white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: auto; }
 .badge-card-note { margin-top: 6px; color: #86efac; white-space: pre-wrap; word-break: break-word; }
-toast {
+.toast {
   position: fixed;
   z-index: 11;
   bottom: 20px;
