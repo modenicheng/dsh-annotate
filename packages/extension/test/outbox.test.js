@@ -46,7 +46,7 @@ async function loadOutbox(options = {}) {
               quotaFailures -= 1
               throw new Error('QUOTA_BYTES exceeded')
             }
-            for (const [key, value] of Object.entries(bag)) {
+            for (const [, value] of Object.entries(bag)) {
               stored = value
               writes.push(JSON.parse(JSON.stringify(value)))
             }
@@ -65,7 +65,7 @@ async function loadOutbox(options = {}) {
     isPlainObject: (value) => value !== null && typeof value === 'object' && !Array.isArray(value),
     // `load()` is the only reader; it wants the stored array, whatever it is.
     storageGet: async () => stored,
-    storageSet: async (key, value) => {
+    storageSet: async (_key, value) => {
       stored = value
     },
     publishStatus() {
