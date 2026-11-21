@@ -1,0 +1,36 @@
+# git-cliff reads the release notes straight off the Conventional Commits log,
+# grouped the way a reader scans a release. Only this repository's own types
+# are mapped; anything unmapped lands in "Other" so nothing silently drops
+# from a release body. The Full Changelog compare link is appended by the
+# workflow, not here, so the same template also works for a first release.
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}\
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}\
+{{ commit.message | upper_first }}{% if commit.breaking %} **(breaking)**{% endif %} ({{ commit.id | truncate(length=7, end="") }})
+{% endfor %}
+{% endfor %}\
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+tag_pattern = "v[0-9].*"
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^revert", group = "Reverts" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^ci", group = "CI" },
+  { message = "^refactor", group = "Internal" },
+  { message = "^chore", group = "Internal" },
+  { message = "^test", group = "Internal" },
+  { message = ".*", group = "Other" },
+]

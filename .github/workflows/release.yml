@@ -248,6 +248,33 @@ jobs:
           npm pack ./packages/plugin --pack-destination "$assets"
           (cd "$assets" && sha256sum ./*.tgz ./*.zip > checksums.txt && cat checksums.txt)
 
+      # GitHub's --generate-notes only categorises merged pull requests, and
+      # this repository commits to main directly, so it produced nothing but a
+      # compare link (v0.1.4's draft shipped that way). The commits are strict
+      # Conventional Commits, so git-cliff reads the notes off the log using
+      # cliff.toml; the compare link is appended here so a first release works
+      # too. A first release with no earlier tag falls back to
+      # --generate-notes rather than inventing a range.
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2
+
+      - name: Write the release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          previous="$(git describe --tags --match 'v*' --abbrev=0 "$GITHUB_REF_NAME^1" 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            repo_url="$(git remote get-url origin | sed -e 's|^git@github.com:|https://github.com/|' -e 's|\.git$||')"
+            git-cliff --config cliff.toml --latest --strip all > "$RUNNER_TEMP/release-notes.md"
+            printf '\n**Full Changelog**: %s/compare/%s...%s\n' "$repo_url" "$previous" "$GITHUB_REF_NAME" >> "$RUNNER_TEMP/release-notes.md"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" --jq .body > "$RUNNER_TEMP/release-notes.md"
+          fi
+          cat "$RUNNER_TEMP/release-notes.md"
+
       - name: Open a draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -258,7 +285,7 @@ jobs:
             --draft \
             --verify-tag \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt
 
   publish:
@@ -434,10 +461,11 @@ jobs:
   #   EDGE_CLIENT_ID, EDGE_API_KEY        Partner Center Publish API (TODO, not wired)
   #   vars.EDGE_PUBLISH                   'true' enables the Edge TODO step
   #
-  # No new third-party action is introduced here: checkout/setup-node/
-  # pnpm-action are reused at the same major tags as the jobs above. Pinning
-  # every action to a commit SHA is a repo-wide change (§4.8), not something to
-  # do for one job only.
+  # One third-party action beyond checkout/setup-node/pnpm-action is allowed:
+  # taiki-e/install-action, which installs git-cliff for the draft release
+  # notes (cliff.toml). It is pinned to a major tag, like the actions above.
+  # Pinning every action to a commit SHA is a repo-wide change (§4.8), not
+  # something to do for one job only.
   # ---------------------------------------------------------------------------
   stores:
     name: build store artifacts and submit
