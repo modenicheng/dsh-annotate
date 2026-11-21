@@ -1,3 +1,5 @@
+![dsh-marker：把日常浏览器里的页面标注变成 DeepSeek Harness 的一等上下文](docs/assets/banner.zh-CN.svg)
+
 # dsh-marker
 
 [![CI](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml/badge.svg)](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml)

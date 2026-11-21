@@ -1,3 +1,5 @@
+![dsh-marker: visual browser annotations as first-class context for DeepSeek Harness](docs/assets/banner.svg)
+
 # dsh-marker
 
 [![CI](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml/badge.svg)](https://github.com/modenicheng/dsh-annotate/actions/workflows/ci.yml)
