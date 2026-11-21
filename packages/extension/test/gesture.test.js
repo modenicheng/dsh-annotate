@@ -214,6 +214,8 @@ async function bootContentScript() {
     live: null,
   })
 
+  /** Storage changes the popup would broadcast; tests drive it directly. */
+  let onStorageChanged = null
   const sandbox = {
     console: { log() {}, info() {}, warn() {}, error() {} },
     location: { protocol: 'http:', href: 'http://127.0.0.1/harness' },
@@ -255,7 +257,11 @@ async function bootContentScript() {
       },
       storage: {
         local: { get: () => Promise.resolve({}), set: () => Promise.resolve(undefined) },
-        onChanged: { addListener() {} },
+        onChanged: {
+          addListener(listener) {
+            onStorageChanged = listener
+          },
+        },
       },
     },
     __DSH_PROTOCOL__: {
@@ -432,8 +438,16 @@ async function bootContentScript() {
 
   fire('keydown', { key: 'a', code: 'KeyA', altKey: true, shiftKey: true })
 
+  /** Deliver one `anno.prefs` change, the way the popup's storage write does. */
+  function setPrefs(prefs) {
+    if (typeof onStorageChanged === 'function') {
+      onStorageChanged({ 'anno.prefs': { newValue: prefs } }, 'local')
+    }
+  }
+
   return {
     fire,
+    setPrefs,
     flushTimers,
     flushFrames,
     records,
@@ -999,4 +1013,13 @@ test('a right click inside the open composer keeps the mode and the menu', async
   const event = harness.fire('contextmenu', {})
   assert.equal(event.defaultPrevented, false, 'the textarea keeps its paste menu')
   assert.equal(harness.ui.calls.hud.length, 0, 'the mode was not left')
+})
+
+test('right-click exit can be turned off in the preferences', async () => {
+  const harness = await bootContentScript()
+  harness.setPrefs({ exitOnRightClick: false })
+  harness.ui.calls.hud.length = 0
+  const event = harness.fire('contextmenu', {})
+  assert.equal(event.defaultPrevented, false, 'the page context menu is left alone')
+  assert.equal(harness.ui.calls.hud.length, 0, 'the mode stays')
 })

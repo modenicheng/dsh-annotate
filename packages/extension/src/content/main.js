@@ -108,6 +108,8 @@
     launcher: true,
     /** Leave annotation mode after a successful send (pref, default off). */
     exitAfterSend: false,
+    /** Leave annotation mode on a page right-click (pref, default on). */
+    exitOnRightClick: true,
     consoleErrors: [],
     observer: null,
     scheduler: null,
@@ -1627,6 +1629,7 @@
    */
   function onContextMenu(event) {
     if (!state.active || !ui) return
+    if (!state.exitOnRightClick) return
     if (ns.text.isOurs(event.target)) return
     if (ui.isComposerOpen()) return
     event.preventDefault()
@@ -1815,6 +1818,7 @@
         : SHORTCUT_DEFAULT
     state.launcher = !prefs || prefs.launcher !== false
     state.exitAfterSend = prefs?.exitAfterSend === true
+    state.exitOnRightClick = prefs?.exitOnRightClick !== false
     syncLauncher()
   }
 

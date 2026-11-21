@@ -145,6 +145,7 @@
       launcherHint: 'A compact corner button starts annotation mode. Screenshots still need the toolbar or shortcut.',
       exitAfterSendLabel: 'Exit annotate mode after sending',
       exitAfterSendHint: 'Off by default: staying in the mode lets you mark several things in a row.',
+      exitOnRightClickLabel: 'Right-click leaves annotate mode',
       annotateStale:
         'The background did not answer: this popup is newer than the loaded extension. Reload it in about:debugging, refresh the page, and try again.',
       annotateNow: 'Annotate this page',
@@ -287,6 +288,7 @@
       launcherHint: '角落里一个紧凑按钮用于进入批注模式。截图仍需要工具栏或快捷键触发。',
       exitAfterSendLabel: '发送后退出批注模式',
       exitAfterSendHint: '默认关闭：保持模式便于连续标注多处。',
+      exitOnRightClickLabel: '右键退出批注模式',
       annotateStale: '后台没有响应：弹窗比当前加载的扩展更新。请在 about:debugging 里重载扩展、刷新页面后再试。',
       annotateNow: '标注当前页面',
       annotateReady: '已进入批注模式，按 Esc 退出。',

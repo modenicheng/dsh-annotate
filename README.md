@@ -107,7 +107,8 @@ What the extension reads, where it sends it and what it keeps locally is
    and `Shift+Tab` steps back down; the click locks whatever level is outlined.
    The comment is optional — with an empty one the mark is sent on its own (the
    button reads **Send mark** / **只发标记**). A right-click on the page leaves
-   annotation mode; inside the composer the browser's own text menu wins.
+   annotation mode (this can be turned off in the popup); inside the composer
+   the browser's own text menu wins.
 3. If the host cannot be found: switch to *Manual* and type the address — a
    full URL such as `wss://anno.example.com` works, and with no scheme the
    extension asks the host which one to use — or use **Import endpoint file…**
@@ -116,7 +117,8 @@ What the extension reads, where it sends it and what it keeps locally is
 
 The popup's **Annotate** section also updates the browser command, which is what
 keeps the screenshot's `activeTab` grant working, can hide the corner launcher,
-and can make a successful send leave the mode (off by default). The popup
+can make a successful send leave the mode (off by default), and can turn the
+right-click exit off. The popup
 follows the browser UI language (English and Simplified Chinese ship today).
 If **Annotate this page** reports that the background did not answer, the popup
 is newer than the extension loaded in this browser session: click **Reload** in

@@ -89,6 +89,8 @@
     launcher: true,
     /** Leave annotation mode after a successful send (off by default). */
     exitAfterSend: false,
+    /** Leave annotation mode on a page right-click (on by default). */
+    exitOnRightClick: true,
     /** True while the shortcut button is waiting for a recorded combination. */
     recording: false,
     /** Background lifecycle lines, newest last; shown by the diagnostics panel. */
@@ -188,6 +190,7 @@
       'shortcut-reset',
       'launcher-toggle',
       'exit-after-send',
+      'exit-on-right-click',
       'annotate',
       'diagnostics-log',
       'diagnostics-refresh',
@@ -210,6 +213,9 @@
     if (el['launcher-toggle'] !== undefined) el['launcher-toggle'].addEventListener('change', () => void saveLauncher())
     if (el['exit-after-send'] !== undefined) {
       el['exit-after-send'].addEventListener('change', () => void saveExitAfterSend())
+    }
+    if (el['exit-on-right-click'] !== undefined) {
+      el['exit-on-right-click'].addEventListener('change', () => void saveExitOnRightClick())
     }
     if (el.annotate !== undefined) el.annotate.addEventListener('click', () => void annotateCurrentPage())
     if (el['diagnostics-refresh'] !== undefined) {
@@ -305,8 +311,10 @@
     state.shortcut = SHORTCUT === undefined ? 'Alt+Shift+A' : SHORTCUT.normalize(prefs?.shortcut) || SHORTCUT.DEFAULT
     state.launcher = prefs?.launcher !== false
     state.exitAfterSend = prefs?.exitAfterSend === true
+    state.exitOnRightClick = prefs?.exitOnRightClick !== false
     if (el['launcher-toggle'] !== undefined) el['launcher-toggle'].checked = state.launcher
     if (el['exit-after-send'] !== undefined) el['exit-after-send'].checked = state.exitAfterSend
+    if (el['exit-on-right-click'] !== undefined) el['exit-on-right-click'].checked = state.exitOnRightClick
     updateShortcutButton()
     // The panel owns the mode radios and their hint: it adopts a stored choice
     // and otherwise leaves its current paint (the default) alone.
@@ -515,6 +523,11 @@
   async function saveExitAfterSend() {
     state.exitAfterSend = el['exit-after-send'] === undefined ? false : el['exit-after-send'].checked
     await savePrefsPatch({ exitAfterSend: state.exitAfterSend })
+  }
+
+  async function saveExitOnRightClick() {
+    state.exitOnRightClick = el['exit-on-right-click'] === undefined ? true : el['exit-on-right-click'].checked
+    await savePrefsPatch({ exitOnRightClick: state.exitOnRightClick })
   }
 
   /**

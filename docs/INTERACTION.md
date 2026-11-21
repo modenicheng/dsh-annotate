@@ -19,9 +19,10 @@ DSH client half) can be built against one description instead of drifting.
    outline on it, moving out restarts at the deepest element, and the click
    locks whatever level is outlined. An open composer keeps `Tab` for its own
    focus cycle, so the keys only act while picking. A right-click on the page
-   leaves the mode (the composer keeps the browser's text menu), and a
-   preference can make a successful send leave it as well; both only run after
-   the annotation was acknowledged, so they never discard a draft.
+   leaves the mode by default (a preference can turn that off, and the composer
+   keeps the browser's text menu), and another preference can make a successful
+   send leave it as well; both only run after the annotation was acknowledged,
+   so they never discard a draft.
 4. The composer shows a **target**: the Session the annotation will join.
    Default is the Session the user is currently looking at in the DSH window.
 5. Submitting stores the annotation and leaves a **reference** in that Session's
