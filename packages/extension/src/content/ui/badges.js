@@ -161,6 +161,9 @@
       // was marked rather than saying nothing happened.
       card.appendChild(createElement('div', 'badge-card-text', item.comment || item.summary || t('noComment')))
       if (item.note) card.appendChild(createElement('div', 'badge-card-note', `${t('agentNote')}: ${item.note}`))
+      // Where the annotation went: the workspace/session its mention was
+      // queued for. Absent when the record never named a target.
+      if (item.target) card.appendChild(createElement('div', 'badge-card-target', `${t('sentTo')}: ${item.target}`))
 
       node.appendChild(card)
       const entry = { item, node, card, del }
@@ -224,7 +227,7 @@
     function setBadges(items) {
       const list = Array.isArray(items) ? items : []
       const signature = list
-        .map((item) => `${item.id}:${item.index}:${item.state}:${item.comment}:${item.note}`)
+        .map((item) => `${item.id}:${item.index}:${item.state}:${item.comment}:${item.note}:${item.target || ''}`)
         .join('|')
       state.badgeItems = list
       if (signature !== state.badgeSignature) {

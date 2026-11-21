@@ -105,6 +105,10 @@
     newSessionChoice: null,
     /** Session the annotation is queued for; empty until the catalog answers. */
     targetId: '',
+    /** sessionId → "workspace · title" for the hover cards; the catalog fills it. */
+    targetLabels: new Map(),
+    /** True once the catalog was asked for those labels, so boot asks once. */
+    targetLabelsRequested: false,
     hookInstalled: false,
     booted: false,
     counts: { total: 0, resolved: 0 },
@@ -396,6 +400,7 @@
       withObserverPaused(() => ns.hydrate.applyMarks(placementsOf(items)))
       state.markedSignature = signature
     }
+    ensureTargetLabels()
   }
 
   /**
@@ -418,6 +423,7 @@
         summary: summaryOf(record.anchor),
         note: record.resolution && typeof record.resolution.note === 'string' ? record.resolution.note : '',
         kind: record.anchor && record.anchor.kind ? record.anchor.kind : '',
+        target: targetLabelOf(record),
       })
     }
     return items
@@ -829,6 +835,53 @@
   }
 
   /**
+   * The label a hover card names a routed Session with: "workspace · title"
+   * when the catalog knows it, the short id when it does not (the Session can
+   * be gone or younger than the catalog's cache), and '' for a record that
+   * never named a target.
+   * @param {any} record
+   */
+  function targetLabelOf(record) {
+    const routing = record && record.routing
+    const id = routing && typeof routing.sessionId === 'string' ? routing.sessionId : ''
+    if (id === '') return ''
+    const known = state.targetLabels.get(id)
+    if (known) return known
+    const short = id.replace(/^session-/, '').slice(0, 8)
+    return `${t('sentToSession')} ${short}`
+  }
+
+  /**
+   * Rebuild the hover-card labels from the catalog the Host just answered with.
+   * @param {any[]} items
+   */
+  function setTargetLabels(items) {
+    const map = new Map()
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item || typeof item.id !== 'string' || item.id === '') continue
+      const workspace = typeof item.workspace === 'object' && item.workspace !== null ? item.workspace : null
+      const name = String((workspace && workspace.title) || '').trim()
+      const title = String(item.title || '').trim()
+      map.set(item.id, name === '' ? title : title === '' ? name : `${name} · ${title}`)
+    }
+    state.targetLabels = map
+  }
+
+  /**
+   * Fill the hover-card labels once per page, as soon as there is a record that
+   * names a Session: a card opened before the user ever touches the composer
+   * would otherwise fall back to a short id. The composer's own refresh will
+   * pick up a later catalog change anyway.
+   */
+  function ensureTargetLabels() {
+    if (state.targetLabelsRequested) return
+    if (state.records.size === 0) return
+    if (state.targetLabels.size > 0) return
+    state.targetLabelsRequested = true
+    void loadTargets()
+  }
+
+  /**
    * Refresh the Session catalog behind the composer's target picker. The Host
    * owns the list; a failure here must not block writing the annotation.
    * @param {boolean} [force]
@@ -847,12 +900,17 @@
           return
         }
         ui.setNewSessionAvailable(true)
+        setTargetLabels(reply.items)
         ui.setTargets(
           Array.isArray(reply.items) ? reply.items : [],
           reply.defaultSessionId || '',
           '',
           Array.isArray(reply.workspaces) ? reply.workspaces : [],
         )
+        // Cards opened before the catalog answered show short ids; repaint them
+        // with the names the catalog just supplied. Only the badges change, so
+        // the page's highlights are left alone.
+        ui.setBadges(badgeItems())
       },
       (error) => {
         failed(String(error && error.message ? error.message : error))
