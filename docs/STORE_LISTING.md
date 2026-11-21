@@ -664,13 +664,84 @@ upload its output.
 
 ### 8.6 Privacy
 
-| Section | Paste |
+Edge asks for the single purpose plus one justification field per permission in the uploaded
+manifest. Paste from here, not from §2: the `alarms` block is different because Edge clamps alarms at
+30 seconds and the §2 wording names Firefox.
+
+| Section | Answer |
 |---|---|
-| Single Purpose | §2 Single purpose |
-| Permission justification | §2, one block per permission Edge lists (`storage`, `alarms`, `tabs`, `activeTab`, `scripting`, and the `<all_urls>` host permission) |
 | Are you using remote code? | No |
 | Data usage | No data types selected; nothing is sent to the developer or a third party. Page content and the cropped screenshot go only to a host on the same machine. |
 | Privacy policy URL | §3 (the Edge edition) |
+
+#### Single purpose description (232 characters)
+
+```
+dsh-marker has one purpose: turn a text selection, an element, or a region of the current page into a
+structured annotation with a cropped screenshot, and deliver it to a DeepSeek Harness instance the
+user runs on the same computer.
+```
+
+#### `storage justification`
+
+```
+Stores the bridge token the user pastes once, the host address and connection preferences, the queue
+of unsent annotations, and the last connection status, in browser.storage.local. The queue holds at
+most 40 marks with their crops; it is written before sending and cleared only when the DSH host
+acknowledges the mark, so an annotation written before a tab closes or the background page is
+suspended is not lost. No other storage area is used.
+```
+
+#### `alarms justification`
+
+```
+Creates exactly one repeating alarm. Microsoft Edge clamps alarm periods to 30 seconds, so it fires
+once a minute and only reconnects and refreshes the connection; a 20-second WebSocket ping is what
+keeps the service worker alive while the user is connected. No other alarm is created, and nothing is
+scheduled or tracked for any other purpose.
+```
+
+#### `tabs justification`
+
+```
+Reads the URL and title of open tabs to deliver each annotation event to the tab whose document owns
+it, to refresh the numbered badges on the right pages, to choose which tab shows a pick request from
+the agent, and to show the current page in the popup. A mark's screenshot calls tabs.get and
+tabs.captureVisibleTab on the tab the user is on. Page content is never read through this
+permission; text and DOM come from the content script.
+```
+
+#### `activeTab justification`
+
+```
+Grants access to the tab the user is looking at after they invoke the extension: the Alt+Shift+A
+shortcut, the toolbar button, or the popup. That grant is what makes the captureVisibleTab call that
+produces a mark's screenshot legal, and what lets the popup inject the annotation overlay into a page
+that has no content script yet. No screenshot is taken except for a mark, and no page is captured
+without the user's own invocation.
+```
+
+#### `scripting justification`
+
+```
+Injects the extension's own content-script files into the tab the user invoked, when that tab was
+already open before the extension was installed or updated and therefore has no annotation overlay.
+The file list comes from the manifest's content_scripts array; there is no remote code and no
+user-supplied script. Injection is attempted only after a message to that tab found no content
+script, and at most once a minute per tab.
+```
+
+#### Host permission justification
+
+```
+The content script is declared for <all_urls> so the annotation overlay is available on any page the
+user chooses to mark; it reads page text only for the mark being made, or to keep marks already
+stored for that page in place. It does not run on about:, extension pages, the PDF viewer,
+view-source: or data: URLs. The overlay and the numbered marks are DOM nodes the extension adds to
+the page, which is the "change" half of the permission. The host permissions also name
+127.0.0.1 and localhost only, which is where the local DSH bridge listens; no other origin is
+reachable.
+```
 
 The justifications are read from the uploaded manifest, so a permission that appears without a
 justification is a form error, not a later review surprise.
