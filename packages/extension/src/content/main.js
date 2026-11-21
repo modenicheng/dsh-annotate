@@ -639,14 +639,15 @@
     if (!state.active) {
       state.active = true
       ui.setHud({ visible: true, mode: activeMode(), connected: state.connected })
-      // The marks already on the page move from the text itself to the overlay:
-      // the page may not carry our nodes while a capture is reading it. They are
-      // re-resolved from scratch because unwrapping the page marks normalizes
-      // the text under them, which leaves the cached ranges pointing at nodes
-      // that no longer exist.
-      refreshRecords({ mode: 'all' })
-      // A selection made before activation goes straight to the composer.
+      // A selection made before activation goes straight to the composer. It is
+      // read *before* the repaint below: leaving annotation mode is what makes
+      // the page carry our `<mark>` elements, and re-resolving here unwraps them
+      // (a normalize that merges the text nodes under a live Selection), so a
+      // capture taken afterwards would describe a different run of text.
       if (!config.skipSelection) captureExistingSelection()
+      // The marks already on the page move from the text itself to the overlay:
+      // the page may not carry our nodes while a capture is reading it.
+      refreshRecords({ mode: 'all' })
     } else {
       syncHud()
     }
@@ -776,7 +777,10 @@
     // says nothing about which words were picked — and the composer's own focus
     // takes the browser's selection highlight away the moment it opens.
     const lines = anchorState.anchor.kind === 'selection' ? selectionLines(anchorState.lineRects, rect) : null
-    ui.setLocked(ns.geom.roundRect(rect), summaryOf(anchorState.anchor), 'composer', null, lines)
+    // An element or a region is outlined by its page rect, so scrolling keeps the
+    // outline on the subject; a marked text is outlined by its lines instead.
+    const subject = anchorState.anchor.rect || anchorState.anchor.pageRect || null
+    ui.setLocked(ns.geom.roundRect(rect), summaryOf(anchorState.anchor), 'composer', subject, lines)
     ui.openComposer({
       kind: anchorState.anchor.kind,
       summary: summaryOf(anchorState.anchor),
@@ -1444,6 +1448,12 @@
     if (ui) ui.setHidden(value)
     if (value) {
       withObserverPaused(() => ns.hydrate.clearMarks())
+      state.placements.clear()
+      state.markedSignature = ''
+      // A composer left open behind a hidden layer would keep floating over the
+      // page with no outline to anchor it; the draft is abandoned with the mode.
+      clearAnchor()
+      if (ui && ui.isComposerOpen()) ui.closeComposer()
       if (ui) {
         ui.setBadges([])
         ui.setMarkBands([])
@@ -1463,8 +1473,10 @@
         if (!prefs || typeof prefs !== 'object') return
         state.prefs = prefs
         if (prefs.hidden === true) {
-          state.hidden = true
-          if (ui) ui.setHidden(true)
+          // The single path that hides the layer also drops the page's marks:
+          // setting `state.hidden` here would short-circuit applyHidden and leave
+          // highlights painted on a page that now has no HUD to clear them.
+          applyHidden(true, false)
         }
       })
       .catch(() => undefined)
