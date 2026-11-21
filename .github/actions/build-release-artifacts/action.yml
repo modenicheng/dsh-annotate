@@ -1,0 +1,181 @@
+name: 'Build and draft the release'
+description: >
+  Phase 1 of the release pipeline (docs/DISTRIBUTION.md §4.3): run the CI gate
+  on the tag, build both store zips and the npm tarball once, checksum every
+  asset, and attach them to the DRAFT release. This action never touches a
+  registry or a store; the Publish click on the draft is the human gate. The
+  caller has already verified the tag names the package version and is an
+  ancestor of main, and has installed the toolchain
+  (.github/actions/toolchain).
+
+  The normal path arrives from release-please: it merged the Release PR,
+  tagged vX.Y.Z, and opened the draft release with the changelog as its body,
+  so this action attaches to that draft and never rewrites its notes. A
+  hand-pushed tag has no release-please draft, and the action opens one with
+  generated notes as the fallback.
+
+inputs:
+  version:
+    description: The package version the tag was verified to name.
+    required: true
+  tag:
+    description: The release tag being built; names the draft to attach to.
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    # The same gate the CI job runs. A tag can point at any commit, so the
+    # checks are repeated here rather than assumed from the branch.
+    - name: Check generated protocol copies
+      shell: bash
+      run: node scripts/check-sync.mjs
+
+    - name: Check JavaScript syntax
+      shell: bash
+      run: node scripts/check-syntax.mjs
+
+    - name: Run unit tests
+      shell: bash
+      run: node --test "packages/*/test/*.test.js"
+
+    - name: Validate the extension manifest
+      shell: bash
+      run: node scripts/check-manifest.mjs
+
+    - name: Check the icons match their geometry
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f scripts/build-icons.mjs ]; then
+          echo "::error::scripts/build-icons.mjs is missing from this tag; the icons in the store artifact cannot be verified"
+          exit 1
+        fi
+        node scripts/build-icons.mjs --check
+
+    # Both store targets are built here, once. The submit lanes download these
+    # exact bytes and submit them; nothing ever rebuilds (§4.9). A tag can
+    # point at any commit, so the build is validated from the generated
+    # directories, not from the source tree (§4.10).
+    - name: Build the extension targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        node scripts/build-extension.mjs
+        for target in firefox chromium; do
+          if [ ! -f "dist/$target/manifest.json" ]; then
+            echo "::error::node scripts/build-extension.mjs did not write dist/$target/manifest.json; refusing to attach an unverified artifact"
+            exit 1
+          fi
+        done
+
+    - name: Validate the built manifests
+      shell: bash
+      run: |
+        set -euo pipefail
+        node scripts/check-manifest.mjs dist/firefox
+        node scripts/check-manifest.mjs dist/chromium
+
+    - name: Read the artifact versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        ff_version="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
+        cr_version="$(node -p "String(require('./dist/chromium/manifest.json').version ?? '')")"
+        product_version="${{ inputs.version }}"
+        if [ -z "$ff_version" ] || [ -z "$cr_version" ]; then
+          echo "::error::a built manifest declares no version"
+          exit 1
+        fi
+        # D16/§4.2: a store receives finals only. Chrome accepts one to four
+        # dot-separated integers and nothing else; AMO keeps a monotonic
+        # sequence per add-on ID, so a prerelease number would outrank the
+        # final forever.
+        if ! printf '%s' "$ff_version" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
+          echo "::error::dist/firefox/manifest.json version '$ff_version' is not numeric; D16 keeps prereleases off the stores"
+          exit 1
+        fi
+        if ! printf '%s' "$cr_version" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
+          echo "::error::dist/chromium/manifest.json version '$cr_version' is not 1-4 dot-separated integers; CWS rejects it (D16/§4.2)"
+          exit 1
+        fi
+        # §4.1: one product version. The artifacts are still attached so a
+        # human can inspect them, and this warning is the last chance to
+        # notice before Publish; the verify job refuses the mismatch for
+        # every lane at once once the release is published.
+        if [ "$ff_version" != "$product_version" ] || [ "$cr_version" != "$product_version" ]; then
+          echo "::warning::the artifacts carry version $ff_version/$cr_version but the release is v$product_version. §4.1 wants them bumped atomically; the verify job will refuse to submit them."
+        fi
+
+    # The zips sit at the root of each archive, which is what both stores
+    # expect. `-X` drops extra file attributes; there is no bundler (D1).
+    - name: Package the store zips
+      shell: bash
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        version="${{ inputs.version }}"
+        # §4.4: package.json, amo-metadata.json and test/ must not ship.
+        # build-extension.mjs skips their contents and can leave an empty
+        # test/ directory behind; drop that, and stop loudly if any of them
+        # would actually end up in a target.
+        for target in firefox chromium; do
+          for stray in package.json amo-metadata.json; do
+            if [ -e "dist/$target/$stray" ]; then
+              echo "::error::dist/$target/$stray must not be packaged (§4.4)"
+              exit 1
+            fi
+          done
+          if [ -d "dist/$target/test" ]; then
+            if ! rmdir "dist/$target/test" 2>/dev/null; then
+              echo "::error::dist/$target/test still contains files; the store artifact must exclude test/ (§4.4)"
+              exit 1
+            fi
+          fi
+        done
+        rm -rf "$assets"
+        mkdir -p "$assets"
+        (cd dist/firefox && zip -q -r -X "$assets/dsh-marker-firefox-$version.zip" .)
+        (cd dist/chromium && zip -q -r -X "$assets/dsh-marker-chromium-$version.zip" .)
+        ls -l "$assets"
+
+    # Pack once, here. The npm lane publishes this exact tarball instead of
+    # packing again, so the release asset and the registry entry are provably
+    # the same bytes. The checksum file covers every asset the draft carries,
+    # so a manual store upload can verify the zip against the same file.
+    - name: Pack the bundle and checksum every asset
+      shell: bash
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        npm pack ./packages/plugin --pack-destination "$assets"
+        (cd "$assets" && sha256sum ./*.tgz ./*.zip > checksums.txt && cat checksums.txt)
+
+    # release-please opened the draft release — with the changelog as its
+    # body — before this job ran; attach the built artifacts to it. A
+    # hand-pushed tag has no release-please draft, so fall back to opening
+    # one with generated notes. Either way the release stays a draft until a
+    # human publishes it.
+    - name: Attach the artifacts to the draft release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        for attempt in 1 2 3 4 5 6; do
+          if gh release view "$TAG" >/dev/null 2>&1; then break; fi
+          echo "attempt $attempt: the release for $TAG is not visible yet"
+          sleep 10
+        done
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          gh release upload "$TAG" "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt --clobber
+        else
+          gh release create "$TAG" \
+            --draft \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            "$assets"/*.tgz "$assets"/*.zip "$assets"/checksums.txt
+        fi

@@ -1,0 +1,191 @@
+name: 'Submit to AMO (listed)'
+description: >
+  The AMO lane (docs/DISTRIBUTION.md §4.6): download the Firefox zip the
+  draft attached, prove it is the checksummed bytes, and submit it for review
+  with web-ext sign --channel listed using packages/extension/amo-metadata.json
+  for the listing. A listed upload is a submission for review, not a
+  publication: this lane reports "submitted, pending review" and never
+  "live"; the only unambiguous success is web-ext returning a signed XPI,
+  which is attached to the release when it does. The caller (the amo job in
+  release.yml) provides AMO_JWT_ISSUER, AMO_JWT_SECRET and GH_TOKEN in its
+  environment, and the verify job's outputs as inputs.
+
+  The listing metadata must be in the AMO v5 wire format: `categories` is an
+  object keyed by application slug with valid category slugs (the list is
+  https://addons.mozilla.org/api/v5/addons/categories/), and `homepage` /
+  `support_url` are {lang-code: value} objects. v0.1.4 failed its submission
+  with "Invalid category name" and "You must provide an object of
+  {lang-code:value}" because those three fields were plain strings — keep
+  amo-metadata.json in that shape.
+
+inputs:
+  tag:
+    description: The release tag whose Firefox zip is being submitted.
+    required: true
+  version:
+    description: The product version the verify job read from the tag.
+    required: true
+  firefox_version:
+    description: The version inside the released Firefox zip.
+    required: true
+  addon_id:
+    description: The gecko add-on id inside the released Firefox zip.
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+
+    - name: Refuse a version mismatch or a missing add-on id
+      shell: bash
+      env:
+        ADDON_ID: ${{ inputs.addon_id }}
+        FF_VERSION: ${{ inputs.firefox_version }}
+        PRODUCT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ ! -f packages/extension/amo-metadata.json ]; then
+          echo "::error::packages/extension/amo-metadata.json is missing from this tag, so a listed upload has no listing metadata. Add the file and re-run; skipping silently would let a listing drift."
+          exit 1
+        fi
+        if [ -z "$ADDON_ID" ]; then
+          echo "::error::dist/firefox/manifest.json declares no browser_specific_settings.gecko.id; AMO cannot identify the add-on"
+          exit 1
+        fi
+        if [ "$FF_VERSION" != "$PRODUCT_VERSION" ]; then
+          echo "::error::refusing to submit to AMO: the Firefox artifact is version $FF_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+          exit 1
+        fi
+
+    # The lanes submit the release's bytes, never a rebuild (§4.9, §4.10).
+    - name: Download the released Firefox zip and prove its checksum
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        rm -rf "$assets"
+        mkdir -p "$assets"
+        gh release download "${{ inputs.tag }}" --dir "$assets" --pattern 'dsh-marker-firefox-*.zip' --pattern 'checksums.txt' --clobber
+        (cd "$assets" && sha256sum --check --ignore-missing checksums.txt)
+        rm -rf dist/firefox
+        unzip -q "$assets"/dsh-marker-firefox-*.zip -d dist/firefox
+        unzipped="$(node -p "String(require('./dist/firefox/manifest.json').version ?? '')")"
+        if [ "$unzipped" != "${{ inputs.firefox_version }}" ]; then
+          echo "::error::the zip on the release says $unzipped but the verify job read ${{ inputs.firefox_version }}; the asset changed under us"
+          exit 1
+        fi
+        ls -l "$assets"
+
+    # Idempotency, before web-ext runs. AMO's public v5 API lists a listed
+    # add-on's versions without auth: GET
+    # https://addons.mozilla.org/api/v5/addons/addon/{id}/versions/
+    # A 200 whose results contain this exact version means a rerun, so skip
+    # instead of making AMO reject a duplicate number. 401 or 404 means the
+    # listing is not publicly visible yet — first submission, or still
+    # unlisted, or nonexistent — which the anonymous probe cannot tell apart;
+    # web-ext authenticates and AMO configures the add-on from the API key,
+    # so let it decide. Any other status is inconclusive in the same way:
+    # warn and continue. (v0.1.4 met a 401 here: the listing did not exist
+    # yet, and the submission went through to the metadata check.)
+    - name: Skip when AMO already lists this version
+      id: probe
+      shell: bash
+      env:
+        ADDON_ID: ${{ inputs.addon_id }}
+        FF_VERSION: ${{ inputs.firefox_version }}
+      run: |
+        set -euo pipefail
+        echo "already=false" >> "$GITHUB_OUTPUT"
+        status="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/amo-versions.json" -w '%{http_code}' \
+          "https://addons.mozilla.org/api/v5/addons/addon/${ADDON_ID}/versions/?page_size=50" || true)"
+        case "$status" in
+          200)
+            if jq -e --arg v "$FF_VERSION" '.results[]? | select(.version == $v)' "$RUNNER_TEMP/amo-versions.json" >/dev/null 2>&1; then
+              echo "::notice::AMO already lists $ADDON_ID $FF_VERSION; nothing to upload"
+              echo "already=true" >> "$GITHUB_OUTPUT"
+            fi
+            ;;
+          401|404)
+            echo "::notice::no publicly visible AMO listing for $ADDON_ID yet (HTTP $status); web-ext will authenticate and submit"
+            ;;
+          *)
+            echo "::warning::could not read the AMO version list (HTTP ${status:-no-response}); letting web-ext decide"
+            ;;
+        esac
+
+    # §4.8: web-ext produces the signed artifact and runs with the AMO
+    # credentials, so it is pinned to one exact version here instead of
+    # `npx web-ext` (the unpinned call §4.8 calls out). Bump this literal
+    # deliberately, after reading the release notes.
+    #
+    # 10.x is the current line and needs Node 20+ (this lane runs 24). The
+    # `--use-submission-api` flag an older guide mentions is gone on purpose:
+    # from v8 the submission API is what `sign` uses by default, which is
+    # also what makes `--channel listed --amo-metadata` work.
+    - name: Install the pinned web-ext
+      if: steps.probe.outputs.already != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        npm install --global --no-audit --no-fund web-ext@10.8.0
+        web-ext --version
+
+    - name: Sign and submit for review
+      if: steps.probe.outputs.already != 'true'
+      shell: bash
+      env:
+        ADDON_ID: ${{ inputs.addon_id }}
+        FF_VERSION: ${{ inputs.firefox_version }}
+        PRODUCT_VERSION: ${{ inputs.version }}
+        TAG: ${{ inputs.tag }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        log="$assets/amo/web-ext.log"
+        mkdir -p "$assets/amo"
+
+        set +e
+        web-ext sign \
+          --source-dir dist/firefox \
+          --artifacts-dir "$assets/amo" \
+          --channel listed \
+          --api-key "$AMO_JWT_ISSUER" \
+          --api-secret "$AMO_JWT_SECRET" \
+          --amo-metadata packages/extension/amo-metadata.json \
+          2>&1 | tee "$log"
+        sign_status="${PIPESTATUS[0]}"
+        set -e
+
+        xpi="$(find "$assets/amo" -maxdepth 1 -type f -name '*.xpi' -print -quit)"
+        if [ -n "$xpi" ]; then
+          name="dsh-marker-firefox-${PRODUCT_VERSION}.xpi"
+          cp "$xpi" "$assets/$name"
+          sha="$(sha256sum "$assets/$name" | cut -d' ' -f1)"
+          grep -vF "  $name" "$assets/checksums.txt" > "$assets/checksums.txt.tmp" || true
+          mv "$assets/checksums.txt.tmp" "$assets/checksums.txt"
+          printf '%s  %s\n' "$sha" "$name" >> "$assets/checksums.txt"
+          gh release upload "$TAG" "$assets/$name" "$assets/checksums.txt" --clobber
+          echo "::notice::AMO returned the signed XPI for $ADDON_ID $FF_VERSION and it is attached to $TAG. A listed version still waits for review; it is not live until a reviewer approves it."
+          exit 0
+        fi
+        if grep -qiE 'already (exists|been uploaded|submitted)|version .* already' "$log"; then
+          echo "::notice::AMO already holds $ADDON_ID $FF_VERSION (web-ext reported a duplicate); nothing to upload"
+          exit 0
+        fi
+        if grep -qiE 'submitted for review|pending review|awaiting review|in review|timed out waiting' "$log"; then
+          echo "::notice::AMO accepted $ADDON_ID $FF_VERSION — submitted, pending review. Nothing is live until a reviewer approves it."
+          exit 0
+        fi
+        if [ "$sign_status" -eq 0 ]; then
+          echo "::notice::AMO accepted $ADDON_ID $FF_VERSION — submitted, pending review (web-ext returned no XPI)."
+          exit 0
+        fi
+        echo "::error::web-ext sign failed for $ADDON_ID $FF_VERSION (exit $sign_status); see the log above"
+        exit 1

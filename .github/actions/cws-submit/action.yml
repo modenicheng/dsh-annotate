@@ -1,0 +1,207 @@
+name: 'Submit to the Chrome Web Store'
+description: >
+  The CWS lane (docs/DISTRIBUTION.md §4.6): download the Chromium zip the
+  draft attached, prove it is the checksummed bytes, and submit it through
+  the Chrome Web Store API v2 — `:upload` the zip, then `:publish`, which
+  SUBMITS FOR REVIEW and does not publish. The item must already exist in
+  the CWS dashboard because the API cannot create one. The caller (the cws
+  job in release.yml) provides CWS_CLIENT_ID, CWS_CLIENT_SECRET,
+  CWS_REFRESH_TOKEN, vars.CWS_PUBLISHER_ID, vars.CWS_ITEM_ID and
+  vars.CWS_PUBLISH_TYPE in its environment.
+
+inputs:
+  tag:
+    description: The release tag whose Chromium zip is being submitted.
+    required: true
+  version:
+    description: The product version the verify job read from the tag.
+    required: true
+  chromium_version:
+    description: The version inside the released Chromium zip.
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Refuse a version mismatch
+      shell: bash
+      env:
+        CR_VERSION: ${{ inputs.chromium_version }}
+        PRODUCT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ "$CR_VERSION" != "$PRODUCT_VERSION" ]; then
+          echo "::error::refusing to submit to CWS: the Chromium artifact is version $CR_VERSION but the release is v$PRODUCT_VERSION (§4.1). Bump packages/extension/manifest.json and tag a new version; a store version cannot be withdrawn."
+          exit 1
+        fi
+
+    # The lanes submit the release's bytes, never a rebuild (§4.9, §4.10).
+    - name: Download the released Chromium zip and prove its checksum
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        # This lane checks out nothing, so gh cannot resolve the repository
+        # from a git remote; name it explicitly.
+        GH_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        rm -rf "$assets"
+        mkdir -p "$assets"
+        gh release download "${{ inputs.tag }}" --dir "$assets" --pattern 'dsh-marker-chromium-*.zip' --pattern 'checksums.txt' --clobber
+        (cd "$assets" && sha256sum --check --ignore-missing checksums.txt)
+        ls -l "$assets"
+
+    # Everything CWS happens in one step on purpose: the short-lived access
+    # token stays a shell variable (masked once printed into a command) and
+    # never crosses a step boundary through outputs or files.
+    - name: Upload, publish, and confirm
+      shell: bash
+      env:
+        CR_VERSION: ${{ inputs.chromium_version }}
+        PRODUCT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        assets="$GITHUB_WORKSPACE/dist/release-assets"
+        zip_path="$assets/dsh-marker-chromium-${PRODUCT_VERSION}.zip"
+        publish_type="${CWS_PUBLISH_TYPE:-DEFAULT_PUBLISH}"
+        case "$publish_type" in
+          DEFAULT_PUBLISH|STAGED_PUBLISH) ;;
+          *)
+            echo "::error::vars.CWS_PUBLISH_TYPE must be DEFAULT_PUBLISH or STAGED_PUBLISH, not '$publish_type'"
+            exit 1
+            ;;
+        esac
+
+        # OAuth 2.0 refresh-token exchange. The refresh token must have been
+        # minted with the https://www.googleapis.com/auth/chromewebstore
+        # scope; the short-lived access token is masked and never printed.
+        token_file="$RUNNER_TEMP/cws-token.json"
+        http="$(curl -sS --max-time 30 -o "$token_file" -w '%{http_code}' \
+          -X POST 'https://oauth2.googleapis.com/token' \
+          -H 'Content-Type: application/x-www-form-urlencoded' \
+          --data-urlencode "client_id=$CWS_CLIENT_ID" \
+          --data-urlencode "client_secret=$CWS_CLIENT_SECRET" \
+          --data-urlencode "refresh_token=$CWS_REFRESH_TOKEN" \
+          --data-urlencode 'grant_type=refresh_token' || true)"
+        access_token="$(jq -r '.access_token // empty' "$token_file" 2>/dev/null || true)"
+        if [ "$http" != "200" ] || [ -z "$access_token" ]; then
+          error="$(jq -r '.error_description // .error // "no access_token"' "$token_file" 2>/dev/null || echo 'unreadable response')"
+          echo "::error::CWS OAuth refresh failed (HTTP ${http:-no-response}): $error"
+          exit 1
+        fi
+        echo "::add-mask::$access_token"
+        auth="Authorization: Bearer $access_token"
+        item_url="https://chromewebstore.googleapis.com/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}"
+
+        # Idempotency, before uploading. CWS API v2 :fetchStatus reports the
+        # submitted and published revisions with their crxVersion values:
+        #   * the version is already submitted or published -> a rerun, skip;
+        #   * the version is stored but not submitted (a previous run uploaded
+        #     it and then failed before :publish) -> do not upload again,
+        #     retry the submission below;
+        #   * 404 means the item does not exist (create it in the dashboard
+        #     first); 401/403 means the token is wrong. Any other status is
+        #     inconclusive: warn and try the upload.
+        status_file="$RUNNER_TEMP/cws-status.json"
+        need_upload=true
+        http="$(curl -sS --max-time 30 -o "$status_file" -w '%{http_code}' \
+          -H "$auth" "${item_url}:fetchStatus" || true)"
+        case "$http" in
+          200)
+            if jq -e --arg v "$CR_VERSION" '[(.publishedItemRevisionStatus // {}), (.submittedItemRevisionStatus // {})] | [.. | objects | .crxVersion? // empty] | index($v)' "$status_file" >/dev/null 2>&1; then
+              echo "::notice::CWS already has $CR_VERSION submitted or published for item $CWS_ITEM_ID; nothing to do"
+              exit 0
+            fi
+            if jq -e --arg v "$CR_VERSION" '[.. | objects | .crxVersion? // empty] | index($v)' "$status_file" >/dev/null 2>&1; then
+              echo "::notice::CWS already stores $CR_VERSION but it is not submitted (a previous run uploaded it and stopped); not re-uploading, retrying :publish"
+              need_upload=false
+            fi
+            ;;
+          404)
+            echo "::error::CWS has no item $CWS_ITEM_ID under publisher $CWS_PUBLISHER_ID. The item must already exist in the CWS dashboard; the API cannot create one."
+            exit 1
+            ;;
+          401|403)
+            echo "::error::CWS rejected the OAuth token (HTTP $http); check the refresh token and its chromewebstore scope"
+            exit 1
+            ;;
+          *)
+            echo "::warning::could not read the CWS item status (HTTP ${http:-no-response}); attempting the upload"
+            ;;
+        esac
+
+        if [ "$need_upload" = "true" ]; then
+          # Media upload: raw zip bytes on the /upload/v2 endpoint.
+          upload_file="$RUNNER_TEMP/cws-upload.json"
+          http="$(curl -sS --max-time 300 -o "$upload_file" -w '%{http_code}' \
+            -X POST \
+            -H "$auth" \
+            -H 'Content-Type: application/zip' \
+            --data-binary "@$zip_path" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_ITEM_ID}:upload" || true)"
+          case "$http" in
+            2??)
+              echo "CWS upload response:"
+              jq . "$upload_file" 2>/dev/null || cat "$upload_file"
+              upload_state="$(jq -r '.uploadState // empty' "$upload_file" 2>/dev/null || true)"
+              case "$upload_state" in
+                ''|UPLOAD_STATE_SUCCEEDED) ;;
+                *)
+                  echo "::error::CWS upload did not succeed (uploadState=$upload_state)"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *)
+              if grep -qiE 'already (exists|uploaded)' "$upload_file"; then
+                echo "::notice::CWS already stores $CR_VERSION (the upload reported a duplicate); not re-uploading, trying :publish"
+              else
+                echo "::error::CWS upload failed (HTTP ${http:-no-response})"
+                jq . "$upload_file" 2>/dev/null || cat "$upload_file"
+                exit 1
+              fi
+              ;;
+          esac
+        fi
+
+        # `:publish` submits the uploaded revision for review; it does not
+        # make the version public. STAGED_PUBLISH is the staged-rollout form;
+        # the percentage itself is set separately in the dashboard.
+        publish_file="$RUNNER_TEMP/cws-publish.json"
+        http="$(curl -sS --max-time 60 -o "$publish_file" -w '%{http_code}' \
+          -X POST \
+          -H "$auth" \
+          -H 'Content-Type: application/json' \
+          --data "{\"publishType\":\"$publish_type\"}" \
+          "${item_url}:publish" || true)"
+        case "$http" in
+          2??) ;;
+          *)
+            if grep -qiE 'already (been )?(published|submitted|approved)|already in review|under review' "$publish_file"; then
+              echo "::notice::CWS reports $CR_VERSION is already submitted or published; treating this as a rerun"
+              exit 0
+            fi
+            echo "::error::CWS publish failed (HTTP ${http:-no-response})"
+            jq . "$publish_file" 2>/dev/null || cat "$publish_file"
+            exit 1
+            ;;
+        esac
+        echo "CWS publish response:"
+        jq . "$publish_file" 2>/dev/null || cat "$publish_file"
+
+        # Confirm that the revision reached CWS, and say plainly that review
+        # is still ahead. A submission can take a moment to appear; a
+        # timeout here is a warning, not a failure, because the publish call
+        # itself succeeded.
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          http="$(curl -sS --max-time 30 -o "$status_file" -w '%{http_code}' \
+            -H "$auth" "${item_url}:fetchStatus" || true)"
+          if [ "$http" = "200" ] && jq -e --arg v "$CR_VERSION" '[.. | objects | .crxVersion? // empty] | index($v)' "$status_file" >/dev/null 2>&1; then
+            echo "::notice::CWS accepted $CR_VERSION ($publish_type) — submitted, pending review. It is not live until Google approves it."
+            exit 0
+          fi
+          echo "attempt $attempt: CWS has not shown $CR_VERSION yet"
+          sleep 10
+        done
+        echo "::warning::CWS returned success for $CR_VERSION, but the submission is not visible yet. Check the dashboard before retrying; do not upload the same version twice."
