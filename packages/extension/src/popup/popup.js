@@ -24,15 +24,24 @@
       scan: 'anno.popup.scan',
       chooseHost: 'anno.popup.choose',
       importRecord: 'anno.popup.import',
+      activate: 'anno.popup.activate',
     },
     TO_CONTENT: {
+      records: 'anno.records',
       status: 'anno.status',
+      pickRequest: 'anno.pick.request',
+      pickCancel: 'anno.pick.cancel',
       event: 'anno.event',
       activate: 'anno.activate',
+      captureHide: 'anno.capture.hide',
+      captureRestore: 'anno.capture.restore',
     },
     STORAGE_KEYS: {
       token: 'anno.token',
+      outbox: 'anno.outbox',
       prefs: 'anno.prefs',
+      address: 'anno.address',
+      endpoint: 'anno.endpoint',
       lastStatus: 'anno.status',
     },
   }
@@ -179,6 +188,7 @@
       'feedback',
       'shortcut-record',
       'shortcut-reset',
+      'annotate',
     ]
     for (const id of ids) {
       const node = document.getElementById(id)
@@ -194,6 +204,7 @@
     if (el.records !== undefined) el.records.addEventListener('click', onRecordsClick)
     if (el['shortcut-record'] !== undefined) el['shortcut-record'].addEventListener('click', onShortcutRecordClick)
     if (el['shortcut-reset'] !== undefined) el['shortcut-reset'].addEventListener('click', () => void resetShortcut())
+    if (el.annotate !== undefined) el.annotate.addEventListener('click', () => void annotateCurrentPage())
 
     // The mode control, the host list, the scan action, and the endpoint drop
     // zone belong to the discovery panel, which wires its own listeners.
@@ -474,6 +485,28 @@
       // only a second door to the same mode.
     }
     feedback(t('shortcutReset'), 'ok')
+  }
+
+  /**
+   * Toolbar path into annotation mode. Opening the popup already grants
+   * `activeTab` for this tab, which is what lets the screenshot and the content
+   * injection work even on a tab that predates the install.
+   */
+  async function annotateCurrentPage() {
+    const response = await send(MSG.TO_BACKGROUND_POPUP.activate)
+    if (response === undefined || response === null) {
+      // An unknown message type is answered with nothing: the page in front is
+      // newer than the background loaded in this browser session.
+      feedback(t('annotateStale'), 'warn')
+      return
+    }
+    if (typeof response !== 'object' || response.ok !== true) {
+      const reason = response?.error ?? t('noResponse')
+      feedback(reason.startsWith('restricted-page') ? t('restrictedShort') : t('annotateFailed', { reason }), 'error')
+      return
+    }
+    feedback(t('annotateReady'), 'ok')
+    window.close()
   }
 
   // ── background state ──────────────────────────────────────────────────────

@@ -54,6 +54,7 @@ function createSelection() {
 function createUi() {
   const calls = {
     hover: [],
+    hud: [],
     marquee: [],
     cursor: [],
     shiftDrop: [],
@@ -73,7 +74,9 @@ function createUi() {
       return ui
     },
     mount() {},
-    setHud() {},
+    setHud(options) {
+      calls.hud.push(options)
+    },
     setHidden() {},
     setCaptureSuppressed(value) {
       calls.captureSuppressed.push(value === true)
@@ -978,4 +981,17 @@ test('Shift+Tab stands the text-selection drop down instead of drawing both guid
   )
   assert.equal(harness.ui.calls.shiftDrop.at(-1), null, 'the drop leaves: element picking won the pointer')
   assert.equal(harness.ui.calls.hover.at(-1).label, 'p · 120×20', 'back at the deepest element, no marker')
+})
+
+test('a popup activation enters the mode instead of toggling it', async () => {
+  const harness = await bootContentScript()
+  harness.deliver({ type: 'anno.activate', mode: 'enter' })
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, true, 'the first activation enters annotate mode')
+
+  harness.ui.calls.hud.length = 0
+  harness.deliver({ type: 'anno.activate', mode: 'enter' })
+  assert.equal(harness.ui.calls.hud.length, 0, 'a second activation is a no-op, never an exit')
+
+  harness.deliver({ type: 'anno.activate', mode: 'auto' })
+  assert.equal(harness.ui.calls.hud.at(-1)?.visible, false, 'the keyboard command path still toggles out')
 })

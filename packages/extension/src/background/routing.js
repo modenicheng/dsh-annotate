@@ -735,6 +735,10 @@
         return popupChooseHost(message)
       case MSG.TO_BACKGROUND_POPUP.importRecord:
         return popupImportRecord(message)
+      case MSG.TO_BACKGROUND_POPUP.activate:
+        // The button names an action, not a state: it enters the mode rather
+        // than toggling it, so pressing it twice never leaves the mode.
+        return activateCurrentPage('enter')
       default:
         return undefined
     }

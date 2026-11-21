@@ -1875,6 +1875,12 @@
       focusRecord(recordId)
       return
     }
+    // The keyboard command toggles; the popup's button enters. A button that
+    // reads "Annotate this page" must never leave the mode it names.
+    if (message.mode === 'enter') {
+      if (!state.active) enterMode('user')
+      return
+    }
     toggleMode()
   }
 
