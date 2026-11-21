@@ -10,9 +10,11 @@ Implemented on 2026-11-20, ahead of the store submissions: the icon set and its
 generator (§3.1 item 6), `_locales/en` + `_locales/zh_CN`, `homepage_url`, the
 version alignment to 0.1.2 (§4.1), `scripts/build-extension.mjs` with the two
 targets (§4.4), the Chromium runtime seam (§3.1), and the store jobs in
-`.github/workflows/release.yml` (§4.6). What is still manual is everything that
-requires an account: the first AMO listing, the US$5 CWS registration, and the
-Edge product.
+`.github/workflows/release.yml` (§4.6). Reworked on 2026-11-21 into parallel
+per-store lanes after v0.1.4's release: one `stores` job that ran every store
+serially hid an AMO failure behind `continue-on-error` and reported it only in
+a final verdict step (§4.7). What is still manual is everything that requires
+an account: the US$5 CWS registration and the Edge product.
 
 Scope: the extension half across browser engines, the host half as a DSH bundle,
 and the CI that turns a tag into artifacts. It does not cover DSH releases.
@@ -229,6 +231,19 @@ The draft is the human gate. It also decouples "the code is released" from
 review for days, so the GitHub Release must be publishable before the store
 entries are live.
 
+The implemented pipeline has exactly this shape. `.github/workflows/release.yml`
+is only the dispatcher; the lane bodies live in `.github/actions/`
+(`build-release-artifacts`, `verify-release`, `npm-publish`, `amo-submit`,
+`cws-submit`). The tag push runs `draft`. Publishing the release runs two jobs
+in parallel — `channels`, which reduces the store credentials and the dry-run
+flag to booleans because secrets may not appear in `if:` conditions, and
+`verify`, the shared pre-flight (published release, tag gates, the CI gate on
+the tag, and the released zips proven against `checksums.txt`) whose outputs
+every lane trusts — and then the four lanes `npm ∥ amo ∥ cws ∥ edge`, each
+gated on its own credentials, each red on its own failure, with a `summary`
+job that fails the run once every lane has had its turn (§4.7). No lane ever
+waits on another lane.
+
 Triggers:
 
 - `push: tags: ['v*']` for builds. Verify the tag matches the manifest and
@@ -291,7 +306,7 @@ the commit range from the previous tag. Two rules:
 | Store | API | Notes |
 |---|---|---|
 | npm | `npm publish --provenance` | OIDC trusted publishing; the plugin manager's `updateBundle` only offers updates for packages installed from the registry under their own name |
-| AMO | `web-ext sign --channel unlisted` (or `--channel listed`) or the v5 upload API | a listed upload needs an existing listing; the first submission is manual, and summary, category, licence and the privacy URL are set once there — `--amo-metadata packages/extension/amo-metadata.json` carries only that version's release notes. Signing of a listed upload is not immediate — poll, do not treat the upload response as "published" |
+| AMO | `web-ext sign --channel unlisted` (or `--channel listed`) or the v5 upload API | a listed upload submits for review through the v5 submission API; an authenticated API key can submit the first listed version, and the anonymous version API answers 401 until a listing is public, so the lane's idempotency probe treats 401/404 as "not visible yet" and lets web-ext decide. `--amo-metadata packages/extension/amo-metadata.json` carries the whole listing and must be in the v5 wire format: `categories` is an object of application slug to valid category slugs (listed by `addons.mozilla.org/api/v5/addons/categories/`), and `homepage`/`support_url` are `{lang-code: value}` objects — v0.1.4's submission failed on exactly those three fields being plain strings. Signing of a listed upload is not immediate — poll, do not treat the upload response as "published" |
 | CWS | Chrome Web Store API v2 (`:upload`, `:publish`) with an OAuth refresh token | the item must exist in the dashboard first; `:publish` submits for review, it does not publish |
 | Edge | Edge Add-ons submission API with a Partner Center API key | Edge also installs CWS items, so this listing is optional and can follow later |
 
