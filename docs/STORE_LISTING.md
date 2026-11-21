@@ -388,3 +388,140 @@ each heading above.
 | Justification: `activeTab` | 432 | 1,000 |
 | Justification: `scripting` | 429 | 1,000 |
 | Justification: `<all_urls>` | 442 | 1,000 |
+
+## 7. First submission (Chrome Web Store)
+
+Sections 1–6 are copy. This section is the order of operations for the one submission that cannot be
+fully automated: the item has to exist in the dashboard before `release.yml` can upload to it, and a
+store version cannot be withdrawn once submitted. Everything here happens once; later versions go
+through the release workflow (§4.6 of [DISTRIBUTION.md](DISTRIBUTION.md)).
+
+### 7.1 Account, before anything else
+
+- A Google account with 2-step verification.
+- Register at <https://chrome.google.com/webstore/devconsole> — US$5 once, developer name and contact
+  email, identity verification (Google may take a day).
+- Use a contact email that is actually read: policy questions and rejection reasons arrive there, and
+  the reviewer's clock starts when the item is submitted, not when it is uploaded.
+
+### 7.2 Pick the version, then verify the artifact
+
+Submit a final only (D16): `MAJOR.MINOR.PATCH`, the number inside the zip's `manifest.json`, matching
+its tag. The thing to upload is the release asset, not a local build:
+
+```
+dsh-marker-chromium-<version>.zip     on the GitHub Release for the tag
+checksums.txt                         same release; compare the zip's SHA-256
+```
+
+Before uploading, unzip the asset and check it: `node scripts/check-manifest.mjs <unzipped-dir>`
+must pass, `manifest.json` must sit at the archive root, and the version must be the release's. The
+zip is the artifact the reviewer runs; a local `dist/chromium` proves nothing about the upload.
+
+### 7.3 Create the item and upload
+
+1. Developer Dashboard → **New item** → upload that zip.
+2. The upload creates the **item ID**. The dashboard URL carries both IDs —
+   `/devconsole/<publisher-id>/<item-id>/…` — and they are `vars.CWS_PUBLISHER_ID` and
+   `vars.CWS_ITEM_ID` for the release workflow (§4.6).
+3. Do not submit yet. The next two screens (listing, privacy) are part of the same review; an item
+   submitted with empty fields comes back as a rejection, not a question.
+
+### 7.4 Field map
+
+Every paste block lives in §2 of this file. The dashboard's section names are the current ones; if a
+label has moved, the content has not.
+
+| Dashboard screen | Field | Paste |
+|---|---|---|
+| Store listing | Name | §2 Name |
+| Store listing | Short description | §2 Short description |
+| Store listing | Detailed description | §2 Detailed description |
+| Store listing | Category | Developer Tools |
+| Store listing | Language | English; a Chinese listing is optional |
+| Store listing | Screenshots | `dist/store/shot-*.png` (§5) |
+| Privacy practices | Single purpose | §2 Single purpose |
+| Privacy practices | Justification — `storage`, `alarms`, `tabs`, `activeTab`, `scripting` | §2, one block each |
+| Privacy practices | Host permission justification | §2 `<all_urls>` block |
+| Privacy practices | Data usage | §2 Data usage answers |
+| Privacy practices | Privacy policy URL | §7.5 |
+| Privacy practices | Remote code | No |
+| Distribution | Visibility, regions, pricing | Public, all regions, free |
+| Test instructions | Reviewer instructions | §7.6 |
+
+### 7.5 The privacy policy URL
+
+`docs/privacy.md` is the policy; the dashboard needs a public URL, not a repository path. Two
+workable choices, both zero-cost:
+
+- **GitHub blob** — `https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md`.
+  No setup, and the page is public. GitHub's chrome surrounds the text; reviewers accept that.
+- **GitHub Pages** — Settings → Pages → Deploy from a branch, `main`, folder `/docs`, then
+  `https://modenicheng.github.io/dsh-annotate/privacy`. A cleaner page; one repository setting, and
+  its URL replaces the blob link in this file once it exists.
+
+Either way the policy must stay true to the shipped code: any change to what the extension reads or
+where it sends it updates `privacy.md` (and its date) in the same commit.
+
+### 7.6 Test instructions (paste as-is)
+
+The reviewer needs to know which half of the product is inside this item. The overlay works with no
+host installed; sending needs one. Saying that plainly is the difference between a rejection for
+"does not work" and a reviewed listing.
+
+```
+dsh-marker has two halves. This item is the browser half: the overlay that turns a text selection,
+an element, or a dragged region into a numbered mark with a cropped screenshot. The other half is
+DeepSeek Harness (DSH), an open-source program the user runs on the same computer; the extension
+sends marks to it over loopback only. No host is needed to review everything this item does to a
+page.
+
+Review without the host:
+1. Install the item. The popup opens with the connection settings: host 127.0.0.1, port 3080, an
+   empty token field, and a connected/not-connected status. Nothing is preconfigured.
+2. Open any http(s) page and press Alt+Shift+A (Option+Shift+A on macOS). A small "Annotation mode"
+   bar appears at the top of the page.
+3. Drag across a paragraph with Shift held; the words are marked and a numbered badge stays next to
+   them. A click marks an element; a drag marks a region. Esc leaves annotation mode.
+4. Zoom, scroll, or edit the page: the badge follows what it marks. Reload: it is re-found.
+5. The toolbar icon reopens the popup; "Send mark" is disabled while no host is connected.
+
+With the host, for the sending path:
+- Node.js 22+ and DSH: `dsh plugin add dsh-marker`, then `dsh web`.
+- Paste the token from $DSH_HOME/ext-bridge-token (%USERPROFILE%\.dsh\ext-bridge-token on Windows)
+  into the popup and press "Save and reconnect".
+- Mark a sentence, press "Send mark", pick a Session; the mark appears in that Session's composer.
+
+The extension requests no account, contacts only 127.0.0.1 and localhost, loads no remote code, and
+sends nothing to the developer. Source, issue tracker and the full privacy policy:
+https://github.com/modenicheng/dsh-annotate
+```
+
+### 7.7 Submit, and what to expect
+
+1. Review the four screens once more against §7.4, then **Submit for review**. The publish type
+   (`DEFAULT_PUBLISH` / `STAGED_PUBLISH`) belongs to the API call for later versions; the dashboard
+   asks only that you submit.
+2. Review is days, not hours; `<all_urls>` and `tabs` are the permissions most likely to draw a
+   question. A rejection names the policy and the field, and the answer is a corrected listing or a
+   code change plus a new version — never the same version again (§4.2 of
+   [DISTRIBUTION.md](DISTRIBUTION.md)).
+3. Once published, the listing is live for all users at once unless a staged rollout is configured.
+   Rollback to the previous published version is a dashboard action; a rollback is not an uninstall
+   for anyone who already has the new version.
+4. For later versions, add the CWS credentials to the protected `release` environment:
+   a Google Cloud project with the Chrome Web Store API enabled, an OAuth **Desktop app** client,
+   a refresh token for `https://www.googleapis.com/auth/chromewebstore`, then `CWS_CLIENT_ID`,
+   `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` as secrets and `CWS_PUBLISHER_ID`, `CWS_ITEM_ID`,
+   `CWS_PUBLISH_TYPE` as variables. The workflow's `:publish` call submits for review; it does not
+   publish immediately.
+
+### 7.8 What the first submission still needs from a human
+
+| Item | Why it cannot be automated |
+|---|---|
+| Account registration and identity verification | Tied to a person and a payment method |
+| The item's creation | The dashboard is the only place an item ID is minted |
+| Privacy policy URL choice | A repository setting (§7.5) |
+| Screenshots | Real captures of the real UI, re-shot per version (§5) |
+| Submit for review | The irreversible click |
