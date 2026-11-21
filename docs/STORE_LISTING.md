@@ -324,7 +324,7 @@ WHAT IT DOES NOT DO
 - No remote code, no third-party requests, no ads.
 
 PRIVACY
-The privacy policy linked on this listing states what is read, where it goes, and what is stored: https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md
+The privacy policy linked on this listing states what is read, where it goes, and what is stored: https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy-edge.md
 
 FEEDBACK
 https://github.com/modenicheng/dsh-annotate/issues
@@ -354,7 +354,7 @@ dsh-marker 把网页上标记的内容发给本机的 DeepSeek Harness（DSH）�
 - 不加载远程代码，不请求第三方资源，没有广告。
 
 隐私
-读什么、发到哪里、存什么，见本 listing 链接的隐私政策：https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md
+读什么、发到哪里、存什么，见本 listing 链接的隐私政策：https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy-edge.md
 
 反馈
 https://github.com/modenicheng/dsh-annotate/issues
@@ -366,9 +366,10 @@ https://github.com/modenicheng/dsh-annotate/issues
 
 ### Privacy policy
 
-`https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy.md`. Edge policy 1.5.2 asks that
-the policy primarily refer to Microsoft Edge rather than another browser; the policy's opening line
-now names Edge first and the rest is engine-neutral.
+`https://github.com/modenicheng/dsh-annotate/blob/main/docs/privacy-edge.md`. Edge policy 1.5.2 asks
+that a listing's policy primarily refer to Microsoft Edge rather than another browser, so the Edge
+edition names Edge and restates the same facts. The shared [privacy.md](privacy.md) is unchanged and
+remains the policy for AMO and CWS.
 
 ## 4. What's new — overwritten per version
 
@@ -666,7 +667,7 @@ upload its output.
 | Permission justification | §2, one block per permission Edge lists (`storage`, `alarms`, `tabs`, `activeTab`, `scripting`, and the `<all_urls>` host permission) |
 | Are you using remote code? | No |
 | Data usage | No data types selected; nothing is sent to the developer or a third party. Page content and the cropped screenshot go only to a host on the same machine. |
-| Privacy policy URL | §7.5 |
+| Privacy policy URL | §3 (the Edge edition) |
 
 The justifications are read from the uploaded manifest, so a permission that appears without a
 justification is a form error, not a later review surprise.
