@@ -806,6 +806,58 @@
     return node
   }
 
+  /** Elements that end the Tab walk: the page shell is never a subject. */
+  function isShellElement(element) {
+    const name = element.nodeName
+    return name === 'BODY' || name === 'HTML'
+  }
+
+  /**
+   * The element `level` parentElement steps above `element`, without ever
+   * landing on the page shell. `0` is the element itself; a level that would
+   * step onto `body`/`html` clamps at the last real ancestor, so Tabbing up a
+   * deeply nested node simply stops growing at the outermost wrapper.
+   * @param {Element|null} element
+   * @param {number} level
+   * @returns {Element|null}
+   */
+  function ancestorAt(element, level) {
+    let node = element
+    let remaining = Math.max(0, Math.trunc(Number(level) || 0))
+    let guard = 0
+    while (node && remaining > 0 && guard < 64) {
+      guard += 1
+      const parent = node.parentElement
+      if (!parent || isShellElement(parent)) break
+      node = parent
+      remaining -= 1
+    }
+    return node
+  }
+
+  /**
+   * How many parentElement steps `node` sits below `ancestor`; `-1` when the
+   * two are not on one chain. The Tab expansion uses it to keep an expanded
+   * outline stable while the pointer wanders inside it, and to find where a
+   * new chain rejoins the old subject.
+   * @param {Node|null} node
+   * @param {Element|null} ancestor
+   * @returns {number}
+   */
+  function stepsTo(node, ancestor) {
+    if (!node || !ancestor) return -1
+    let current = node
+    let steps = 0
+    let guard = 0
+    while (current && guard < 64) {
+      guard += 1
+      if (current === ancestor) return steps
+      current = current.parentElement
+      steps += 1
+    }
+    return -1
+  }
+
   /** Deepest meaningful element under a viewport point, overlay excluded. */
   function meaningfulAt(x, y) {
     if (!document) return null
@@ -1169,6 +1221,8 @@
     element: elementState,
     region: regionState,
     meaningfulAt,
+    ancestorAt,
+    stepsTo,
     caretPosition,
     chipLabel,
     liveViewportRect,

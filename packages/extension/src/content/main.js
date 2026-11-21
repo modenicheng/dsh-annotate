@@ -103,6 +103,10 @@
     scheduler: null,
     hoverFrame: 0,
     hoverPoint: null,
+    /** Deepest meaningful element under the pointer; the chain Tab expands from. */
+    hoverBase: null,
+    /** How many ancestor steps above `hoverBase` the outline sits (Tab widens). */
+    hoverLevel: 0,
     scrollFrame: 0,
     prefs: {},
     restricted: '',
@@ -757,6 +761,7 @@
     // button down must still leave the page without a leftover highlight.
     resetPointer()
     state.shiftArmed = false
+    resetHoverChain()
     clearAnchor()
     if (ui) {
       if (ui.isComposerOpen()) ui.closeComposer()
@@ -857,6 +862,9 @@
     ui.setMarquee(null)
     ui.setCursor(null)
     ui.setShiftDrop(null)
+    // The gesture is over: the next mark starts from the deepest element
+    // again, not from whatever level this one was widened to.
+    resetHoverChain()
     // Keep the target outlined while the comment is written: the outline is the
     // subject of the sentence, and losing it forces the user to remember which
     // of five similar buttons they clicked. A marked text is drawn as its line
@@ -1291,29 +1299,111 @@
     syncPointerGuide()
   }
 
+  /**
+   * Drop the Tab-expansion chain. Called wherever the hover outline stops
+   * being painted from it, so a stale level can never outlive its subject.
+   */
+  function resetHoverChain() {
+    state.hoverBase = null
+    state.hoverLevel = 0
+  }
+
+  /**
+   * The element the pointer means, with any Tab expansion applied. The chain
+   * is anchored to the deepest element under the pointer: moving to a
+   * different one keeps the expanded outline while the pointer stays inside
+   * it (the level rebases onto the new chain, so the outline itself never
+   * flickers to a sibling), and collapses back to level 0 the moment the
+   * pointer leaves the subject.
+   * @param {Element|null} base deepest meaningful element under the pointer
+   * @returns {Element|null}
+   */
+  function subjectFor(base) {
+    if (!base) {
+      resetHoverChain()
+      return null
+    }
+    if (state.hoverBase === base) return ns.anchor.ancestorAt(base, state.hoverLevel)
+    if (state.hoverBase && state.hoverLevel > 0) {
+      const subject = ns.anchor.ancestorAt(state.hoverBase, state.hoverLevel)
+      const steps = ns.anchor.stepsTo(base, subject)
+      if (steps >= 0) {
+        state.hoverBase = base
+        state.hoverLevel = steps
+        return subject
+      }
+    }
+    state.hoverBase = base
+    state.hoverLevel = 0
+    return base
+  }
+
+  /**
+   * The chip text for the current outline. The level marker is a glyph, so it
+   * needs no translation and stays short next to the tag chip.
+   */
+  function hoverLabelOf(subject, rect) {
+    const label = ns.anchor.chipLabel(subject, rect)
+    return state.hoverLevel > 0 ? `${label} · ↑${state.hoverLevel}` : label
+  }
+
   function updateHover(x, y) {
     if (!ui) return
     // While the composer is open its amber outline already answers "what am I
     // writing about?". A second box under the pointer competes with it, and the
     // user has to work out which of the two the annotation refers to.
     if (ui.isComposerOpen()) {
+      resetHoverChain()
       ui.setHover(null)
       ui.setCursor(null)
       return
     }
     if (activeMode() === 'selection') {
+      resetHoverChain()
       ui.setHover(null)
       ui.setCursor({ x, y })
       return
     }
     ui.setCursor({ x, y })
-    const element = ns.anchor.meaningfulAt(x, y)
-    if (!element) {
+    const subject = subjectFor(ns.anchor.meaningfulAt(x, y))
+    if (!subject) {
       ui.setHover(null)
       return
     }
-    const rect = ns.geom.rectOf(element.getBoundingClientRect())
-    ui.setHover({ rect, label: ns.anchor.chipLabel(element, rect) })
+    const rect = ns.geom.rectOf(subject.getBoundingClientRect())
+    ui.setHover({ rect, label: hoverLabelOf(subject, rect) })
+  }
+
+  /**
+   * Tab widens the outlined element one ancestor; Shift+Tab narrows it back
+   * down. Both only mean this while a hover subject exists and nothing else
+   * owns the keyboard: an open composer needs Tab for its own focus cycle, a
+   * selection-mode pick has no element subject, and a press in flight owns
+   * the gesture. The key is swallowed whenever a subject exists — even where
+   * the level cannot move (top of the chain, or already back at the deepest
+   * element) — because letting Tab fall through would hand the browser's
+   * focus ring to the page mid-pick, and the next Esc or Tab would land
+   * somewhere the gesture layer cannot see.
+   */
+  function handleHierarchyKey(event) {
+    if (!state.active || state.hidden) return
+    if (ns.text.isOurs(event.target)) return
+    if (!ui || ui.isComposerOpen()) return
+    if (state.pointer.down || state.pointer.dragging || state.selectionGesture) return
+    if (activeMode() === 'selection') return
+    if (!state.hoverBase) return
+    // Tab means element picking, so a Shift that armed text selection stands
+    // down: otherwise the selection drop and the outline would both claim the
+    // pointer.
+    if (state.shiftArmed) setShiftArmed(false)
+    const target = event.shiftKey ? state.hoverLevel - 1 : state.hoverLevel + 1
+    // `stepsTo` turns the clamped result back into the level that produced it,
+    // so Tabbing past the outermost wrapper just stays there.
+    state.hoverLevel = Math.max(0, ns.anchor.stepsTo(state.hoverBase, ns.anchor.ancestorAt(state.hoverBase, target)))
+    const point = state.hoverPoint
+    if (point) updateHover(point.x, point.y)
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   function onPointerDown(event) {
@@ -1447,9 +1537,11 @@
       if (mode === 'region') return
     }
     if (mode === 'auto' || mode === 'element') {
-      const element = ns.anchor.meaningfulAt(event.clientX, event.clientY)
-      if (!element) return
-      const captured = ns.anchor.element(element)
+      // The click captures what the outline shows: a Tab-widened level locks
+      // the expanded element, not the deepest one under the crosshair.
+      const subject = subjectFor(ns.anchor.meaningfulAt(event.clientX, event.clientY))
+      if (!subject) return
+      const captured = ns.anchor.element(subject)
       if (captured) openComposerFor(captured)
     }
   }
@@ -1514,6 +1606,10 @@
       if (!state.active || ns.text.isOurs(event.target)) return
       if (ui && ui.isComposerOpen()) return
       setShiftArmed(true)
+      return
+    }
+    if (event.key === 'Tab') {
+      handleHierarchyKey(event)
       return
     }
     if (event.key !== 'Escape') return
