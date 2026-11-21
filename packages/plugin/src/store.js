@@ -146,6 +146,25 @@ export class AnnotationStore {
   }
 
   /**
+   * Delete every record matching the predicate. Unlike `list()`, this scans
+   * the whole in-memory map — no window — because bulk clear semantics
+   * ("everything resolved before X") must reach records older than the list
+   * limit. Each hit appends the same `del` event `delete(id)` would.
+   * @param {(record: AnnotationRecord) => boolean} predicate
+   * @returns {Promise<AnnotationRecord[]>} the removed records
+   */
+  async deleteWhere(predicate) {
+    const doomed = [...this.records.values()].filter(predicate)
+    if (doomed.length === 0) return doomed
+    await this.#serialize(async () => {
+      for (const record of doomed) {
+        await this.#write({ op: 'del', id: record.id })
+      }
+    })
+    return doomed
+  }
+
+  /**
    * @param {string} id
    * @returns {Promise<boolean>}
    */
