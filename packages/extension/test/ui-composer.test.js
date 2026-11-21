@@ -132,7 +132,7 @@ async function installComposer() {
 }
 
 /** Open the card with a known rect and settle the first paint. */
-function open(part, sandbox, raf, rect) {
+function open(part, raf, rect) {
   part.openComposer({ kind: 'selection', summary: 's', rect })
   for (const fn of raf.splice(0)) fn()
 }
@@ -140,7 +140,7 @@ function open(part, sandbox, raf, rect) {
 test('the composer follows the page when scrolled after opening', async () => {
   const { part, sandbox, raf } = await installComposer()
   const rect = { x: 100, y: 400, w: 200, h: 30 }
-  open(part, sandbox, raf, rect)
+  open(part, raf, rect)
   // Below the subject: y + h + 8 = 438, and 438 + 190 fits an 800px viewport.
   assert.equal(part.node.style.top, '438px', 'placed under the subject at scroll 0')
 
@@ -162,7 +162,7 @@ test('the composer follows the page when scrolled after opening', async () => {
 
 test('closing clears the stored page rect', async () => {
   const { part, sandbox, raf } = await installComposer()
-  open(part, sandbox, raf, { x: 8, y: 8, w: 0, h: 0 })
+  open(part, raf, { x: 8, y: 8, w: 0, h: 0 })
   const before = part.node.style.top
   part.closeComposer()
   sandbox.scrollY = 300
@@ -189,7 +189,7 @@ function keyEvent(overrides) {
 
 test('Enter does not send while a composition is in progress', async () => {
   const { part, sandbox, raf, sent } = await installComposer()
-  open(part, sandbox, raf, { x: 8, y: 8, w: 0, h: 0 })
+  open(part, raf, { x: 8, y: 8, w: 0, h: 0 })
   const textarea = part.node.children.find((child) => child && child.tagName === 'TEXTAREA')
   textarea.value = '你好'
 
@@ -206,7 +206,7 @@ test('Enter does not send while a composition is in progress', async () => {
 
 test('plain Enter sends without any composition events', async () => {
   const { part, sandbox, raf, sent } = await installComposer()
-  open(part, sandbox, raf, { x: 8, y: 8, w: 0, h: 0 })
+  open(part, raf, { x: 8, y: 8, w: 0, h: 0 })
   const textarea = part.node.children.find((child) => child && child.tagName === 'TEXTAREA')
   textarea.value = 'plain'
   textarea.fire('keydown', keyEvent({}))
