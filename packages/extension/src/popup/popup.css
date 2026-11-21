@@ -501,12 +501,6 @@ code {
 }
 
 /* The qualifier drops to a second line, at caption size. */
-.segmented__note {
-  font-size: var(--text-caption);
-  line-height: var(--text-caption-lh);
-  font-weight: 400;
-}
-
 .segmented__option input:checked + span {
   background: var(--accent);
   color: var(--accent-text);

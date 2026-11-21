@@ -10,6 +10,9 @@
          the message listener for it. -->
     <script src="../shared/platform.js"></script>
     <script src="../shared/protocol.global.js"></script>
+    <!-- The popup's language table. The English text in the markup below is the
+         no-script fallback; every visible label is painted from this table. -->
+    <script src="../shared/i18n.js"></script>
     <!-- One content-script list for the background and the popup repair path. -->
     <script src="../shared/inject.js"></script>
     <!-- One endpoint parser for the popup and the background. -->
@@ -32,39 +35,41 @@
 
     <main class="content">
       <section class="panel" aria-labelledby="bridge-heading">
-        <h2 id="bridge-heading" class="panel__title">Host bridge</h2>
+        <h2 id="bridge-heading" class="panel__title" data-i18n="bridgeTitle">Host bridge</h2>
         <form id="settings-form" class="form" autocomplete="off" novalidate>
           <fieldset class="mode-field" aria-describedby="mode-hint">
-            <legend>Connection</legend>
+            <legend data-i18n="connection">Connection</legend>
             <div class="segmented">
               <label class="segmented__option">
                 <input id="mode-auto" type="radio" name="connection-mode" value="auto">
-                <span>Automatic<span class="segmented__note">(recommended)</span></span>
+                <span data-i18n="automatic">Automatic</span>
               </label>
               <label class="segmented__option">
                 <input id="mode-manual" type="radio" name="connection-mode" value="manual" checked>
-                <span>Manual</span>
+                <span data-i18n="manual">Manual</span>
               </label>
             </div>
-            <p id="mode-hint" class="hint">The extension uses the address below, exactly as typed.</p>
+            <p id="mode-hint" class="hint" data-i18n="modeManualHint">Uses the address below exactly as typed.</p>
           </fieldset>
 
           <div id="discovered" class="discovered" hidden>
-            <h3 id="discovered-title" class="discovered__title">Discovered hosts</h3>
+            <h3 id="discovered-title" class="discovered__title" data-i18n="discoveredTitle">Discovered hosts</h3>
             <ul id="discovered-list" class="hosts" aria-labelledby="discovered-title"></ul>
           </div>
 
           <div id="discovery-actions" class="discovery-actions" hidden>
-            <p id="discovery-hint" class="hint" hidden>
-              A host on <code>127.0.0.1:3080</code> is tried too, but the locator only runs on a port that is not
-              3080 — if neither answered, import <code>$DSH_HOME/ext-bridge-endpoint.json</code> below.
+            <p id="discovery-hint" class="hint" data-i18n="discoveryHint" hidden>
+              A host on 127.0.0.1:3080 is tried too, but the locator only runs when the port is not 3080 — if
+              neither answered, import $DSH_HOME/ext-bridge-endpoint.json below.
             </p>
-            <button id="scan-again" class="button button--secondary" type="button">Scan again</button>
+            <button id="scan-again" class="button button--secondary" type="button" data-i18n="scanAgain">
+              Scan again
+            </button>
           </div>
 
           <div class="field-row">
             <div class="field field--host">
-              <label for="host">Host or URL</label>
+              <label for="host" data-i18n="hostLabel">Host or URL</label>
               <input
                 id="host"
                 name="host"
@@ -76,29 +81,38 @@
               >
             </div>
             <div class="field field--port">
-              <label for="port">Port</label>
+              <label for="port" data-i18n="portLabel">Port</label>
               <input id="port" name="port" type="number" min="1" max="65535" inputmode="numeric" placeholder="3080">
             </div>
           </div>
-          <p id="host-hint" class="hint">
-            A host and port, or a full URL such as <code>wss://anno.example.com</code> when the host is behind
-            HTTPS. Without a scheme, the extension asks the host which one to use.
+          <p id="host-hint" class="hint" data-i18n="hostHint">
+            A host and port, or a full URL such as wss://anno.example.com when the host is behind HTTPS. Without
+            a scheme, the extension asks the host which one to use.
           </p>
 
           <div id="drop-zone" class="dropzone" tabindex="0" aria-describedby="import-hint">
-            <span class="dropzone__text">Drop <code>ext-bridge-endpoint.json</code> here, or</span>
-            <label class="button button--secondary dropzone__button" for="import-file">Import endpoint file…</label>
+            <span class="dropzone__text" data-i18n="dropText">Drop ext-bridge-endpoint.json here, or</span>
+            <label class="button button--secondary dropzone__button" for="import-file" data-i18n="importEndpoint">
+              Import endpoint file…
+            </label>
             <input id="import-file" class="visually-hidden" type="file" accept="application/json,.json">
           </div>
-          <p id="import-hint" class="hint">
+          <p id="import-hint" class="hint" data-i18n="importHint">
             Reads only the address from the record the host writes; the token below still comes from
-            <code>$DSH_HOME/ext-bridge-token</code>.
+            $DSH_HOME/ext-bridge-token.
           </p>
 
           <div class="field">
             <div class="field__label-row">
-              <label for="token">Bridge token</label>
-              <button id="toggle-token" class="link-button" type="button" aria-pressed="false" aria-controls="token">
+              <label for="token" data-i18n="tokenLabel">Bridge token</label>
+              <button
+                id="toggle-token"
+                class="link-button"
+                type="button"
+                aria-pressed="false"
+                aria-controls="token"
+                data-i18n="show"
+              >
                 Show
               </button>
             </div>
@@ -110,26 +124,29 @@
               autocomplete="off"
               aria-describedby="token-hint"
               placeholder="Paste the token from $DSH_HOME/ext-bridge-token"
+              data-i18n-placeholder="tokenPlaceholder"
             >
-            <p id="token-hint" class="hint">
-              Contents of <code>$DSH_HOME/ext-bridge-token</code>. The host writes that file on its first run.
+            <p id="token-hint" class="hint" data-i18n="tokenHint">
+              Contents of $DSH_HOME/ext-bridge-token. The host writes that file on its first run.
             </p>
           </div>
 
           <div class="form__actions">
-            <button id="save" class="button" type="submit">Save and reconnect</button>
-            <button id="flush" class="button button--secondary" type="button">Flush outbox</button>
+            <button id="save" class="button" type="submit" data-i18n="save">Save and reconnect</button>
+            <button id="flush" class="button button--secondary" type="button" data-i18n="flush">
+              Flush outbox
+            </button>
           </div>
-          <p id="outbox-summary" class="hint">Outbox empty.</p>
+          <p id="outbox-summary" class="hint" data-i18n="outboxEmpty">Outbox empty.</p>
         </form>
       </section>
 
       <section class="panel" aria-labelledby="page-heading">
-        <h2 id="page-heading" class="panel__title">This page</h2>
-        <p id="page-title" class="page-title">No page information</p>
+        <h2 id="page-heading" class="panel__title" data-i18n="pageHeading">This page</h2>
+        <p id="page-title" class="page-title" data-i18n="noPage">No active page</p>
         <p id="page-url" class="page-url"></p>
         <ul id="records" class="records" aria-label="Annotations on this page"></ul>
-        <p id="records-empty" class="empty">No annotations on this page.</p>
+        <p id="records-empty" class="empty" data-i18n="noAnnotations">No annotations on this page.</p>
       </section>
     </main>
 

@@ -50,14 +50,17 @@
    * the discovery panel on it, so `init` can attach it before anything paints.
    */
   const POPUP = (globalThis.__DSH_POPUP__ ??= {})
-  const CONNECTION_LABELS = {
-    connected: 'Connected to the host',
-    open: 'Handshaking with the host',
-    connecting: 'Connecting to the host',
-    idle: 'Not connected',
-    offline: 'Host unreachable',
-    'no-token': 'Bridge token required',
-    error: 'Bridge error',
+  const I18N = globalThis.__DSH_I18N__
+  const language = I18N ? I18N.pickLanguage(I18N.browserLanguage(globalThis)) : 'en'
+  const t = I18N ? I18N.make(language) : (key) => key
+  const CONNECTION_KEYS = {
+    connected: 'statusConnected',
+    open: 'statusOpen',
+    connecting: 'statusConnecting',
+    idle: 'statusIdle',
+    offline: 'statusOffline',
+    'no-token': 'statusNoToken',
+    error: 'statusError',
   }
   const BUSY_ATTRIBUTE = 'aria-busy'
 
@@ -99,6 +102,8 @@
   })
 
   async function init() {
+    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'
+    applyStaticText()
     bindElements()
     // The panel looks up its own nodes, but it writes the shell's host and port
     // fields when an endpoint record is imported, so it is attached after `el`
@@ -125,6 +130,28 @@
     const lastStatus = stored?.[MSG.STORAGE_KEYS.lastStatus]
     if (lastStatus !== undefined) applyStatus(lastStatus)
     await loadSettings()
+  }
+
+  /**
+   * Apply the table to the static markup. The English text in `popup.html` is
+   * the no-script fallback; every visible label, placeholder, and accessible
+   * name comes from here so the two languages cannot drift apart.
+   */
+  function applyStaticText() {
+    for (const node of document.querySelectorAll('[data-i18n]')) {
+      node.textContent = t(node.dataset.i18n)
+    }
+    for (const node of document.querySelectorAll('[data-i18n-placeholder]')) {
+      node.placeholder = t(node.dataset.i18nPlaceholder)
+    }
+    for (const node of document.querySelectorAll('[data-i18n-title]')) {
+      node.title = t(node.dataset.i18nTitle)
+    }
+    for (const node of document.querySelectorAll('[data-i18n-aria-label]')) {
+      node.setAttribute('aria-label', t(node.dataset.i18nAriaLabel))
+    }
+    const records = document.getElementById('records')
+    if (records !== null) records.setAttribute('aria-label', t('annotationsAria'))
   }
 
   function bindElements() {
@@ -225,7 +252,7 @@
     try {
       stored = await browser.storage.local.get([MSG.STORAGE_KEYS.prefs, MSG.STORAGE_KEYS.token])
     } catch (error) {
-      feedback(`Could not read the saved settings: ${describeError(error)}`, 'error')
+      feedback(t('readSettingsFailed', { reason: describeError(error) }), 'error')
       return
     }
     const prefs = stored?.[MSG.STORAGE_KEYS.prefs]
@@ -246,17 +273,14 @@
   async function saveSettings(event) {
     event.preventDefault()
     if (ENDPOINTS === undefined) {
-      feedback('The address parser did not load; reopen the popup.', 'error')
+      feedback(t('addressParserMissing'), 'error')
       return
     }
     const rawHost = el.host === undefined ? '' : el.host.value.trim()
     const rawPort = el.port === undefined ? '' : el.port.value.trim()
     const typedScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawHost)
     if (rawHost === '') {
-      feedback(
-        'Enter the host that runs "dsh web" (usually 127.0.0.1), or a URL such as wss://anno.example.com.',
-        'error',
-      )
+      feedback(t('enterHost'), 'error')
       if (el.host !== undefined) el.host.focus()
       return
     }
@@ -265,7 +289,7 @@
     if (!typedScheme && rawPort !== '') {
       const port = Number(rawPort)
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        feedback('The port must be a whole number between 1 and 65535.', 'error')
+        feedback(t('badPort'), 'error')
         if (el.port !== undefined) el.port.focus()
         return
       }
@@ -279,7 +303,7 @@
       const raw = stored?.[MSG.STORAGE_KEYS.prefs]
       storedPrefs = raw !== null && typeof raw === 'object' ? { ...raw } : {}
     } catch (error) {
-      feedback(`Could not read the saved settings: ${describeError(error)}`, 'error')
+      feedback(t('readSettingsFailed', { reason: describeError(error) }), 'error')
       return
     }
     const storedSecure = typeof storedPrefs.secure === 'boolean' ? storedPrefs.secure : null
@@ -302,14 +326,14 @@
       })
       state.token = token
       const scheme = parsed.secure === true ? 'wss' : parsed.secure === false ? 'ws' : 'ws or wss'
-      const decision = parsed.secure === null ? '; the host health check picks the scheme' : ''
-      feedback(`Saved. Connecting to ${scheme}://${parsed.host}:${parsed.port}/ext/anno${decision}`, 'ok')
+      const decision = parsed.secure === null ? t('savedSchemeCheck') : ''
+      feedback(t('savedConnect', { scheme, host: parsed.host, port: parsed.port, decision }), 'ok')
       // The background reconnects on the storage change; give it a moment.
       setTimeout(() => {
         void refreshState()
       }, 500)
     } catch (error) {
-      feedback(`Could not save the settings: ${describeError(error)}`, 'error')
+      feedback(t('saveFailed', { reason: describeError(error) }), 'error')
     }
   }
 
@@ -317,7 +341,7 @@
     if (el.token === undefined || el['toggle-token'] === undefined) return
     const hidden = el.token.type === 'password'
     el.token.type = hidden ? 'text' : 'password'
-    el['toggle-token'].textContent = hidden ? 'Hide' : 'Show'
+    el['toggle-token'].textContent = hidden ? t('hide') : t('show')
     el['toggle-token'].setAttribute('aria-pressed', hidden ? 'true' : 'false')
   }
 
@@ -326,7 +350,7 @@
   async function refreshState() {
     const response = await send(MSG.TO_BACKGROUND_POPUP.state)
     if (response === null || typeof response !== 'object' || response.ok !== true) {
-      feedback(`The background could not report its state: ${response?.error ?? 'no response'}`, 'error')
+      feedback(t('backgroundStateFailed', { reason: response?.error ?? t('noResponse') }), 'error')
       return
     }
     if (response.status !== undefined) applyStatus(response.status)
@@ -344,12 +368,15 @@
     const connection = typeof status.connection === 'string' ? status.connection : 'idle'
     const tone = connectionTone(connection)
     if (el['connection-dot'] !== undefined) el['connection-dot'].className = `dot dot--${tone}`
-    if (el['connection-label'] !== undefined)
-      el['connection-label'].textContent = CONNECTION_LABELS[connection] ?? 'Bridge state unknown'
+    if (el['connection-label'] !== undefined) {
+      el['connection-label'].textContent = t(CONNECTION_KEYS[connection] ?? 'statusUnknown')
+    }
     if (typeof status.lastError === 'string' && status.lastError !== '') {
-      feedback(status.lastError, 'error')
+      // The background's strings are diagnostics and stay English; the one a
+      // first-run user actually meets (no token yet) has a translated twin.
+      feedback(connection === 'no-token' ? t('noTokenFeedback') : status.lastError, 'error')
     } else if (connection === 'connected') {
-      feedback('Connected. Annotations sync through the host.', 'ok')
+      feedback(t('connectedFeedback'), 'ok')
     }
     if (status.outbox !== undefined) applyOutbox(status.outbox)
     // The panel owns the detail line, the mode control, and the hosts list; it
@@ -372,32 +399,31 @@
     state.outbox = { count, pendingImages }
     if (el['pending-badge'] !== undefined) {
       el['pending-badge'].hidden = count === 0
-      el['pending-badge'].textContent = `${count} pending`
+      el['pending-badge'].textContent = count === 0 ? '' : t('pending', { n: count })
     }
-    if (el.flush !== undefined) el.flush.textContent = count === 0 ? 'Flush outbox' : `Flush outbox (${count})`
+    if (el.flush !== undefined) {
+      el.flush.textContent = count === 0 ? t('flush') : t('flushCount', { n: count })
+    }
     if (el['outbox-summary'] !== undefined) {
       el['outbox-summary'].textContent =
         count === 0
-          ? 'Outbox empty.'
-          : `${count} annotation(s) waiting to reach the host${pendingImages === 0 ? '' : `, ${pendingImages} with a screenshot waiting for the crop`}.`
+          ? t('outboxEmpty')
+          : t('outboxWaiting', { n: count }) +
+            (pendingImages === 0 ? '' : t('outboxWaitingImages', { n: pendingImages }))
     }
   }
-
   // ── page and records ──────────────────────────────────────────────────────
 
   function renderPage() {
     const tab = state.activeTab
     if (el['page-title'] === undefined || el['page-url'] === undefined) return
     if (tab === null) {
-      el['page-title'].textContent = 'No active page'
+      el['page-title'].textContent = t('noPage')
       el['page-url'].textContent = ''
       return
     }
-    el['page-title'].textContent = typeof tab.title === 'string' && tab.title !== '' ? tab.title : 'Untitled page'
-    el['page-url'].textContent =
-      tab.restricted === true
-        ? 'This page cannot host annotations (browser-internal or protected page).'
-        : String(tab.url ?? '')
+    el['page-title'].textContent = typeof tab.title === 'string' && tab.title !== '' ? tab.title : t('untitledPage')
+    el['page-url'].textContent = tab.restricted === true ? t('restrictedPage') : String(tab.url ?? '')
   }
 
   function renderRecords() {
@@ -424,11 +450,11 @@
     const stateName = typeof record.state === 'string' ? record.state : 'open'
     const stateChip = document.createElement('span')
     stateChip.className = `chip chip--${stateName === 'open' ? 'open' : 'resolved'}`
-    stateChip.textContent = stateName.replace('_', ' ')
+    stateChip.textContent = stateLabel(stateName)
     head.append(stateChip)
     const kindChip = document.createElement('span')
     kindChip.className = 'chip'
-    kindChip.textContent = typeof record.anchor?.kind === 'string' ? record.anchor.kind : 'anchor'
+    kindChip.textContent = kindLabel(record.anchor?.kind)
     head.append(kindChip)
     if (typeof record.intent === 'string' && record.intent !== '') {
       const intentChip = document.createElement('span')
@@ -448,7 +474,7 @@
     preview.className = 'record__open'
     preview.dataset.openRecord = String(record.id ?? '')
     preview.textContent = previewText(record)
-    preview.setAttribute('aria-label', `Focus the page and highlight annotation ${record.id ?? ''}`)
+    preview.setAttribute('aria-label', t('recordOpenAria', { id: record.id ?? '' }))
     item.append(preview)
 
     const comment = typeof record.comment === 'string' ? record.comment : ''
@@ -462,7 +488,7 @@
     if (typeof record.resolution?.note === 'string' && record.resolution.note !== '') {
       const note = document.createElement('p')
       note.className = 'record__resolution'
-      note.textContent = `Resolution: ${record.resolution.note}`
+      note.textContent = `${t('resolutionPrefix')}${record.resolution.note}`
       item.append(note)
     }
 
@@ -472,13 +498,13 @@
     const lifecycle = document.createElement('button')
     lifecycle.type = 'button'
     lifecycle.dataset.action = stateName === 'open' ? 'resolve' : 'reopen'
-    lifecycle.textContent = stateName === 'open' ? 'Resolve' : 'Reopen'
+    lifecycle.textContent = stateName === 'open' ? t('resolve') : t('reopen')
     lifecycle.disabled = busy
     actions.append(lifecycle)
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.dataset.action = 'delete'
-    remove.textContent = 'Delete'
+    remove.textContent = t('delete')
     remove.disabled = busy
     actions.append(remove)
     item.append(actions)
@@ -493,7 +519,22 @@
       const described = PROTOCOL.describeAnchor(record)
       if (typeof described === 'string' && described !== '') return described
     }
-    return 'Annotation'
+    return t('previewFallback')
+  }
+
+  /** @param {string} value */
+  function stateLabel(value) {
+    if (value === 'resolved') return t('stateResolved')
+    if (value === 'wont_fix') return t('stateWontFix')
+    return t('stateOpen')
+  }
+
+  /** @param {unknown} kind */
+  function kindLabel(kind) {
+    if (kind === 'selection') return t('kindSelection')
+    if (kind === 'region') return t('kindRegion')
+    if (kind === 'element') return t('kindElement')
+    return String(kind ?? '')
   }
 
   /** @param {string} iso */
@@ -501,13 +542,13 @@
     const value = Date.parse(typeof iso === 'string' ? iso : '')
     if (Number.isNaN(value)) return ''
     const seconds = Math.max(0, Math.round((Date.now() - value) / 1000))
-    if (seconds < 45) return 'just now'
+    if (seconds < 45) return t('justNow')
     const minutes = Math.round(seconds / 60)
-    if (minutes < 60) return `${minutes} min ago`
+    if (minutes < 60) return t('minutesAgo', { n: minutes })
     const hours = Math.round(minutes / 60)
-    if (hours < 24) return `${hours} h ago`
+    if (hours < 24) return t('hoursAgo', { n: hours })
     const days = Math.round(hours / 24)
-    if (days < 7) return `${days} d ago`
+    if (days < 7) return t('daysAgo', { n: days })
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(value)
   }
 
@@ -544,17 +585,10 @@
           ? await send(MSG.TO_BACKGROUND_POPUP.remove, { id })
           : await send(MSG.TO_BACKGROUND_POPUP.mutate, { id, action })
       if (response === null || typeof response !== 'object' || response.ok !== true) {
-        feedback(response?.error ?? 'The host did not accept the change.', 'error')
+        feedback(response?.error ?? t('hostRejected'), 'error')
         return
       }
-      feedback(
-        action === 'delete'
-          ? 'Annotation deleted.'
-          : action === 'resolve'
-            ? 'Annotation resolved.'
-            : 'Annotation reopened.',
-        'ok',
-      )
+      feedback(action === 'delete' ? t('deleted') : action === 'resolve' ? t('resolved') : t('reopened'), 'ok')
       await refreshState()
     } finally {
       setBusy(id, false)
@@ -572,19 +606,19 @@
   async function openRecord(record) {
     const tab = state.activeTab
     if (tab === null || typeof tab.id !== 'number') {
-      feedback('No page is available to focus.', 'error')
+      feedback(t('noPageFocus'), 'error')
       return
     }
     try {
       await browser.tabs.update(tab.id, { active: true })
       if (typeof tab.windowId === 'number') await browser.windows.update(tab.windowId, { focused: true })
     } catch (error) {
-      feedback(`Could not focus the page: ${describeError(error)}`, 'error')
+      feedback(t('focusFailed', { reason: describeError(error) }), 'error')
       return
     }
     const delivered = await sendToTab(tab.id, MSG.TO_CONTENT.activate, { recordId: record.id, mode: 'auto' })
     if (!delivered) {
-      feedback('The annotation overlay is not available in this tab; reload the page and try again.', 'error')
+      feedback(t('overlayUnavailable'), 'error')
       return
     }
     window.close()
@@ -623,19 +657,19 @@
 
   async function flushOutbox() {
     if (el.flush !== undefined) el.flush.disabled = true
-    feedback('Flushing the outbox through the host.', 'info')
+    feedback(t('flushStarted'), 'info')
     try {
       const response = await send(MSG.TO_BACKGROUND_POPUP.flush)
       if (response === null || typeof response !== 'object' || response.ok !== true) {
-        feedback(response?.error ?? 'The flush failed.', 'error')
+        feedback(response?.error ?? t('flushFailed'), 'error')
         return
       }
       if (response.status !== undefined) applyStatus(response.status)
       if (response.outbox !== undefined) applyOutbox(response.outbox)
       const remaining = Number.isInteger(response.outbox?.count) ? response.outbox.count : 0
       const sent = Number.isInteger(response.sent) ? response.sent : 0
-      if (remaining > 0) feedback(`Sent ${sent} annotation(s); ${remaining} still queued.`, 'warn')
-      else feedback(sent > 0 ? `Sent ${sent} annotation(s).` : 'The outbox was already empty.', 'ok')
+      if (remaining > 0) feedback(t('flushPartial', { sent, remaining }), 'warn')
+      else feedback(sent > 0 ? t('flushSent', { sent }) : t('flushEmpty'), 'ok')
       await refreshState()
     } finally {
       if (el.flush !== undefined) el.flush.disabled = false

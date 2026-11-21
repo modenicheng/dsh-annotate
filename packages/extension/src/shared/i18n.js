@@ -1,0 +1,366 @@
+/**
+ * dsh-marker popup — the language table.
+ *
+ * The content overlay has its own two-locale table in `content/ui/strings.js`;
+ * the popup is a separate surface with its own vocabulary (connection state,
+ * records, diagnostics). One table here keeps its labels, hints, and feedback
+ * in the same language as the browser UI, without pulling the overlay's keys
+ * into a page that never renders them.
+ *
+ * `pickLanguage` collapses every `zh*` tag onto `zh` and everything else onto
+ * `en`, which is exactly the set of shipped locales.
+ */
+;(function installI18n(global) {
+  const ns = (global.__DSH_I18N__ = global.__DSH_I18N__ || {})
+  if (ns.ready) return
+
+  const POPUP = {
+    en: {
+      statusConnecting: 'Connecting',
+      statusConnected: 'Connected to the host',
+      statusOpen: 'Handshaking with the host',
+      statusIdle: 'Not connected',
+      statusOffline: 'Host unreachable',
+      statusNoToken: 'Bridge token required',
+      statusError: 'Bridge error',
+      statusUnknown: 'Bridge state unknown',
+      pending: '{n} pending',
+      connectedFeedback: 'Connected. Annotations sync through the host.',
+      noTokenFeedback: 'No bridge token saved yet. Paste the contents of $DSH_HOME/ext-bridge-token above.',
+      bridgeTitle: 'Host bridge',
+      pageHeading: 'This page',
+      annotationHeading: 'Annotate',
+      connection: 'Connection',
+      automatic: 'Automatic',
+      manual: 'Manual',
+      modeAutoHint: 'Finds a host whose port moved. Keep 127.0.0.1 / 3080 unless you need an override.',
+      modeManualHint: 'Uses the address below exactly as typed.',
+      discoveredTitle: 'Discovered hosts',
+      discoveryHint:
+        'A host on 127.0.0.1:3080 is tried too, but the locator only runs when the port is not 3080 — if neither answered, import $DSH_HOME/ext-bridge-endpoint.json below.',
+      scanAgain: 'Scan again',
+      scanning: 'Scanning…',
+      scanStarted: 'Scanning for a host on loopback…',
+      scanFailed: 'The scan did not run.',
+      noHostAnswered: 'No host answered the scan.',
+      hostsAnswered: '{n} answered the scan.',
+      hostLabel: 'Host or URL',
+      portLabel: 'Port',
+      hostHint:
+        'A host and port, or a full URL such as wss://anno.example.com when the host is behind HTTPS. Without a scheme, the extension asks the host which one to use.',
+      dropText: 'Drop ext-bridge-endpoint.json here, or',
+      importEndpoint: 'Import endpoint file…',
+      importHint:
+        'Reads only the address from the record the host writes; the token below still comes from $DSH_HOME/ext-bridge-token.',
+      tokenLabel: 'Bridge token',
+      show: 'Show',
+      hide: 'Hide',
+      tokenPlaceholder: 'Paste the token from $DSH_HOME/ext-bridge-token',
+      tokenHint: 'Contents of $DSH_HOME/ext-bridge-token. The host writes that file on its first run.',
+      save: 'Save and reconnect',
+      flush: 'Flush outbox',
+      flushCount: 'Flush outbox ({n})',
+      outboxEmpty: 'Outbox empty.',
+      outboxWaiting: '{n} waiting for the host',
+      outboxWaitingImages: ' · {n} screenshots pending the crop',
+      noPage: 'No active page',
+      untitledPage: 'Untitled page',
+      restrictedPage: 'This page cannot host annotations (browser-internal or protected page).',
+      annotationsAria: 'Annotations on this page',
+      noAnnotations: 'No annotations on this page.',
+      recordOpenAria: 'Focus the page and highlight annotation {id}',
+      resolutionPrefix: 'Resolution: ',
+      resolve: 'Resolve',
+      reopen: 'Reopen',
+      delete: 'Delete',
+      deleted: 'Annotation deleted.',
+      resolved: 'Annotation resolved.',
+      reopened: 'Annotation reopened.',
+      hostRejected: 'The host did not accept the change.',
+      noPageFocus: 'No page is available to focus.',
+      focusFailed: 'Could not focus the page: {reason}',
+      overlayUnavailable: 'The annotation overlay is not available in this tab; reload the page and try again.',
+      previewFallback: 'Annotation',
+      justNow: 'just now',
+      minutesAgo: '{n} min ago',
+      hoursAgo: '{n} h ago',
+      daysAgo: '{n} d ago',
+      stateOpen: 'open',
+      stateResolved: 'resolved',
+      stateWontFix: "won't fix",
+      kindSelection: 'text',
+      kindElement: 'element',
+      kindRegion: 'region',
+      readSettingsFailed: 'Could not read the saved settings: {reason}',
+      addressParserMissing: 'The address parser did not load; reopen the popup.',
+      enterHost: 'Enter the host that runs "dsh web" (usually 127.0.0.1), or a URL such as wss://anno.example.com.',
+      badPort: 'The port must be a whole number between 1 and 65535.',
+      savedConnect: 'Saved. Connecting to {scheme}://{host}:{port}/ext/anno{decision}',
+      savedSchemeCheck: '; the host health check picks the scheme',
+      saveFailed: 'Could not save the settings: {reason}',
+      flushStarted: 'Flushing the outbox through the host.',
+      flushFailed: 'The flush failed.',
+      flushPartial: 'Sent {sent}; {remaining} still queued.',
+      flushSent: 'Sent {sent}.',
+      flushEmpty: 'The outbox was already empty.',
+      backgroundStateFailed: 'The background could not report its state: {reason}',
+      noResponse: 'no response',
+      switchFailed: 'The background did not switch to that host.',
+      switchingTo: 'Switching to {name}.',
+      chooseHostAria: 'Use {name} at {origin}',
+      unnamedProfile: 'unnamed profile',
+      connectedChip: 'connected',
+      tokenSaved: 'token saved',
+      tokenMissing: 'no token saved',
+      advertisedByHost: ' · advertised by the host',
+      hostsFound: '{n} hosts found',
+      noHostFound: 'no host found',
+      noFocus: 'no focus reported',
+      focusedAt: 'focused {when}',
+      useHost: 'Use this host',
+      switchingHost: 'Switching…',
+      thisHost: 'this host',
+      chosenHost: 'the chosen host',
+      lastImported: 'Last imported: {origin}{profile}',
+      readFileFailed: 'Could not read {name}: {reason}',
+      invalidJson: '{name} is not valid JSON.',
+      discoveryParserMissing: 'The discovery parser did not load; reopen the popup.',
+      validationFailed: '{name} could not be validated: {reason}',
+      notEndpointRecord:
+        '{name} is not a DSH endpoint record: it must be a copy of $DSH_HOME/ext-bridge-endpoint.json (app, version, instance id, loopback origin).',
+      importRejected: 'The background did not accept the imported address.',
+      thisFile: 'That file',
+      imported: 'Imported {origin} ({profile})',
+      shortcutLabel: 'Shortcut',
+      shortcutHint: 'Click, then press a combination. The browser command is updated so screenshots keep working.',
+      recordingShortcut: 'Press keys…',
+      resetShortcut: 'Reset',
+      shortcutInvalid: 'Use a letter, digit, or function key with at least one of Ctrl, Alt, or Cmd.',
+      shortcutSaved: 'Shortcut saved.',
+      shortcutReset: 'Shortcut reset to the default.',
+      shortcutBrowserFailed: 'Saved for pages, but the browser rejected it as an extension shortcut.',
+      exitAfterSendLabel: 'Exit annotate mode after sending',
+      exitAfterSendHint: 'Off by default: staying in the mode lets you mark several things in a row.',
+      exitOnRightClickLabel: 'Right-click leaves annotate mode',
+      annotateStale:
+        'The background did not answer: this popup is newer than the loaded extension. Reload it in about:debugging, refresh the page, and try again.',
+      annotateNow: 'Annotate this page',
+      annotateReady: 'Annotation mode is on. Escape leaves it.',
+      annotateFailed: 'Could not start annotation mode: {reason}',
+      restrictedShort: 'This page cannot be annotated.',
+      diagnosticsTitle: 'Diagnostics',
+      diagnosticsEmpty: 'No events recorded yet.',
+      diagnosticsRefresh: 'Refresh',
+      diagnosticsCopy: 'Copy',
+      diagnosticsCopied: 'Diagnostics copied.',
+      diagnosticsCopyFailed: 'Could not copy the diagnostics: {reason}',
+    },
+    zh: {
+      statusConnecting: '正在连接',
+      statusConnected: '已连接宿主',
+      statusOpen: '正在与宿主握手',
+      statusIdle: '未连接',
+      statusOffline: '宿主不可达',
+      statusNoToken: '需要桥接 token',
+      statusError: '桥接出错',
+      statusUnknown: '桥接状态未知',
+      pending: '{n} 条待发',
+      connectedFeedback: '已连接，批注通过宿主同步。',
+      noTokenFeedback: '还没有保存桥接 token。请把 $DSH_HOME/ext-bridge-token 的内容粘贴到上面。',
+      bridgeTitle: '宿主桥接',
+      pageHeading: '当前页面',
+      annotationHeading: '标注',
+      connection: '连接方式',
+      automatic: '自动',
+      manual: '手动',
+      modeAutoHint: '自动发现端口变化后的宿主；除非需要覆盖，保持 127.0.0.1 / 3080。',
+      modeManualHint: '完全按下面的地址连接。',
+      discoveredTitle: '发现的宿主',
+      discoveryHint:
+        '也会尝试 127.0.0.1:3080 上的宿主，但定位器只在端口不是 3080 时运行——两者都没有回应时，导入下面的 $DSH_HOME/ext-bridge-endpoint.json。',
+      scanAgain: '重新扫描',
+      scanning: '扫描中…',
+      scanStarted: '正在回环地址上查找宿主…',
+      scanFailed: '扫描没有运行。',
+      noHostAnswered: '没有宿主回应扫描。',
+      hostsAnswered: '{n} 个宿主回应了扫描。',
+      hostLabel: '主机或 URL',
+      portLabel: '端口',
+      hostHint: '主机加端口，或宿主在 HTTPS 后面时填完整 URL（如 wss://anno.example.com）。不写协议时由宿主决定。',
+      dropText: '把 ext-bridge-endpoint.json 拖到这里，或',
+      importEndpoint: '导入 endpoint 文件…',
+      importHint: '只读取宿主写出的地址；token 仍来自 $DSH_HOME/ext-bridge-token。',
+      tokenLabel: '桥接 token',
+      show: '显示',
+      hide: '隐藏',
+      tokenPlaceholder: '粘贴 $DSH_HOME/ext-bridge-token 的内容',
+      tokenHint: '$DSH_HOME/ext-bridge-token 的内容，宿主首次运行时写出。',
+      save: '保存并重连',
+      flush: '发送待发队列',
+      flushCount: '发送待发队列（{n}）',
+      outboxEmpty: '待发队列为空。',
+      outboxWaiting: '{n} 条等待发送到宿主',
+      outboxWaitingImages: ' · {n} 张截图等待裁剪',
+      noPage: '没有活动页面',
+      untitledPage: '无标题页面',
+      restrictedPage: '此页面无法承载批注（浏览器内部或受保护页面）。',
+      annotationsAria: '当前页面上的批注',
+      noAnnotations: '当前页面没有批注。',
+      recordOpenAria: '切到页面并高亮批注 {id}',
+      resolutionPrefix: '处理结果：',
+      resolve: '解决',
+      reopen: '重新打开',
+      delete: '删除',
+      deleted: '已删除批注。',
+      resolved: '已标记为解决。',
+      reopened: '已重新打开。',
+      hostRejected: '宿主没有接受这次修改。',
+      noPageFocus: '没有可切换的页面。',
+      focusFailed: '无法切换到页面：{reason}',
+      overlayUnavailable: '此标签页没有批注浮层；刷新页面后重试。',
+      previewFallback: '批注',
+      justNow: '刚刚',
+      minutesAgo: '{n} 分钟前',
+      hoursAgo: '{n} 小时前',
+      daysAgo: '{n} 天前',
+      stateOpen: '待处理',
+      stateResolved: '已解决',
+      stateWontFix: '不修',
+      kindSelection: '文本',
+      kindElement: '元素',
+      kindRegion: '区域',
+      readSettingsFailed: '读取已保存的设置失败：{reason}',
+      addressParserMissing: '地址解析器未加载；请重新打开弹窗。',
+      enterHost: '请输入运行 "dsh web" 的主机（通常是 127.0.0.1），或 wss://anno.example.com 这样的完整 URL。',
+      badPort: '端口必须是 1 到 65535 之间的整数。',
+      savedConnect: '已保存。正在连接 {scheme}://{host}:{port}/ext/anno{decision}',
+      savedSchemeCheck: '；由宿主健康检查决定协议',
+      saveFailed: '保存设置失败：{reason}',
+      flushStarted: '正在通过宿主发送待发队列。',
+      flushFailed: '发送失败。',
+      flushPartial: '已发送 {sent}；仍有 {remaining} 条排队。',
+      flushSent: '已发送 {sent}。',
+      flushEmpty: '待发队列本来就是空的。',
+      backgroundStateFailed: '后台无法报告状态：{reason}',
+      noResponse: '没有响应',
+      switchFailed: '后台没有切换到那个宿主。',
+      switchingTo: '正在切换到 {name}。',
+      chooseHostAria: '使用 {origin} 上的 {name}',
+      unnamedProfile: '未命名 profile',
+      connectedChip: '已连接',
+      tokenSaved: 'token 已保存',
+      tokenMissing: '未保存 token',
+      advertisedByHost: ' · 地址由宿主声明',
+      hostsFound: '发现 {n} 个宿主',
+      noHostFound: '未找到宿主',
+      noFocus: '没有焦点记录',
+      focusedAt: '{when}获得焦点',
+      useHost: '使用此宿主',
+      switchingHost: '切换中…',
+      thisHost: '此宿主',
+      chosenHost: '所选宿主',
+      lastImported: '上次导入：{origin}{profile}',
+      readFileFailed: '无法读取 {name}：{reason}',
+      invalidJson: '{name} 不是合法的 JSON。',
+      discoveryParserMissing: '发现解析器未加载；请重新打开弹窗。',
+      validationFailed: '{name} 校验失败：{reason}',
+      notEndpointRecord:
+        '{name} 不是 DSH endpoint 记录：它必须是 $DSH_HOME/ext-bridge-endpoint.json 的副本（app、version、instance id、回环 origin）。',
+      importRejected: '后台没有接受导入的地址。',
+      thisFile: '该文件',
+      imported: '已导入 {origin}（{profile}）',
+      shortcutLabel: '快捷键',
+      shortcutHint: '点击后按下组合键。会同步更新浏览器命令，截图权限才不会丢。',
+      recordingShortcut: '请按键…',
+      resetShortcut: '重置',
+      shortcutInvalid: '请使用字母、数字或功能键，并至少带上 Ctrl、Alt、Cmd 之一。',
+      shortcutSaved: '快捷键已保存。',
+      shortcutReset: '快捷键已恢复默认。',
+      shortcutBrowserFailed: '已保存为页面内快捷键，但浏览器拒绝了它作为扩展命令。',
+      exitAfterSendLabel: '发送后退出批注模式',
+      exitAfterSendHint: '默认关闭：保持模式便于连续标注多处。',
+      exitOnRightClickLabel: '右键退出批注模式',
+      annotateStale: '后台没有响应：弹窗比当前加载的扩展更新。请在 about:debugging 里重载扩展、刷新页面后再试。',
+      annotateNow: '标注当前页面',
+      annotateReady: '已进入批注模式，按 Esc 退出。',
+      annotateFailed: '无法进入批注模式：{reason}',
+      restrictedShort: '此页面无法标注。',
+      diagnosticsTitle: '诊断日志',
+      diagnosticsEmpty: '还没有记录。',
+      diagnosticsRefresh: '刷新',
+      diagnosticsCopy: '复制',
+      diagnosticsCopied: '诊断日志已复制。',
+      diagnosticsCopyFailed: '复制诊断日志失败：{reason}',
+    },
+  }
+
+  /**
+   * The browser UI language, which is what the extension should speak even when
+   * the page itself is in another one. `browser.i18n` is available in the popup
+   * (the Chromium shim aliases `browser` before this file).
+   * @param {any} [scope]
+   */
+  function browserLanguage(scope) {
+    const api = scope && (scope.browser || scope.chrome)
+    try {
+      if (api && api.i18n && typeof api.i18n.getUILanguage === 'function') {
+        const language = api.i18n.getUILanguage()
+        if (typeof language === 'string' && language !== '') return language
+      }
+    } catch {
+      // A context without i18n falls back to the page/navigator language.
+    }
+    const navigator = scope && scope.navigator
+    return navigator && typeof navigator.language === 'string' ? navigator.language : 'en'
+  }
+
+  /**
+   * Browser locale → shipped table.
+   * @param {string} [language]
+   * @returns {'en' | 'zh'}
+   */
+  function pickLanguage(language) {
+    return String(language || '')
+      .trim()
+      .toLowerCase()
+      .startsWith('zh')
+      ? 'zh'
+      : 'en'
+  }
+
+  /**
+   * Replace `{name}` placeholders. Values are inserted verbatim: callers pass
+   * numbers, origins, and already-localized fragments, never markup.
+   * @param {string} template
+   * @param {Record<string, string | number>} [vars]
+   */
+  function format(template, vars) {
+    const values = vars && typeof vars === 'object' ? vars : {}
+    return String(template).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) =>
+      Object.hasOwn(values, name) ? String(values[name]) : match,
+    )
+  }
+
+  /**
+   * Build a translator. A missing key falls back to English and then to the key
+   * itself, so a half-translated table never throws or blanks a label.
+   * @param {string} [language]
+   */
+  function make(language) {
+    const languageKey = pickLanguage(language)
+    const selected = POPUP[languageKey] || POPUP.en
+    const fallback = POPUP.en
+    /** @param {string} key @param {Record<string, string | number>} [vars] */
+    return function translate(key, vars) {
+      const value = Object.hasOwn(selected, key) ? selected[key] : fallback[key]
+      return format(value === undefined ? key : value, vars)
+    }
+  }
+
+  ns.POPUP = POPUP
+  ns.pickLanguage = pickLanguage
+  ns.browserLanguage = browserLanguage
+  ns.format = format
+  ns.make = make
+  ns.ready = true
+})(globalThis)
