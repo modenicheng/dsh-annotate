@@ -317,17 +317,13 @@ export function defaultId(items, preferredId) {
   return items[0]?.id ?? null
 }
 
-/** Accept the token from the query string, a bearer header, or the dedicated header. */
+/** Accept the token from a bearer header or the dedicated header; the query string never carries credentials (log safety). */
 function presentedToken(request) {
   const header = request.headers?.authorization
   if (typeof header === 'string' && header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim()
   const custom = request.headers?.['x-anno-token']
   if (typeof custom === 'string' && custom !== '') return custom
-  try {
-    return new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.get('token') ?? ''
-  } catch {
-    return ''
-  }
+  return ''
 }
 
 /** @param {any} row @param {string} title @param {{ id: string, title: string, path: string } | undefined} workspace */
