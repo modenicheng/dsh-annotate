@@ -795,22 +795,15 @@
     }
     const token = await ns.readToken()
     if (typeof token !== 'string' || token === '') return failure('the bridge token is missing')
-    const wsUrl = ns.netState.wsUrl
-    if (typeof wsUrl !== 'string' || wsUrl === '') return failure('not connected to DeepSeek Harness yet')
 
-    let url
-    try {
-      const parsed = new URL(wsUrl)
-      parsed.protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:'
-      parsed.pathname = '/ext/anno/sessions'
-      parsed.search = `?limit=50&token=${encodeURIComponent(token)}`
-      url = parsed.href
-    } catch (error) {
-      return failure(`unusable bridge address (${ns.describeError(error)})`)
-    }
+    // The token travels in the x-anno-token header, never the URL: a query
+    // string would land in host and reverse-proxy access logs.
+    const target = bridgeHttpUrl('/ext/anno/sessions')
+    if (target.ok !== true) return failure(target.error)
+    const url = `${target.url}?limit=50`
 
     try {
-      const response = await fetch(url, { cache: 'no-store' })
+      const response = await fetch(url, { cache: 'no-store', headers: { 'x-anno-token': token } })
       const body = await response.json()
       if (response.ok !== true || body?.ok === false) {
         return failure(typeof body?.message === 'string' ? body.message : `the host answered ${response.status}`)

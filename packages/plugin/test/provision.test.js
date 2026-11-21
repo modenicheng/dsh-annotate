@@ -317,9 +317,29 @@ test('the route rejects a missing or wrong token before touching services', asyn
 
   const barePost = await call(handler, SESSION_CREATE_PATH, { method: 'POST', body: '{}' })
   assert.equal(barePost.status, 401)
-  const posted = await call(handler, `${SESSION_CREATE_PATH}?token=nope`, { method: 'POST', body: '{}' })
-  assert.equal(posted.status, 401)
+  // The URL never carries credentials: even a correct token in the query string is refused.
+  const viaQuery = await call(handler, `${SESSION_CREATE_PATH}?token=secret`, { method: 'POST', body: '{}' })
+  assert.equal(viaQuery.status, 401)
   assert.equal(svc.__created.length, 0)
+})
+
+test('the route accepts bearer and header tokens', async () => {
+  const { handler } = mountedProvisioner()
+  const body = JSON.stringify({ mode: 'existing', workspaceId: 'w-alpha' })
+
+  const viaHeader = await call(handler, SESSION_CREATE_PATH, {
+    method: 'POST',
+    headers: { 'x-anno-token': 'secret' },
+    body,
+  })
+  assert.equal(viaHeader.status, 200)
+
+  const viaBearer = await call(handler, SESSION_CREATE_PATH, {
+    method: 'POST',
+    headers: { authorization: 'Bearer secret' },
+    body,
+  })
+  assert.equal(viaBearer.status, 200)
 })
 
 test('the route answers a valid create and returns the session', async () => {

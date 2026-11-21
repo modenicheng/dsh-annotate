@@ -279,17 +279,13 @@ export function registerProvisionRoutes(webServer, { provisioner, token, matches
   })
 }
 
-/** Accept the token from a bearer header, the dedicated header, or the query string. */
+/** Accept the token from a bearer header or the dedicated header; the query string never carries credentials (log safety). */
 function presentedToken(request) {
   const header = request.headers?.authorization
   if (typeof header === 'string' && header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim()
   const custom = request.headers?.['x-anno-token']
   if (typeof custom === 'string' && custom !== '') return custom
-  try {
-    return new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.get('token') ?? ''
-  } catch {
-    return ''
-  }
+  return ''
 }
 
 /** @param {any} request */

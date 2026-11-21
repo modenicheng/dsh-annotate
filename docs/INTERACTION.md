@@ -45,7 +45,7 @@ conversation. Nothing is injected behind the user's back.
   the picker falls back to the most recently active Session. The same report
   routes an annotation that was submitted without touching the picker (D18).
 
-Host data source: `GET /ext/anno/sessions?token=…` (`packages/plugin/src/sessions.js`).
+Host data source: `GET /ext/anno/sessions`（token 经 `Authorization: Bearer` / `x-anno-token` header 传入；`packages/plugin/src/sessions.js`）。
 It returns `{ok, items[], total, truncated, defaultSessionId, workspaces[]}` where each item is
 `{id, title, updatedAt, running, blank, agentAvailable, cwd, workspace}` and each
 workspace row is `{id, title, path}`. Creation is
