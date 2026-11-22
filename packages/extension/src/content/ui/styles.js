@@ -488,6 +488,32 @@
   overflow-y: auto;
 }
 .target-anchor[aria-pressed="true"] { background: rgba(37, 99, 235, 0.28); }
+/* M4.7b: the host-served browser rides on the same list skin; its head is one
+   Up affordance plus the current directory, mono because it is a path. */
+.target-fs-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.target-fs-up {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
+  cursor: pointer;
+}
+.target-fs-up:hover { background: rgba(255, 255, 255, 0.12); }
+.target-fs-up:disabled { color: var(--text-dim); cursor: not-allowed; }
+.target-fs-path {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #94a3b8;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
+}
 .target-new-manual-toggle {
   align-self: flex-start;
   padding: 0;

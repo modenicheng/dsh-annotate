@@ -86,6 +86,22 @@
       newWorkspaceId: '',
       newPath: '',
       newTitle: '',
+      /**
+       * M4.7b browse state for the workspace sub-panel: `fsReady` once the
+       * host answered one listing, `fsUnsupported` after any failure (the
+       * anchors are the whole flow then), and `fsPath === ''` meaning the
+       * roots view while `fsRoots` is an array.
+       */
+      fsReady: false,
+      fsUnsupported: false,
+      fsBusy: false,
+      fsPath: '',
+      fsParent: '',
+      fsEntries: [],
+      fsRoots: null,
+      fsHome: '',
+      fsTruncated: false,
+      fsError: '',
       /** True when the host is too far away to create a session. */
       newUnavailable: false,
       workspaces: [],

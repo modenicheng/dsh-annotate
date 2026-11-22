@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto'
 import { ensureToken, annotationsDir } from './src/paths.js'
 import { AnnotationStore } from './src/store.js'
 import { createBridge, tokenMatches } from './src/bridge.js'
+import { createDirBrowser, registerDirsRoute } from './src/dirs.js'
 import { createDiscovery, isIpv4Loopback, shouldLocate } from './src/discovery.js'
 import { createEventStream, registerEventsRoute } from './src/events.js'
 import { createFocusStore, focusedSession, registerFocusRoute } from './src/focus.js'
@@ -84,6 +85,10 @@ export async function apply(ctx, config = {}) {
       events.publish({ t: 'session', sessionId })
     },
   })
+
+  // The workspace picker's browsing arm (M4.7b): one level of the host's real
+  // directories behind the same token as the catalog.
+  const dirBrowser = createDirBrowser()
 
   const bridge = createBridge({
     store,
@@ -177,6 +182,10 @@ export async function apply(ctx, config = {}) {
           matchesToken: tokenMatches,
         }),
       'dsh-marker: /ext/anno/session-create',
+    )
+    webCtx.effect(
+      () => registerDirsRoute(webCtx.webServer, { browser: dirBrowser, token, matchesToken: tokenMatches }),
+      'dsh-marker: /ext/anno/dirs browsing',
     )
     webCtx.effect(
       () => registerQueueRoutes(webCtx.webServer, { queue, gate: pageGate }),

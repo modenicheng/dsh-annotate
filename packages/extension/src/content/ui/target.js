@@ -12,9 +12,11 @@
  * opens a workspace sub-panel (default / an existing workspace / a brand-new
  * directory). The brand-new directory is chosen, not typed: anchor rows come
  * from the registered workspaces' own paths and parents, and only the optional
- * folder name is written (D26). Confirming a workspace targets a session the
- * Host will create at send time; the choice travels to `main.js` through
- * `handlers.onTargetNew`.
+ * folder name is written (D26). When the host serves `/ext/anno/dirs` the same
+ * panel browses the host's real directories instead (M4.7b); any browse
+ * failure falls back to the anchors without losing the panel. Confirming a
+ * workspace targets a session the Host will create at send time; the choice
+ * travels to `main.js` through `handlers.onTargetNew`.
  */
 ;(function installUiTarget(global) {
   const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
@@ -61,6 +63,14 @@
     targetNewHead.append(targetNewBack, targetNewHeadTitle)
     const targetNewOptions = createElement('div', 'target-new-options')
     const targetNewFields = createElement('div', 'target-new-fields')
+    // The M4.7b browser: an Up affordance and the current directory above the
+    // same scrolling list the anchors use.
+    const fsHead = createElement('div', 'target-fs-head')
+    const fsUp = createElement('button', 'target-fs-up', t('fsUp'))
+    fsUp.type = 'button'
+    const fsPathLabel = createElement('span', 'target-fs-path', '')
+    fsHead.append(fsUp, fsPathLabel)
+    const fsList = createElement('div', 'target-anchor-list')
     const anchorLabel = createElement('div', 'target-new-label', t('workspaceAnchorLabel'))
     const anchorList = createElement('div', 'target-anchor-list')
     const nameLabel = createElement('label', 'target-new-label', t('workspaceNameLabel'))
@@ -89,6 +99,8 @@
     pathInput.spellcheck = false
     const noAnchorsHint = createElement('div', 'target-new-hint', t('workspaceNoAnchors'))
     targetNewFields.append(
+      fsHead,
+      fsList,
       anchorLabel,
       anchorList,
       nameLabel,
@@ -393,20 +405,32 @@
     }
 
     /**
-     * The 新建工作区 flow: anchor rows from the Host's own registered paths,
-     * one optional folder name, and the manual path as the demoted fallback.
-     * A host that reported no workspace at all keeps the typed path as the
-     * whole flow, exactly what M4.6 shipped.
+     * The 新建工作区 flow: the Host's real directories when it can browse
+     * (M4.7b), anchor rows from its registered paths when it cannot, one
+     * optional folder name either way, and the manual path as the demoted
+     * fallback for a host that reported no workspace at all.
      */
     function renderAnchorArea() {
       const rows = anchors()
-      if (rows.length === 0) {
+      // Browsing owns the view whenever the host could still answer: ready,
+      // mid-probe, or merely capable (the probe follows this render). Only a
+      // host that cannot browse at all falls back to anchors or the manual
+      // path, so an empty workspace list never forces the typed input first.
+      const browseCapable = typeof handlers.onBrowseDirs === 'function' && state.fsUnsupported !== true
+      const browseView = state.fsReady === true || state.fsBusy === true || browseCapable
+      if (rows.length === 0 && browseCapable !== true) {
         state.newManual = true
         state.newAnchor = ''
-      } else if (!rows.some((row) => anchorKey(row) === anchorKey(state.newAnchor))) {
+      } else if (rows.length > 0 && !rows.some((row) => anchorKey(row) === anchorKey(state.newAnchor))) {
         state.newAnchor = rows[0]
       }
       const manual = state.newManual === true
+      const pick = browseView !== true && !manual && rows.length > 0
+      const naming = state.fsReady === true ? state.fsPath !== '' : pick
+
+      fsPathLabel.textContent = state.fsPath
+      fsList.textContent = ''
+      if (browseView) renderFsRows()
       anchorList.textContent = ''
       for (const path of rows) {
         const row = createElement('button', 'target-row target-anchor')
@@ -423,15 +447,131 @@
         })
         anchorList.appendChild(row)
       }
-      const pick = !manual && rows.length > 0
+
+      setVisible(fsHead, browseView)
+      setVisible(fsList, browseView)
       setVisible(anchorLabel, pick)
       setVisible(anchorList, pick)
-      setVisible(nameLabel, pick)
-      setVisible(nameInput, pick)
-      setVisible(manualToggle, rows.length > 0)
+      setVisible(nameLabel, naming)
+      setVisible(nameInput, naming)
+      setVisible(targetNewUse, naming || pick || manual)
+      setVisible(manualToggle, pick)
       setVisible(pathLabel, manual)
       setVisible(pathInput, manual)
-      setVisible(noAnchorsHint, rows.length === 0)
+      setVisible(noAnchorsHint, browseView !== true && rows.length === 0)
+      startBrowse()
+    }
+
+    /** The browse list: loading, an inline error, the roots view, or one level. */
+    function renderFsRows() {
+      if (state.fsBusy === true || state.fsReady !== true) {
+        fsUp.disabled = true
+        fsList.appendChild(createElement('div', 'target-empty', t('fsLoading')))
+        return
+      }
+      fsUp.disabled = false
+      if (state.fsError !== '') {
+        fsList.appendChild(createElement('div', 'target-new-error', state.fsError))
+        return
+      }
+      /** @param {string} label @param {string} path */
+      const addRow = (label, path) => {
+        const row = createElement('button', 'target-row target-fs-row')
+        row.type = 'button'
+        row.append(createElement('span', 'target-row-title', label))
+        row.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          browseDirs(path)
+        })
+        fsList.appendChild(row)
+      }
+      if (Array.isArray(state.fsRoots)) {
+        // The roots view is the top: Up has nowhere to go, and the flow starts
+        // by picking the home directory or a drive.
+        fsUp.disabled = true
+        if (state.fsHome !== '') addRow(t('fsHome'), state.fsHome)
+        for (const root of state.fsRoots) addRow(String(root), String(root))
+        return
+      }
+      if (state.fsEntries.length === 0) {
+        fsList.appendChild(createElement('div', 'target-empty', t('fsEmpty')))
+        return
+      }
+      for (const entry of state.fsEntries) {
+        if (!entry || typeof entry.path !== 'string' || entry.path === '') continue
+        addRow(String(entry.name || entry.path), entry.path)
+      }
+      if (state.fsTruncated === true) fsList.appendChild(createElement('div', 'target-empty', t('fsTruncated')))
+    }
+
+    /**
+     * Begin browsing once per composer open: one probe decides whether the
+     * host can browse at all. The landing directory is the newest workspace's
+     * parent — the likeliest home for a sibling — and the host's home
+     * directory when no workspace exists yet.
+     */
+    function startBrowse() {
+      if (state.fsReady === true || state.fsBusy === true || state.fsUnsupported === true) return
+      if (typeof handlers.onBrowseDirs !== 'function') {
+        state.fsUnsupported = true
+        return
+      }
+      const newest = workspaces()[0]
+      const landing =
+        newest && typeof newest.path === 'string' && newest.path !== '' ? parentDirectory(newest.path) : null
+      if (landing !== null && landing !== undefined) browseDirs(landing)
+      else browseDirs('', true)
+    }
+
+    /**
+     * Ask the host for one level of its tree. A failure before the first
+     * success retires the browser for this open — the anchors are the whole
+     * flow then, exactly as M4.7a shipped; a later failure keeps the current
+     * level and shows the host's message inline.
+     * @param {string} path
+     * @param {boolean} [descendHome] after the roots answer, continue into home
+     */
+    function browseDirs(path, descendHome = false) {
+      if (typeof handlers.onBrowseDirs !== 'function') {
+        state.fsUnsupported = true
+        return
+      }
+      state.fsBusy = true
+      state.fsError = ''
+      renderAnchorArea()
+      Promise.resolve(handlers.onBrowseDirs(path)).then(
+        (reply) => {
+          state.fsBusy = false
+          // A user who picked the manual path while the probe was in flight
+          // has made a choice; honour it rather than swapping the panel.
+          if (reply && reply.ok === true && state.newManual !== true) {
+            state.fsReady = true
+            const roots = Array.isArray(reply.roots) ? reply.roots : null
+            state.fsRoots = roots
+            state.fsHome = typeof reply.home === 'string' ? reply.home : ''
+            state.fsPath = roots !== null ? '' : String(reply.path || path)
+            state.fsParent = typeof reply.parent === 'string' ? reply.parent : ''
+            state.fsEntries = Array.isArray(reply.entries) ? reply.entries : []
+            state.fsTruncated = reply.truncated === true
+            if (roots !== null && descendHome === true && state.fsHome !== '') {
+              browseDirs(state.fsHome)
+              return
+            }
+          } else if (state.fsReady !== true) {
+            state.fsUnsupported = true
+          } else {
+            state.fsError = String((reply && reply.error) || t('fsFailed'))
+          }
+          renderAnchorArea()
+        },
+        () => {
+          state.fsBusy = false
+          if (state.fsReady !== true) state.fsUnsupported = true
+          else state.fsError = t('fsFailed')
+          renderAnchorArea()
+        },
+      )
     }
 
     function openNewPanel() {
@@ -593,6 +733,16 @@
       state.newTitle = ''
       state.newAnchor = ''
       state.newManual = false
+      state.fsReady = false
+      state.fsUnsupported = false
+      state.fsBusy = false
+      state.fsPath = ''
+      state.fsParent = ''
+      state.fsEntries = []
+      state.fsRoots = null
+      state.fsHome = ''
+      state.fsTruncated = false
+      state.fsError = ''
       targetSearch.value = ''
       pathInput.value = ''
       nameInput.value = ''
@@ -638,10 +788,23 @@
       event.stopPropagation()
       closeNewPanel()
     })
+    /** Refuse a folder name that is really a path, keeping the panel open. */
+    function refuseBadName() {
+      targetNewError.textContent = t('workspaceNameInvalid')
+      nameInput.focus()
+    }
+
     targetNewUse.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      if (state.newManual === true || anchors().length === 0) {
+      const name = nameInput.value.trim()
+      if (state.fsReady === true && state.newManual !== true) {
+        if (isBadName(name)) {
+          refuseBadName()
+          return
+        }
+        state.newPath = name === '' ? state.fsPath : joinPath(state.fsPath, name)
+      } else if (state.newManual === true || anchors().length === 0) {
         const path = pathInput.value.trim()
         if (path === '') {
           targetNewError.textContent = t('workspacePathRequired')
@@ -650,10 +813,8 @@
         }
         state.newPath = path
       } else {
-        const name = nameInput.value.trim()
         if (isBadName(name)) {
-          targetNewError.textContent = t('workspaceNameInvalid')
-          nameInput.focus()
+          refuseBadName()
           return
         }
         state.newPath = name === '' ? state.newAnchor : joinPath(state.newAnchor, name)
@@ -661,6 +822,12 @@
       targetNewError.textContent = ''
       state.newTitle = titleInput.value.trim()
       confirmNewSession('new')
+    })
+    fsUp.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      // `fsParent === ''` at a filesystem top means the roots view is Up.
+      browseDirs(Array.isArray(state.fsRoots) ? '' : state.fsParent)
     })
     manualToggle.addEventListener('click', (event) => {
       event.preventDefault()

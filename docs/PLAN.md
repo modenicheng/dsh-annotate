@@ -354,7 +354,7 @@ the Host and degrades to (a) exactly.
 
 ### M4.7b — Host-served directory browsing
 
-**Status:** planned.
+**Status:** implemented; browser QA pending.
 
 **Deliverables**
 

@@ -767,6 +767,8 @@
         return onSessions(message)
       case MSG.TO_BACKGROUND.createSession:
         return onCreateSession(message)
+      case MSG.TO_BACKGROUND.browseDirs:
+        return onBrowseDirs(message)
       default:
         return undefined
     }
@@ -881,6 +883,50 @@
       }
     } catch (error) {
       return failure(`could not create the session (${ns.describeError(error)})`)
+    }
+  }
+
+  /**
+   * One level of the host's directory tree for the picker's 新建工作区 mode.
+   *
+   * Browsing is best-effort by design (D26): an older host has no route and
+   * answers 404, and the picker falls back to its anchors on any failure —
+   * so this is never queued and never cached; one request paints one list.
+   * @param {any} message
+   */
+  async function onBrowseDirs(message) {
+    if (!ns.net.isAuthed()) return failure('the host is offline')
+    const token = await ns.readToken()
+    if (typeof token !== 'string' || token === '') return failure('the bridge token is missing')
+
+    const target = bridgeHttpUrl('/ext/anno/dirs')
+    if (target.ok !== true) return failure(target.error)
+    const wanted = typeof field(message, 'path') === 'string' ? field(message, 'path') : ''
+    // The path names a directory, never a credential; the token stays in the
+    // header either way.
+    const url = `${target.url}?path=${encodeURIComponent(wanted)}`
+
+    try {
+      const response = await fetch(url, { cache: 'no-store', headers: { 'x-anno-token': token } })
+      const body = await response.json()
+      if (response.ok !== true || body?.ok === false) {
+        return {
+          ok: false,
+          unsupported: response.status === 404,
+          error: typeof body?.message === 'string' ? body.message : `the host answered ${response.status}`,
+        }
+      }
+      return {
+        ok: true,
+        roots: Array.isArray(body.roots) ? body.roots : null,
+        home: typeof body.home === 'string' ? body.home : '',
+        path: typeof body.path === 'string' ? body.path : wanted,
+        parent: typeof body.parent === 'string' ? body.parent : '',
+        entries: Array.isArray(body.entries) ? body.entries : [],
+        truncated: body.truncated === true,
+      }
+    } catch (error) {
+      return failure(`could not read the directory (${ns.describeError(error)})`)
     }
   }
 

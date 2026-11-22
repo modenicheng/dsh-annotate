@@ -33,6 +33,8 @@ export const TO_BACKGROUND = {
   sessions: 'anno.sessions',
   /** Create a Session on the host for the "new session" target. */
   createSession: 'anno.session.create',
+  /** One level of host directories for the workspace picker (M4.7b). */
+  browseDirs: 'anno.fs.dirs',
 }
 
 /** background → content */

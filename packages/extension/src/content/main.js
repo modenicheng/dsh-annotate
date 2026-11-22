@@ -39,6 +39,7 @@
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
       createSession: 'anno.session.create',
+      browseDirs: 'anno.fs.dirs',
     },
     content: {
       records: 'anno.records',
@@ -1962,6 +1963,7 @@
         state.newSessionChoice = choice
         if (choice) state.targetId = ''
       },
+      onBrowseDirs: (path) => Promise.resolve(send(MSG.background.browseDirs, { path })),
       onBadgeLines: badgeLines,
     })
     ui.mount()
