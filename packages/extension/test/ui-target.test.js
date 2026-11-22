@@ -41,6 +41,7 @@ class FakeNode {
     this.children = []
     this.attributes = new Map()
     this.listeners = []
+    this.classList = { add() {}, remove() {} }
   }
 
   /** Real-DOM semantics: assigning textContent replaces the children. */
@@ -131,7 +132,10 @@ const F = {
  * @param {{ onBrowseDirs?: (path: string) => any }} [extraHandlers]
  */
 async function installTarget(workspacesList, extraHandlers = {}) {
-  const document = { createElement: (tag) => new FakeNode(tag) }
+  const document = {
+    createElement: (tag) => new FakeNode(tag),
+    createElementNS: (_ns, tag) => new FakeNode(tag),
+  }
   const sandbox = { document }
   sandbox.globalThis = sandbox
   // The shared protocol copy the content realm exposes to the picker.
@@ -197,7 +201,8 @@ async function installTarget(workspacesList, extraHandlers = {}) {
     options,
     fields,
     error: newPanel.children[3],
-    headTitle: () => newPanel.children[0].children[1].textContent,
+    crumbHead: () => newPanel.children[0].children[1],
+    backButton: () => newPanel.children[0].children[0],
     /** Click the ＋ 新建工作区 row to enter the creation form. */
     enterCreate: async () => {
       options.children[0].fire('click')
@@ -252,7 +257,7 @@ async function walkToCoding(fields) {
 
 test('level one pins ＋新建工作区 first, then the workspaces', async () => {
   const host = hostOf(TREE)
-  const { options, headTitle } = await installTarget(
+  const { options, crumbHead, backButton } = await installTarget(
     [
       { id: 'w1', title: 'app', path: 'D:\\coding\\app' },
       { id: 'w2', title: 'docs', path: 'D:\\docs' },
@@ -261,13 +266,35 @@ test('level one pins ＋新建工作区 first, then the workspaces', async () =>
   )
   await ticks()
 
-  assert.equal(headTitle(), 'targetNewTitle')
+  // The head: an icon + text back button on the left, a real breadcrumb on
+  // the right, the current segment last.
+  assert.equal(backButton().children[0].tagName, 'SVG')
+  assert.equal(backButton().children[1].textContent, 'targetBack')
+  assert.deepEqual(
+    crumbHead().children.map((child) => child.textContent),
+    ['crumbNewSession', '', 'crumbWorkspace'],
+  )
   assert.equal(options.children.length, 3)
   assert.equal(options.children[0].children[0].textContent, 'workspaceNewRow')
   const row = options.children[1]
   assert.equal(row.children[0].textContent, 'app')
   assert.equal(row.children[1].textContent, 'D:\\coding\\app')
   assert.equal(row.title, 'D:\\coding\\app')
+})
+
+test('the breadcrumb ancestors navigate, one level per segment', async () => {
+  const host = hostOf(TREE)
+  const { state, crumbHead, enterCreate } = await installTarget(WORKSPACES, host)
+  await enterCreate()
+
+  // 新建会话 › 工作区 › 位置 — the workspace segment returns to level one.
+  crumbHead().children[2].fire('click')
+  assert.equal(state.newMode, 'default')
+  assert.equal(state.newPanelOpen, true)
+  // Re-enter, then the session segment closes the panel.
+  await enterCreate()
+  crumbHead().children[0].fire('click')
+  assert.equal(state.newPanelOpen, false)
 })
 
 test('one click on a workspace targets that exact record, DSH-style', async () => {
@@ -291,7 +318,10 @@ test('the ＋ row opens the creation form one level deeper', async () => {
   await ticks()
   await picker.enterCreate()
 
-  assert.equal(picker.headTitle(), 'targetBrowseTitle')
+  assert.deepEqual(
+    picker.crumbHead().children.map((child) => child.textContent),
+    ['crumbNewSession', '', 'crumbWorkspace', '', 'crumbLocation'],
+  )
   assert.deepEqual(host.seen, [''])
   const rows = picker.fields.children[F.FS_LIST].children.map((row) => row.children[0].textContent)
   assert.deepEqual(rows, ['fsHome', 'C:\\', 'D:\\'])
@@ -523,7 +553,7 @@ test('manual chosen during the probe keeps manual, and the toggle round-trips', 
 
 test('Escape walks back one level per press and reopening resets the arm', async () => {
   const host = hostOf(TREE)
-  const { part, state, fields, headTitle, enterCreate } = await installTarget(WORKSPACES, host)
+  const { part, state, fields, crumbHead, enterCreate } = await installTarget(WORKSPACES, host)
   await enterCreate()
   fields.children[F.FS_LIST].children[2].fire('click')
   await ticks()
@@ -532,7 +562,10 @@ test('Escape walks back one level per press and reopening resets the arm', async
   part.row.fire('keydown', { key: 'Escape' })
   assert.equal(state.newPanelOpen, true)
   assert.equal(state.newMode, 'default')
-  assert.equal(headTitle(), 'targetNewTitle')
+  assert.deepEqual(
+    crumbHead().children.map((child) => child.textContent),
+    ['crumbNewSession', '', 'crumbWorkspace'],
+  )
   part.row.fire('keydown', { key: 'Escape' })
   assert.equal(state.newPanelOpen, false)
 

@@ -33,7 +33,12 @@
    */
   function install(ctx) {
     const { t, state, handlers, dom } = ctx
-    const { createElement, setVisible, fill } = dom
+    const { createElement, createIcon, setVisible, fill } = dom
+
+    // material-symbols:arrow-back and :chevron-right from Iconify (Apache-2.0):
+    // the back button's icon and the breadcrumb separators.
+    const ICON_BACK = 'm7.825 13l5.6 5.6L12 20l-8-8l8-8l1.425 1.4l-5.6 5.6H20v2z'
+    const ICON_CHEVRON = 'M12.6 12L8 7.4L9.4 6l6 6l-6 6L8 16.6z'
 
     const target = createElement('div', 'target')
     const targetButton = createElement('button', 'target-btn')
@@ -62,10 +67,13 @@
     // always names the exact path the confirm button will act on.
     const targetNewPanel = createElement('div', 'target-new-panel')
     const targetNewHead = createElement('div', 'target-new-head')
-    const targetNewBack = createElement('button', 'target-back', t('targetBack'))
+    const targetNewBack = createElement('button', 'target-back')
     targetNewBack.type = 'button'
-    const targetNewHeadTitle = createElement('span', 'target-new-title', t('targetBrowseTitle'))
-    targetNewHead.append(targetNewBack, targetNewHeadTitle)
+    targetNewBack.append(createIcon(ICON_BACK), createElement('span', 'target-back-text', t('targetBack')))
+    // The head is a real breadcrumb — 新建会话 › 工作区 › 位置 — right aligned,
+    // every ancestor segment one click away.
+    const targetNewCrumb = createElement('nav', 'target-new-crumb')
+    targetNewHead.append(targetNewBack, targetNewCrumb)
     const targetNewFields = createElement('div', 'target-new-fields')
     // Level one mirrors the session picker itself: the ＋ 新建工作区 row
     // first, then the registered workspaces — one click targets a workspace,
@@ -393,11 +401,48 @@
      */
     function renderNewSessionPanel() {
       const creating = state.newMode === 'new'
-      targetNewHeadTitle.textContent = t(creating ? 'targetBrowseTitle' : 'targetNewTitle')
       setVisible(targetNewOptions, !creating)
       setVisible(targetNewFields, creating)
+      renderPanelCrumb(creating)
       if (creating) renderBrowseArea()
       else renderWorkspaceOptions()
+    }
+
+    /**
+     * The head breadcrumb: 新建会话 › 工作区 › 位置. Ancestor segments
+     * navigate (the picker, the workspace list); the current one just says
+     * where the user stands.
+     * @param {boolean} creating
+     */
+    function renderPanelCrumb(creating) {
+      targetNewCrumb.textContent = ''
+
+      /** @param {string} label @param {(() => void) | null} go */
+      const addSegment = (label, go) => {
+        if (targetNewCrumb.children.length > 0) targetNewCrumb.appendChild(createIcon(ICON_CHEVRON))
+        if (go === null) {
+          const here = createElement('span', 'target-new-crumb-here', label)
+          here.setAttribute('aria-current', 'page')
+          targetNewCrumb.appendChild(here)
+          return
+        }
+        const link = createElement('button', 'target-new-crumb-seg', label)
+        link.type = 'button'
+        link.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          go()
+        })
+        targetNewCrumb.appendChild(link)
+      }
+
+      addSegment(t('crumbNewSession'), closeNewPanel)
+      if (creating) {
+        addSegment(t('crumbWorkspace'), leaveBrowse)
+        addSegment(t('crumbLocation'), null)
+      } else {
+        addSegment(t('crumbWorkspace'), null)
+      }
     }
 
     /**
