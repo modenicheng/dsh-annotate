@@ -345,15 +345,19 @@
   top: calc(100% + 4px);
   display: flex;
   flex-direction: column;
+  gap: 4px;
   max-height: 220px;
+  padding: 6px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: #0b1220;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
+/* Both panels — the session picker and the workspace sub-panel — share this
+   one layout: 6px gutters, 4px rhythm, rows full width. */
 .target-search {
-  margin: 6px;
+  margin: 0;
   padding: 4px 6px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -362,7 +366,7 @@
   font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   outline: none;
 }
-.target-list { overflow-y: auto; padding: 0 4px 4px; }
+.target-list { overflow-y: auto; padding: 0; }
 /* One line per row: a height that depends on the pointer makes the list jump
    under the cursor. The workspace lives in .target-tip instead. */
 .target-row {
@@ -402,22 +406,27 @@
 /* The "new session" arm: one pinned action row above the list, and a workspace
    sub-panel that replaces the list while it is open. Same skin as the picker so
    the two read as one control. */
-.target-new { margin: 0 4px; color: #93c5fd; }
+.target-new { margin: 0; color: #93c5fd; }
 .target-new:disabled { color: var(--text-dim); cursor: not-allowed; }
 .target-new-panel {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px;
+  padding: 0;
   overflow-y: auto;
 }
 .target-new-head {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 .target-back {
-  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 2px 8px;
   border: 0;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
@@ -426,16 +435,38 @@
   cursor: pointer;
 }
 .target-back:hover { background: rgba(255, 255, 255, 0.12); }
-.target-new-title {
-  flex: 1 1 auto;
+.target-back .icon { width: 14px; height: 14px; fill: currentColor; }
+/* The head breadcrumb, right aligned: ancestor segments navigate, the
+   current one is plain text. */
+.target-new-crumb {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
   color: var(--text-dim);
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
-  /* No uppercase tracking here: the title is localized, and Han glyphs must
-     never be letter-spaced. */
+}
+.target-new-crumb .icon { width: 12px; height: 12px; fill: #475569; flex: none; }
+.target-new-crumb-seg {
+  flex: none;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #93c5fd;
+  font: inherit;
+  cursor: pointer;
+}
+.target-new-crumb-seg:hover { background: rgba(255, 255, 255, 0.1); }
+.target-new-crumb-here {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #cbd5e1;
 }
 /* Level one of the sub-panel: the ＋ row first, then the workspaces. */
 .target-new-options {
@@ -452,8 +483,8 @@
 }
 .target-new-label {
   color: var(--text-dim);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption-lh);
+  font-size: var(--text-label);
+  line-height: var(--text-label-lh);
 }
 /* The typed absolute path is mono, like every path in this panel. */
 .target-new-path {
@@ -462,7 +493,7 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
   color: #e5e7eb;
-  font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
+  font: var(--text-label) / var(--text-label-lh) var(--font-mono);
   outline: none;
 }
 .target-new-name {
@@ -471,7 +502,7 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
   color: #e5e7eb;
-  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   outline: none;
 }
 /* A row whose label is a path (locations, drives) gets the mono face,
@@ -508,12 +539,12 @@
 }
 .target-fs-btn {
   flex: none;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border: 0;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
   color: #cbd5e1;
-  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   cursor: pointer;
 }
 .target-fs-btn:hover { background: rgba(255, 255, 255, 0.12); }
@@ -585,7 +616,7 @@
   border: 0;
   background: none;
   color: #93c5fd;
-  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   cursor: pointer;
 }
 .target-new-manual-toggle:hover { text-decoration: underline; }
@@ -600,7 +631,7 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
   color: #e5e7eb;
-  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   outline: none;
 }
 /* The confirm button carries the whole action in its label — the exact path
