@@ -41,6 +41,7 @@
       ready: 'anno.content.ready',
       sessions: 'anno.sessions',
       createSession: 'anno.session.create',
+      browseDirs: 'anno.fs.dirs',
     },
     TO_CONTENT: {
       records: 'anno.records',

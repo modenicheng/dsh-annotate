@@ -16,6 +16,7 @@ import {
   protocolCompatibleWith,
   protocolInRange,
   sameDocument,
+  validateDirsPath,
   validateRecord,
   validateSessionCreateRequest,
   validateAnchor,
@@ -274,4 +275,20 @@ test('session-create titles are optional but bounded and non-blank', () => {
   assert.match(validateSessionCreateRequest({ mode: 'default', title: '  ' }).join(), /blank/)
   assert.match(validateSessionCreateRequest({ mode: 'default', title: 3 }).join(), /string/)
   assert.match(validateSessionCreateRequest({ mode: 'default', title: 'x'.repeat(300) }).join(), /exceeds/)
+})
+
+// ── directory browse queries ────────────────────────────────────────────────
+
+test('dirs paths accept the roots view and absolute directories', () => {
+  assert.deepEqual(validateDirsPath(undefined), [])
+  assert.deepEqual(validateDirsPath(''), [])
+  assert.deepEqual(validateDirsPath('/home/u'), [])
+  assert.deepEqual(validateDirsPath('D:\\coding'), [])
+})
+
+test('dirs paths share the create route rules otherwise', () => {
+  assert.deepEqual(validateDirsPath('projects/app'), ['path must be absolute'])
+  assert.deepEqual(validateDirsPath('D:\\a\0b'), ['path must not contain null bytes'])
+  assert.deepEqual(validateDirsPath(`/${'x'.repeat(2_000)}`), ['path exceeds 1024 characters'])
+  assert.deepEqual(validateDirsPath(42), ['path must be a string'])
 })

@@ -77,6 +77,15 @@ export const SESSIONS_PATH = '/ext/anno/sessions'
 export const SESSION_CREATE_PATH = '/ext/anno/session-create'
 
 /**
+ * One level of host directories for the same target's 新建工作区 mode
+ * (M4.7b, D26). GET only, token-gated like the catalog; directories only,
+ * symlinks skipped, bounded. An older host has no route here and the
+ * extension falls back to its anchors, so nothing about this is negotiated:
+ * no frame or record shape changes and `PROTOCOL_VERSION` does not move.
+ */
+export const DIRS_PATH = '/ext/anno/dirs'
+
+/**
  * Durable hand-off from the extension to the Web Client: mentions waiting to be
  * appended to one Session's composer. Same-origin only — the GUI is the page
  * this Host serves, and it never sees the extension's bridge token.
@@ -210,6 +219,8 @@ export const LIMITS = {
   workspaceTitleChars: 200,
   /** Whole session-create request body, far below any parser's limits. */
   createBodyChars: 4_096,
+  /** Directory entries one /ext/anno/dirs answer may carry. */
+  fsEntries: 500,
 }
 
 /** Session-create workspace modes, in the order the picker offers them. */
@@ -237,19 +248,8 @@ export function validateSessionCreateRequest(body) {
   }
   if (body.mode === 'new') {
     const path = body.path
-    if (!isString(path) || path.length === 0) {
-      errors.push('path is required when mode is new')
-    } else {
-      if (path.length > LIMITS.workspacePathChars) {
-        errors.push(`path exceeds ${LIMITS.workspacePathChars} characters`)
-      }
-      // Absolute only: the host resolves it against its own filesystem, and a
-      // relative path would silently land wherever the process happens to run.
-      if (path.startsWith('/') !== true && path.startsWith('\\') !== true && !/^[A-Za-z]:[\\/]/.test(path)) {
-        errors.push('path must be absolute')
-      }
-      if (path.includes('\0')) errors.push('path must not contain null bytes')
-    }
+    if (!isString(path) || path.length === 0) errors.push('path is required when mode is new')
+    else errors.push(...pathShapeErrors(path))
   }
   if (body.title !== undefined) {
     if (!isString(body.title)) errors.push('title must be a string')
@@ -259,6 +259,38 @@ export function validateSessionCreateRequest(body) {
     }
   }
   return errors
+}
+
+/**
+ * The host-side path rules every accepting route shares: the host resolves a
+ * path against its own filesystem, so a relative path would silently land
+ * wherever the process happens to run.
+ * @param {string} path
+ * @returns {string[]}
+ */
+function pathShapeErrors(path) {
+  const errors = []
+  if (path.length > LIMITS.workspacePathChars) {
+    errors.push(`path exceeds ${LIMITS.workspacePathChars} characters`)
+  }
+  if (!path.startsWith('/') && !path.startsWith('\\') && !/^[A-Za-z]:[\\/]/.test(path)) {
+    errors.push('path must be absolute')
+  }
+  if (path.includes('\0')) errors.push('path must not contain null bytes')
+  return errors
+}
+
+/**
+ * Validate the `path` query value of one `/ext/anno/dirs` request. An absent
+ * or empty value is valid: it asks for the roots view (home plus drive
+ * roots) rather than a directory.
+ * @param {unknown} value
+ * @returns {string[]} human-readable violations; empty means usable
+ */
+export function validateDirsPath(value) {
+  if (value === undefined || value === null || value === '') return []
+  if (!isString(value)) return ['path must be a string']
+  return pathShapeErrors(value)
 }
 
 /** Every frame a client may send to the host. */
