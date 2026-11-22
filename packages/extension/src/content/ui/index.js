@@ -79,18 +79,19 @@
       targetNote: '',
       /** 'pick' lists Sessions; 'new' targets a session the host will create. */
       targetMode: 'pick',
-      /** The workspace sub-panel inside the picker. */
+      /** The directory browser that the "new session" row opens directly. */
       newPanelOpen: false,
-      /** Draft workspace choice while the sub-panel is open. */
+      /** The choice confirmed from the browser: 'existing' | 'new' at send time. */
       newMode: 'default',
       newWorkspaceId: '',
       newPath: '',
       newTitle: '',
       /**
-       * M4.7b browse state for the workspace sub-panel: `fsReady` once the
-       * host answered one listing, `fsUnsupported` after any failure (the
-       * anchors are the whole flow then), and `fsPath === ''` meaning the
-       * roots view while `fsRoots` is an array.
+       * Browse state for the new-session directory browser: `fsReady` once
+       * the host answered one listing, `fsUnsupported` after a pre-success
+       * failure (the typed absolute path is the whole flow then), and
+       * `fsPath === ''` meaning the locations view while `fsRoots` is an
+       * array.
        */
       fsReady: false,
       fsUnsupported: false,

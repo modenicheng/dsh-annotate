@@ -436,18 +436,6 @@
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
-.target-new-options { display: flex; flex-direction: column; gap: 2px; }
-.target-new-option[aria-pressed="true"] { background: rgba(37, 99, 235, 0.28); }
-.target-row-meta {
-  flex: none;
-  max-width: 45%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: #94a3b8;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption-lh);
-}
 .target-new-fields {
   display: flex;
   flex-direction: column;
@@ -460,6 +448,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
 }
+/* The typed absolute path is mono, like every path in this panel. */
 .target-new-path {
   padding: 4px 6px;
   border-radius: 6px;
@@ -469,8 +458,6 @@
   font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
   outline: none;
 }
-/* M4.7a: the new workspace is chosen from the host's own registered paths;
-   the anchor list reuses the picker's row skin so both arms read as one. */
 .target-new-name {
   padding: 4px 6px;
   border-radius: 6px;
@@ -480,40 +467,99 @@
   font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
   outline: none;
 }
-.target-anchor-list {
+/* A row whose label is a path (locations, drives) gets the mono face,
+   because it is one. */
+.target-row-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+/* The directory browser rides on the picker's row skin. */
+.target-fs-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
   max-height: 132px;
   overflow-y: auto;
 }
-.target-anchor[aria-pressed="true"] { background: rgba(37, 99, 235, 0.28); }
-/* M4.7b: the host-served browser rides on the same list skin; its head is one
-   Up affordance plus the current directory, mono because it is a path. */
+/* The browser toolbar: two compact buttons, then the breadcrumb. */
 .target-fs-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
-.target-fs-up {
+.target-fs-btn {
+  flex: none;
   padding: 2px 6px;
   border: 0;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
   color: #cbd5e1;
-  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
   cursor: pointer;
 }
-.target-fs-up:hover { background: rgba(255, 255, 255, 0.12); }
-.target-fs-up:disabled { color: var(--text-dim); cursor: not-allowed; }
-.target-fs-path {
+.target-fs-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.target-fs-btn:disabled { color: var(--text-dim); cursor: not-allowed; }
+.target-fs-crumb {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #94a3b8;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
+}
+.target-fs-sep { flex: none; color: #475569; }
+.target-fs-seg {
+  flex: none;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #93c5fd;
+  font: inherit;
+  cursor: pointer;
+}
+.target-fs-seg:hover { background: rgba(255, 255, 255, 0.1); }
+.target-fs-here {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #e5e7eb;
+}
+/* The result line: label, the registered badge, then the exact path. */
+.target-new-result {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.target-new-result-label {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
+.target-new-result-badge {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid rgba(147, 197, 253, 0.4);
+  border-radius: 999px;
+  color: #93c5fd;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
+.target-new-result-path {
   flex: 1 1 auto;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #94a3b8;
+  color: #e5e7eb;
   font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
 }
+.target-new-result-path.is-empty { color: var(--text-dim); }
+.target-new-result-path.is-invalid { color: #fca5a5; }
 .target-new-manual-toggle {
   align-self: flex-start;
   padding: 0;
@@ -538,17 +584,27 @@
   font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
   outline: none;
 }
+/* The confirm button carries the whole action in its label — the exact path
+   it will act on — full width so long paths stay honest. */
 .target-new-use {
-  align-self: flex-end;
-  padding: 3px 10px;
+  align-self: stretch;
+  padding: 4px 10px;
   border: 0;
   border-radius: 6px;
   background: #2563eb;
   color: #fff;
   font: var(--text-label) / var(--text-label-lh) var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 .target-new-use:hover { background: #1d4ed8; }
+.target-new-use:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
 .target-new-error {
   color: #fca5a5;
   font-size: var(--text-caption);
