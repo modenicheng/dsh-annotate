@@ -35,8 +35,11 @@ their click).
 - **No local builds as deliverables.** If you need the extension package,
   download the CI-built zip from a GitHub Release — never build one from a
   checkout and hand it over.
-- **Stores are not live yet.** The AMO / Chrome Web Store listings are under
-  review at the time of writing; the manual route below is the real one.
+- **Store status.** The Edge Add-ons listing is live:
+  <https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec>.
+  The AMO and Chrome Web Store listings are still under review at the time of
+  writing; for Firefox and non-Edge Chromium browsers the manual route below
+  is the real one.
 
 ## Downloads (release assets, CI-built)
 
@@ -69,8 +72,9 @@ Verify the hash before telling the user to install
 Ask the user two questions before touching anything:
 
 1. **Which browser** will they annotate in? (Firefox, Zen, Chrome, Edge,
-   Brave, … — this decides the Step 3 branch and whether the extra Chromium
-   shortcut setup applies.)
+   Brave, … — this decides the Step 3 branch: Edge has a one-click store
+   install, the others need the manual route or the extra Chromium shortcut
+   setup.)
 2. **Is DSH already installed and running**, and in which profile do they
    normally work (`web`? Desktop app? a named profile)? The plugin must go
    into the profile they actually use, because that is where the bridge and
@@ -134,7 +138,14 @@ Firefox Developer Edition / Nightly / ESR users can install permanently
 (`xpinstall.signatures.required` = `false` in `about:config`, rename the zip
 to `.xpi`, then `about:addons` → gear → **Install Add-on From File…**).
 
-**Chromium** — permanent, two steps:
+**Chromium, Edge** — simplest path: the
+[Edge Add-ons listing](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
+is live, so have the user install from there (permanent, auto-updating). If
+`Alt+Shift+A` does nothing afterwards, one visit to
+`edge://extensions/shortcuts` (see the shortcut step below) fixes it.
+
+**Chromium, others (Chrome, Brave, Vivaldi, Opera, Arc)** — permanent, two
+steps:
 
 > 1. `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
 >    select the unzipped folder.
@@ -200,8 +211,8 @@ user's report of **Connected**.
 - Plugin: `dsh plugin update dsh-marker` (the **Plugins** page offers the
   same). Registry-installed packages get update offers.
 - Extension: download the next release zip and replace the unpacked folder
-  (Chromium), or reload the temporary add-on (Firefox), or rely on the store
-  once its listing is live.
+  (non-Edge Chromium), or reload the temporary add-on (Firefox); Edge
+  installs update themselves through the store.
 - The connection negotiates a protocol window (`MIN_PROTOCOL` ..
   `PROTOCOL_VERSION`), so a small version gap between the halves keeps
   working; when either side reports the other as too old, update both.

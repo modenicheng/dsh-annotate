@@ -33,11 +33,11 @@ Nothing leaves the machine: no account, no telemetry, no developer server.
 What the extension reads and what is stored where is the privacy policy:
 [docs/privacy.md](docs/privacy.md).
 
-> **Status.** 1.0.0 is the first public release (2026-11-21). The Firefox and
-> Chrome Web Store listings are submitted and under review at the time of
-> writing, so the browser half is installed manually from a GitHub Release
-> below; an Edge Add-ons listing follows later (Edge can also install the
-> Chrome Web Store build). Capture and delivery are verified in a real
+> **Status.** 1.0.0 is the first public release (2026-11-21). The Edge
+> Add-ons listing is live (Step 2 links it); the Firefox and Chrome Web
+> Store listings are submitted and under review at the time of writing, so
+> Firefox users install manually from a GitHub Release below until the
+> Mozilla listing clears review. Capture and delivery are verified in a real
 > Firefox; the Chromium build passed an early bring-up but has not been
 > re-tested end to end, and Zen and the DSH Desktop app still need their
 > verification runs. Details and acceptance criteria: [docs/PLAN.md](docs/PLAN.md).
@@ -110,8 +110,10 @@ Verify before installing: `sha256sum -c checksums.txt --ignore-missing`
 (macOS: `shasum -a 256 -c checksums.txt`; Windows:
 `certutil -hashfile <file> SHA256`). Newer releases use the same file names
 with the version replaced — see [Releases](https://github.com/modenicheng/dsh-annotate/releases).
-Once the store listing for your browser is live, installing from the store
-replaces everything below: permanent, and updates arrive on their own.
+**Edge users** can install from the
+[Edge Add-ons listing](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
+right now — permanent, auto-updating, none of the manual steps below needed;
+the same becomes true for the other browsers as their listings go live.
 
 Unzip the package, then follow the branch for your browser.
 
@@ -134,6 +136,12 @@ it again the same way. Two permanent routes exist today:
   store install with automatic updates.
 
 #### Chromium (Chrome, Edge, Brave, Vivaldi, Opera, Arc)
+
+**Edge**: install from the
+[Edge Add-ons listing](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
+and skip the two steps below. If `Alt+Shift+A` does nothing after installing,
+set it once in `edge://extensions/shortcuts` as in step 2. Other Chromium
+browsers, while the Chrome Web Store listing is in review:
 
 1. Open `chrome://extensions`, enable **Developer mode**, choose **Load
    unpacked**, and select the unzipped folder. The extension survives
@@ -443,7 +451,7 @@ First checkout (hooks, generated files, commit format):
 | M4 | Developer context, session routing, multi-window | planned |
 | M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; Desktop run pending (M4.5c) |
 | M4.6 | Send an annotation into a new session (default / existing / new workspace) | implemented; browser QA pending |
-| M5 | Signing and distribution | pipeline live (npm, AMO, CWS, Edge lanes); first store submissions in review |
+| M5 | Signing and distribution | pipeline live (npm, AMO, CWS, Edge lanes); Edge listing published, AMO/CWS in review |
 
 The detailed deliverables and acceptance criteria are in
 [docs/PLAN.md](docs/PLAN.md); implementation decisions and their rationale are

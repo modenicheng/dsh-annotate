@@ -28,10 +28,10 @@ dsh-marker 让你指着网页的一部分，把它连同裁剪截图和页面信
 数据不出本机：没有账号、没有遥测、没有开发者服务器。详见隐私政策文档
 [docs/privacy.md](docs/privacy.md)。
 
-> **状态。** 1.0.0 是第一个正式版（2026-11-21）。Firefox 与 Chrome
-> Web Store 的商店条目已提交、撰写本文时（2026/11/22 12:30）仍在审核，因此浏览器这一半
-> 目前按下面的方法从 GitHub Release 手动安装；Edge 商店条目随后跟进
-> （Edge 也能直接安装 Chrome Web Store 版本）。捕获与投递已在真实
+> **状态。** 1.0.0 是第一个正式版（2026-11-21）。Edge 商店条目已上线
+> （安装方式见第 2 步）；Firefox 与 Chrome Web Store 的条目已提交、撰写
+> 本文时（2026/11/22 12:30）仍在审核，Firefox 用户暂时按第 2 步的方法从
+> GitHub Release 手动安装。捕获与投递已在真实
 > Firefox 中验证；Chromium 版只做过早期启动验证，未做端到端复测，
 > Zen 与 DSH Desktop 还没有跑过验证。验收标准见
 > [docs/PLAN.md](docs/PLAN.md)（英文）。
@@ -102,8 +102,10 @@ profile。两件事说明装好了：
 （macOS：`shasum -a 256 -c checksums.txt`；Windows：
 `certutil -hashfile <文件> SHA256`）。新版本的文件名只换版本号，见
 [Releases](https://github.com/modenicheng/dsh-annotate/releases) 页。
-你所用浏览器的商店条目一旦上线，直接从商店安装即可取代下面所有步骤，
-而且会自动更新。
+**Edge 用户**现在就可以直接从
+[Edge 商店](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
+安装：永久保留、自动更新，不需要下面的手动步骤；其余浏览器等条目过审
+后同理。
 
 解压安装包，按浏览器走对应分支。
 
@@ -126,6 +128,12 @@ profile。两件事说明装好了：
 - 等 Mozilla 商店条目过审后从商店安装：正常安装、自动更新。
 
 #### Chromium（Chrome、Edge、Brave、Vivaldi、Opera、Arc）
+
+**Edge**：直接从
+[Edge 商店](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
+安装即可，跳过下面两步；装好后若 `Alt+Shift+A` 没有反应，去
+`edge://extensions/shortcuts` 按下面第 2 步设一次快捷键。其余
+Chromium 浏览器（Chrome Web Store 条目过审前）手动加载：
 
 1. 打开 `chrome://extensions`，开启**开发者模式**，选**加载已解压的
    扩展程序**（Load unpacked），选中解压后的文件夹。扩展重启浏览器后
@@ -170,8 +178,8 @@ bundler、没有依赖。把它的 `manifest.json` 按上面的方法临时加�
 3. 弹出一个小输入框。有话就写一句备注（留空也行——只有标注本身也构成
    一条完整标注），在**插入到**里选目的地（默认是 DSH 窗口当前显示的会
    话；**＋ 新建会话**开一个新的），按 Enter 发送。
-4. DSH 网页端里，那条会话的输入框末尾出现标注引用芯片。悬停芯片（或
-   已发送消息里的芯片）会展开卡片：裁剪截图、页面信息、你的备注。消息
+4. DSH 网页端里，那条会话的输入框末尾出现标注引用块。悬停引用块（或
+   已发送消息里的引用块）会展开卡片：裁剪截图、页面信息、你的备注。消息
    只有你亲手发出才会到达模型——芯片随时可以删。
 5. `Esc` 退出批注模式；右键也可以，除非在弹窗里关掉。宿主连不上时做
    的标注会先存在浏览器里，连上后自动补发（弹窗会显示条数）。
@@ -407,7 +415,7 @@ devDependency：一次 `pnpm install` 之后，`pnpm run check`、钩子和测�
 | M4 | 开发者上下文、会话路由、多窗口 | 计划中 |
 | M4.5 | 发现：Desktop 动态端口、端点记录、回环定位器 | 已实现；Desktop 实机待做（M4.5c） |
 | M4.6 | 标注发送到新建会话（默认 / 已有 / 新建工作区） | 已实现；浏览器 QA 待做 |
-| M5 | 签名与分发 | 流水线已上线（npm、AMO、CWS、Edge 通道）；首批商店条目审核中 |
+| M5 | 签名与分发 | 流水线已上线（npm、AMO、CWS、Edge 通道）；Edge 条目已上线，AMO/CWS 审核中 |
 
 详细交付物和验收标准见 [docs/PLAN.md](docs/PLAN.md)（英文）；实现决策
 及理由见 [docs/DECISIONS.md](docs/DECISIONS.md)（英文）；版本历史见
