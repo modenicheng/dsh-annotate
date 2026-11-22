@@ -409,13 +409,14 @@ revision note.
 
 **Deliverables**
 
-- The ＋ 新建会话 row opens the panel directly — no mode screen. The
-  **registered workspaces** are their own always-present group at the top:
-  one click targets that exact record (`existing` + id, the same pick DSH's
-  own UI makes), and the group is client-side catalog data, so it works on
-  every Host — a Host without `/ext/anno/dirs` keeps a fully clickable
-  workspace list beside the typed-path flow.
-- The directory browser below it serves the new locations. Every open starts
+- The ＋ 新建会话 row opens a panel that mirrors the picker's own shape.
+  **Level one is the workspace list**: the **＋ 新建工作区** row first, then
+  the registered workspaces — one click targets that exact record
+  (`existing` + id, the same pick DSH's own UI makes), and the rows are
+  client-side catalog data, so the list works on every Host — a Host without
+  `/ext/anno/dirs` keeps a fully clickable workspace list beside the
+  typed-path form. The ＋ row opens **level two, the creation form**.
+- The creation form is the directory browser. Every open starts
   from the locations view (`path=''`): the host home and the drive roots;
   rows jump, the breadcrumb (locations chip › `D:` › `coding` …) makes every
   ancestor one click, and Up climbs to the locations view and rests there.
