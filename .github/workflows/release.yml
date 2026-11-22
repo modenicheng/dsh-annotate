@@ -158,6 +158,7 @@ jobs:
       amo: ${{ steps.detect.outputs.amo }}
       cws: ${{ steps.detect.outputs.cws }}
       edge: ${{ steps.detect.outputs.edge }}
+      edge_publish: ${{ steps.detect.outputs.edge_publish }}
       dry_run: ${{ steps.detect.outputs.dry_run }}
     steps:
       - name: Reduce credentials and dry_run to booleans
@@ -173,19 +174,26 @@ jobs:
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
           EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
           EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
+          EDGE_PUBLISH: ${{ vars.EDGE_PUBLISH }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
           set -euo pipefail
           if [ -n "${AMO_JWT_ISSUER:-}" ] && [ -n "${AMO_JWT_SECRET:-}" ]; then amo=true; else amo=false; fi
           if [ -n "${CWS_CLIENT_ID:-}" ] && [ -n "${CWS_CLIENT_SECRET:-}" ] && [ -n "${CWS_REFRESH_TOKEN:-}" ] && [ -n "${CWS_PUBLISHER_ID:-}" ] && [ -n "${CWS_ITEM_ID:-}" ]; then cws=true; else cws=false; fi
           if [ -n "${EDGE_CLIENT_ID:-}" ] && [ -n "${EDGE_API_KEY:-}" ] && [ -n "${EDGE_PRODUCT_ID:-}" ]; then edge=true; else edge=false; fi
+          # vars.EDGE_PUBLISH is reduced here because a job-level `if` cannot
+          # see environment-scoped variables: they attach with the job's
+          # environment at runtime, after the condition is evaluated. The
+          # v1.0.0 replay skipped a fully-configured Edge lane exactly there.
+          if [ "${EDGE_PUBLISH:-}" = "true" ]; then edge_publish=true; else edge_publish=false; fi
           {
             echo "amo=$amo"
             echo "cws=$cws"
             echo "edge=$edge"
+            echo "edge_publish=$edge_publish"
             echo "dry_run=$DRY_RUN"
           } >> "$GITHUB_OUTPUT"
-          echo "store channels: AMO=$amo CWS=$cws Edge=$edge dry_run=$DRY_RUN"
+          echo "store channels: AMO=$amo CWS=$cws Edge=$edge (publish=$edge_publish) dry_run=$DRY_RUN"
 
   npm:
     name: publish to npm
@@ -315,7 +323,7 @@ jobs:
     if: >-
       needs.channels.outputs.dry_run != 'true' &&
       needs.channels.outputs.edge == 'true' &&
-      vars.EDGE_PUBLISH == 'true'
+      needs.channels.outputs.edge_publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -437,6 +445,8 @@ jobs:
           RESULT_EDGE: ${{ needs.edge.result }}
           AMO_READY: ${{ needs.channels.outputs.amo }}
           CWS_READY: ${{ needs.channels.outputs.cws }}
+          EDGE_READY: ${{ needs.channels.outputs.edge }}
+          EDGE_PUBLISH: ${{ needs.channels.outputs.edge_publish }}
           DRY_RUN: ${{ needs.channels.outputs.dry_run }}
         run: |
           set -euo pipefail
@@ -444,7 +454,7 @@ jobs:
           echo "npm      : $RESULT_NPM"
           echo "amo      : $RESULT_AMO (credentials detected: $AMO_READY)"
           echo "cws      : $RESULT_CWS (credentials detected: $CWS_READY)"
-          echo "edge     : $RESULT_EDGE (gated on vars.EDGE_PUBLISH)"
+          echo "edge     : $RESULT_EDGE (credentials detected: $EDGE_READY, publish opt-in: $EDGE_PUBLISH)"
           failed=""
           if [ "$RESULT_CHANNELS" = "failure" ]; then failed="$failed channels"; fi
           if [ "$RESULT_NPM" = "failure" ]; then failed="$failed npm"; fi
