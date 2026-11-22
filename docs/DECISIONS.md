@@ -796,3 +796,21 @@ disclosure stays narrower than the powers its token already grants
 level per request, no files, no metadata, no symlink targets. The typed
 absolute path survives as a demoted "advanced" input, because a remote host
 and a machine before DSH's first run have no anchors to offer.
+
+**Revision (M4.7c, before any of it shipped).** Stages one and two never
+reached a release, and browser-QAing them exposed that the flow classified
+what is fundamentally one thing — picking a directory — into a taxonomy
+(默认/已有/新建, then anchors/browse/manual) whose intermediate states hid the
+one fact the user actually cares about: the absolute path. The arm is
+redesigned flat before first release, keeping both wire stages: one directory
+browser, opened directly by ＋ 新建会话, starting from the locations view
+(registered workspaces, home, drives — every row a jump, never a silent
+confirm); the result line and the confirm button always name the exact
+absolute path being acted on; registration is a property of the directory
+shown as an inline badge, and confirming a registered directory sends
+`existing` + id exactly as DSH's own workspace picker would, so any other
+path sends `new`. The anchor mode is deleted (nothing shipped with it; an old
+Host now degrades straight to the typed path), and the typed path gains
+client-side validation from the same shared protocol rules the Host
+enforces. No wire surface changes: both stages' routes and bodies are
+exactly as stage two defined them.
