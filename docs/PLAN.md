@@ -431,6 +431,11 @@ revision note.
   straight to the typed absolute path, now validated client-side by the
   shared `validateDirsPath` rules; the manual toggle is two-way on capable
   hosts — no dead ends.
+- Panel chrome: the head pairs an icon + text back button (Material Symbols
+  via Iconify, Apache-2.0) with a right-aligned breadcrumb — 新建会话 ›
+  工作区 › 位置 — whose ancestor segments navigate one level per click; both
+  panels share one layout and type system, and the whole overlay stylesheet
+  consumes a design-token layer instead of raw colours, radii and shadows.
 - Strings (both locales), styles, tests: locations view, breadcrumb jumps,
   live result + badge, existing/new confirmation (case-insensitive on
   Windows), live refusals (bad folder name, relative path), probe failure,
