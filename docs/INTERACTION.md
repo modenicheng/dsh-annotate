@@ -47,30 +47,34 @@ conversation. Nothing is injected behind the user's back.
   last activity, plus `running` / `blank` state.
 - The first entry is **＋ 新建会话**, pinned above the list and disabled while
   the host is offline (creation cannot queue, D25). Its panel mirrors the
-  picker's own shape (D26): **level one is the workspace list** — the
-  **＋ 新建工作区** row first, then every registered workspace, where one
-  click targets that exact workspace record the way DSH itself would
-  (`existing` + id); the rows are client-side catalog data, so the list works
-  on every Host. The ＋ row opens **level two, the creation form**: the
-  directory browser over `GET /ext/anno/dirs` (M4.7b), every open starting
-  from the **locations view** (the host home and the drive roots), rows
-  jumping, the breadcrumb climbing, any absolute path reachable. The result
-  line always shows the exact path the confirm button names in its own label —
-  an optional folder name adopts the directory (使用) or creates a child of it
-  (创建), so nothing is ever created somewhere the user has not literally
-  seen. Registration is a property of the directory, shown as an inline badge:
-  confirming a registered directory targets that exact workspace record
-  (`existing` + id, never re-registered), any other path registers it
-  idempotently (`new` + path, the Host creates the directory). A host that
-  cannot browse gets the typed absolute path — validated against the shared
-  protocol rules — behind a two-way toggle on capable hosts (M4.7c).
-  Confirming sets the target to `新建 · <workspace>`;
-  the Session itself is created at send time, before the annotation names it,
-  so a creation failure keeps the composer open with the comment intact. The
-  Host publishes `{t:'session', sessionId}` after a create and the Client half
-  follows it: the page switches to the new Session when the build exposes a
-  selection hook, and otherwise the chip waits in the queue until the user
-  opens it.
+  picker's own shape (D26): the head carries an icon + text back button on the
+  left and a real breadcrumb on the right — **新建会话 › 工作区 › 位置** —
+  whose ancestor segments navigate one level per click. **Level one is the
+  workspace list** — the **＋ 新建工作区** row first, then every registered
+  workspace, where one click targets that exact workspace record the way DSH
+  itself would (`existing` + id); the rows are client-side catalog data, so
+  the list works on every Host. The ＋ row opens **level two, the creation
+  form**: the directory browser over `GET /ext/anno/dirs` (M4.7b), every open
+  starting from the **locations view** (the host home and the drive roots),
+  rows jumping, the breadcrumb climbing, any absolute path reachable. The
+  result line always shows the exact path the confirm button names in its own
+  label — an optional folder name adopts the directory (使用) or creates a
+  child of it (创建), so nothing is ever created somewhere the user has not
+  literally seen. Registration is a property of the directory, shown as an
+  inline badge: confirming a registered directory targets that exact
+  workspace record (`existing` + id, never re-registered), any other path
+  registers it idempotently (`new` + path, the Host creates the directory).
+  A host that cannot browse gets the typed absolute path — validated against
+  the shared protocol rules — behind a two-way toggle on capable hosts
+  (M4.7c). Both panels share one layout and type system, and the whole
+  overlay stylesheet speaks only in design tokens (surfaces, lines, ink,
+  accent, status, radii, shadows). Confirming sets the target to
+  `新建 · <workspace>`; the Session itself is created at send time, before the
+  annotation names it, so a creation failure keeps the composer open with the
+  comment intact. The Host publishes `{t:'session', sessionId}` after a
+  create and the Client half follows it: the page switches to the new Session
+  when the build exposes a selection hook, and otherwise the chip waits in
+  the queue until the user opens it.
 - Default selection: the Session the DSH window is showing. The Client half
   reports it (`POST /ext/anno/focus`, refreshed on mount and when the window
   regains focus), and the Host answers `defaultSessionId` with it while the
