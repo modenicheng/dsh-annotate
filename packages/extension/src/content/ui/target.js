@@ -8,18 +8,19 @@
  * The picker owns its own reset so the composer does not have to know which
  * nodes or flags are involved in opening and closing it.
  *
- * The picker's second arm is "new session", and it is one flat directory
- * browser — no workspace taxonomy to walk through. Directories are just
- * directories (D26): the host's real tree served by `/ext/anno/dirs` (M4.7b),
- * starting from the locations view (the known workspaces, the home, the
- * drives) and reaching any absolute path through the breadcrumb. Registration
- * is a property of the directory the user stands on, shown inline: confirming
- * a registered directory targets that exact workspace the way DSH itself
- * would (`existing` + id), any other path registers it (`new` + path). The
- * result line and the confirm button always name the exact path being acted
- * on; a host that cannot browse gets the typed absolute path (checked against
- * the shared protocol rules) instead. The choice travels to `main.js` through
- * `handlers.onTargetNew`.
+ * The picker's second arm is "new session", and it is one flat panel — no
+ * workspace taxonomy to walk through. The registered workspaces are their own
+ * always-present group: one click targets that exact record the way DSH itself
+ * would (`existing` + id), on every Host. Below them, the directory browser
+ * (D26) serves the new locations: the host's real tree via `/ext/anno/dirs`
+ * (M4.7b), starting from the locations view (home, drives) and reaching any
+ * absolute path through the breadcrumb. Registration is a property of the
+ * directory the user stands on, shown inline: confirming a registered
+ * directory targets that workspace (`existing`), any other path registers it
+ * (`new` + path). The result line and the confirm button always name the exact
+ * path being acted on; a host that cannot browse gets the typed absolute path
+ * (checked against the shared protocol rules) instead. The choice travels to
+ * `main.js` through `handlers.onTargetNew`.
  */
 ;(function installUiTarget(global) {
   const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
@@ -65,9 +66,15 @@
     const targetNewHeadTitle = createElement('span', 'target-new-title', t('targetBrowseTitle'))
     targetNewHead.append(targetNewBack, targetNewHeadTitle)
     const targetNewFields = createElement('div', 'target-new-fields')
+    // The registered workspaces are a group of their own, always present and
+    // always clickable: one click targets that exact workspace record the way
+    // DSH itself would. This is client-side data — it works on every Host,
+    // whatever the browser below it can or cannot do.
+    const wsLabel = createElement('div', 'target-new-label', t('workspaceExistingLabel'))
+    const wsList = createElement('div', 'target-ws-list')
     // The browser toolbar: climb one level, jump to the host home, and the
     // breadcrumb of ancestors — every segment is a jump, the current directory
-    // is plain text. Together with the roots view this reaches any absolute
+    // is plain text. Together with the locations view this reaches any absolute
     // path the host can read.
     const fsToolbar = createElement('div', 'target-fs-head')
     const fsUp = createElement('button', 'target-fs-btn', t('fsUp'))
@@ -112,6 +119,8 @@
     pathInput.spellcheck = false
     const manualHint = createElement('div', 'target-new-hint', t('fsManualHint'))
     targetNewFields.append(
+      wsLabel,
+      wsList,
       fsToolbar,
       fsList,
       nameLabel,
@@ -393,6 +402,7 @@
       state.newManual = state.newManual === true || capable !== true
       const manual = state.newManual === true
 
+      renderWsRows()
       renderCrumb()
       fsList.textContent = ''
       renderFsRows()
@@ -407,6 +417,35 @@
       manualToggle.textContent = t(manual ? 'manualToBrowse' : 'manualToType')
       renderResult()
       if (capable) startBrowse()
+    }
+
+    /**
+     * The registered workspaces: one row, one click, targeted exactly — the
+     * same record DSH's own picker would use (`existing` + id). Client-side
+     * data from the sessions catalog, so the group works on every Host.
+     */
+    function renderWsRows() {
+      wsList.textContent = ''
+      const rows = workspaces().filter((item) => item && typeof item.id === 'string' && item.id !== '')
+      setVisible(wsLabel, rows.length > 0)
+      for (const workspace of rows) {
+        const path = String(workspace.path || '')
+        const row = createElement('button', 'target-row target-ws')
+        row.type = 'button'
+        // The human title leads; the path — the directory's identity — rides
+        // beside it, truncated, and in full on hover.
+        row.append(createElement('span', 'target-row-title', String(workspace.title || path || workspace.id)))
+        if (path !== '') row.append(createElement('span', 'target-row-meta', path))
+        row.title = path
+        row.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          targetNewError.textContent = ''
+          state.newTitle = titleInput.value.trim()
+          confirmNewSession('existing', workspace.id)
+        })
+        wsList.appendChild(row)
+      }
     }
 
     /** The breadcrumb of the current directory; every ancestor is a jump. */
@@ -558,13 +597,8 @@
         fsList.appendChild(row)
       }
       if (Array.isArray(state.fsRoots)) {
-        // The locations view is the top of the world: the known workspaces
-        // first — the likeliest destinations — then the home and the drives.
-        // Every row is a jump, never a silent confirm.
-        for (const workspace of workspaces()) {
-          if (!workspace || typeof workspace.path !== 'string' || workspace.path === '') continue
-          addRow(String(workspace.path), workspace.path, true)
-        }
+        // The locations view is the top of the world: home first, then the
+        // drives. (The registered workspaces are their own group above.)
         if (state.fsHome !== '') addRow(t('fsHome'), state.fsHome)
         for (const root of state.fsRoots) addRow(String(root), String(root), true)
         return

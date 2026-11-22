@@ -473,6 +473,25 @@
   font-family: var(--font-mono);
   font-size: var(--text-caption);
 }
+/* The registered-workspace group: one row, one click, 'existing' semantics.
+   The path rides beside the title — a directory's identity, truncated. */
+.target-ws-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.target-ws:hover { background: rgba(37, 99, 235, 0.28); }
+.target-row-meta {
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #94a3b8;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
+}
 /* The directory browser rides on the picker's row skin. */
 .target-fs-list {
   display: flex;

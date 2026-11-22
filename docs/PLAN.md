@@ -409,12 +409,16 @@ revision note.
 
 **Deliverables**
 
-- The ＋ 新建会话 row opens the directory browser directly — no mode screen.
-  Every open starts from the locations view (`path=''`): the registered
-  workspaces, the host home, and the drive roots; every row is a jump, never
-  a silent confirm.
-- The breadcrumb (locations chip › `D:` › `coding` …) makes every ancestor
-  one click; Up climbs to the locations view and rests there.
+- The ＋ 新建会话 row opens the panel directly — no mode screen. The
+  **registered workspaces** are their own always-present group at the top:
+  one click targets that exact record (`existing` + id, the same pick DSH's
+  own UI makes), and the group is client-side catalog data, so it works on
+  every Host — a Host without `/ext/anno/dirs` keeps a fully clickable
+  workspace list beside the typed-path flow.
+- The directory browser below it serves the new locations. Every open starts
+  from the locations view (`path=''`): the host home and the drive roots;
+  rows jump, the breadcrumb (locations chip › `D:` › `coding` …) makes every
+  ancestor one click, and Up climbs to the locations view and rests there.
 - The result line and the confirm button always name the exact absolute path
   being acted on, live: an optional folder name adopts the directory
   (使用 `{path}`) or creates a child (创建 `{path}`); the registered-workspace
@@ -433,6 +437,8 @@ revision note.
 
 **Acceptance criteria (c):**
 
+- Clicking a registered workspace targets it in one click (`existing`) on
+  every Host, including one without the dirs route.
 - From ＋ 新建会话, any absolute path on the Host is reachable by clicks
   alone, and at every moment the exact path about to be used is visible in
   the result line and on the confirm button.

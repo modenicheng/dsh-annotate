@@ -46,20 +46,24 @@ conversation. Nothing is injected behind the user's back.
 - The row detail (shown on hover/focus) carries the workspace name and relative
   last activity, plus `running` / `blank` state.
 - The first entry is **＋ 新建会话**, pinned above the list and disabled while
-  the host is offline (creation cannot queue, D25). It opens one flat directory
-  browser — no workspace taxonomy to walk through (D26). Every open starts from
-  the **locations view** (`GET /ext/anno/dirs` with an empty `path`): the
-  registered workspaces, the host home, and the drive roots. Rows jump, the
-  breadcrumb climbs, and any absolute path is reachable. The result line always
-  shows the exact path the confirm button names in its own label — an optional
-  folder name adopts the directory (使用) or creates a child of it (创建), so
-  nothing is ever created somewhere the user has not literally seen.
-  Registration is a property of the directory, shown as an inline badge:
-  confirming a registered directory targets that exact workspace record the way
-  DSH itself would (`existing` + id, never re-registered), any other path
-  registers it idempotently (`new` + path, the Host creates the directory).
-  A host that cannot browse gets the typed absolute path — validated against
-  the shared protocol rules — behind a two-way toggle on capable hosts (M4.7c).
+  the host is offline (creation cannot queue, D25). It opens one flat panel —
+  no workspace taxonomy to walk through (D26). The **registered workspaces**
+  are their own always-present group at the top: one click targets that exact
+  workspace record the way DSH itself would (`existing` + id), and because the
+  rows are client-side catalog data the group works on every Host, whatever
+  the browser below it can or cannot do. Below them, the directory browser
+  (when the Host serves `GET /ext/anno/dirs`): every open starts from the
+  **locations view** (the host home and the drive roots), rows jump, the
+  breadcrumb climbs, and any absolute path is reachable. The result line
+  always shows the exact path the confirm button names in its own label — an
+  optional folder name adopts the directory (使用) or creates a child of it
+  (创建), so nothing is ever created somewhere the user has not literally
+  seen. Registration is a property of the directory, shown as an inline badge:
+  confirming a registered directory targets that exact workspace record
+  (`existing` + id, never re-registered), any other path registers it
+  idempotently (`new` + path, the Host creates the directory). A host that
+  cannot browse gets the typed absolute path — validated against the shared
+  protocol rules — behind a two-way toggle on capable hosts (M4.7c).
   Confirming sets the target to `新建 · <workspace>`;
   the Session itself is created at send time, before the annotation names it,
   so a creation failure keeps the composer open with the comment intact. The
