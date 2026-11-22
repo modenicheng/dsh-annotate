@@ -10,8 +10,11 @@
  *
  * The picker's second arm is "new session": a pinned action row above the list
  * opens a workspace sub-panel (default / an existing workspace / a brand-new
- * directory). Confirming a workspace targets a session the Host will create at
- * send time; the choice travels to `main.js` through `handlers.onTargetNew`.
+ * directory). The brand-new directory is chosen, not typed: anchor rows come
+ * from the registered workspaces' own paths and parents, and only the optional
+ * folder name is written (D26). Confirming a workspace targets a session the
+ * Host will create at send time; the choice travels to `main.js` through
+ * `handlers.onTargetNew`.
  */
 ;(function installUiTarget(global) {
   const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
@@ -58,12 +61,14 @@
     targetNewHead.append(targetNewBack, targetNewHeadTitle)
     const targetNewOptions = createElement('div', 'target-new-options')
     const targetNewFields = createElement('div', 'target-new-fields')
-    const pathLabel = createElement('label', 'target-new-label', t('workspacePathLabel'))
-    const pathInput = createElement('input', 'target-new-path')
-    pathInput.type = 'text'
-    pathInput.placeholder = t('workspacePathPlaceholder')
-    pathInput.setAttribute('aria-label', t('workspacePathLabel'))
-    pathInput.spellcheck = false
+    const anchorLabel = createElement('div', 'target-new-label', t('workspaceAnchorLabel'))
+    const anchorList = createElement('div', 'target-anchor-list')
+    const nameLabel = createElement('label', 'target-new-label', t('workspaceNameLabel'))
+    const nameInput = createElement('input', 'target-new-name')
+    nameInput.type = 'text'
+    nameInput.placeholder = t('workspaceNameLabel')
+    nameInput.setAttribute('aria-label', t('workspaceNameLabel'))
+    nameInput.spellcheck = false
     const titleLabel = createElement('label', 'target-new-label', t('workspaceTitleLabel'))
     const titleInput = createElement('input', 'target-new-title-input')
     titleInput.type = 'text'
@@ -72,7 +77,30 @@
     titleInput.spellcheck = false
     const targetNewUse = createElement('button', 'target-new-use', t('workspaceUse'))
     targetNewUse.type = 'button'
-    targetNewFields.append(pathLabel, pathInput, titleLabel, titleInput, targetNewUse)
+    // The typed path is the demoted fallback (D26): anchors are the flow, the
+    // manual input covers a host that reported no workspace at all.
+    const manualToggle = createElement('button', 'target-new-manual-toggle', t('workspaceManualToggle'))
+    manualToggle.type = 'button'
+    const pathLabel = createElement('label', 'target-new-label', t('workspacePathLabel'))
+    const pathInput = createElement('input', 'target-new-path')
+    pathInput.type = 'text'
+    pathInput.placeholder = t('workspacePathPlaceholder')
+    pathInput.setAttribute('aria-label', t('workspacePathLabel'))
+    pathInput.spellcheck = false
+    const noAnchorsHint = createElement('div', 'target-new-hint', t('workspaceNoAnchors'))
+    targetNewFields.append(
+      anchorLabel,
+      anchorList,
+      nameLabel,
+      nameInput,
+      titleLabel,
+      titleInput,
+      targetNewUse,
+      manualToggle,
+      pathLabel,
+      pathInput,
+      noAnchorsHint,
+    )
     const targetNewError = createElement('div', 'target-new-error')
     targetNewPanel.append(targetNewHead, targetNewOptions, targetNewFields, targetNewError)
     setVisible(targetNewPanel, false)
@@ -193,6 +221,77 @@
     }
 
     /**
+     * Host locations a new workspace can start from (M4.7a): every registered
+     * workspace's own path and its parent, deduplicated, registry order. The
+     * paths are host-side truth the picker already holds, so choosing needs no
+     * new wire surface at all.
+     * @returns {string[]}
+     */
+    function anchors() {
+      const seen = new Set()
+      const rows = []
+      for (const workspace of workspaces()) {
+        if (!workspace || typeof workspace.path !== 'string' || workspace.path === '') continue
+        for (const candidate of [workspace.path, parentDirectory(workspace.path)]) {
+          if (candidate === null) continue
+          const key = anchorKey(candidate)
+          if (seen.has(key)) continue
+          seen.add(key)
+          rows.push(candidate)
+        }
+      }
+      return rows
+    }
+
+    /**
+     * One step up from a host path, or `null` at a root. Windows and POSIX
+     * shapes both parse, because the registry reports the host's own separators.
+     * @param {string} path
+     * @returns {string | null}
+     */
+    function parentDirectory(path) {
+      const trimmed = path.replace(/[\\/]+$/, '')
+      if (trimmed === '') return null
+      if (/^[A-Za-z]:$/.test(trimmed)) return null
+      const cut = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
+      if (cut < 0) return null
+      if (cut === 0) return '/'
+      const parent = trimmed.slice(0, cut)
+      return /^[A-Za-z]:$/.test(parent) ? `${parent}\\` : parent
+    }
+
+    /**
+     * Join one folder name onto a location, keeping the separator the location
+     * itself uses, so the host always receives a native path.
+     * @param {string} anchor
+     * @param {string} name
+     * @returns {string}
+     */
+    function joinPath(anchor, name) {
+      const windows = anchor.includes('\\') || /^[A-Za-z]:/.test(anchor)
+      const separator = windows ? '\\' : '/'
+      const base = anchor.replace(/[\\/]+$/, '')
+      if (base === '') return `${separator}${name}`
+      return `${base}${separator}${name}`
+    }
+
+    /** Windows-style paths compare the way their filesystem does. */
+    function anchorKey(path) {
+      return path.includes('\\') || /^[A-Za-z]:/.test(path) ? path.toLowerCase() : path
+    }
+
+    /** The short name a location shows; roots show as themselves. */
+    function anchorTitle(path) {
+      const segments = path.split(/[\\/]/).filter((part) => part !== '')
+      return segments[segments.length - 1] ?? path
+    }
+
+    /** A folder name is one path segment, never a path or a dot-directory. */
+    function isBadName(name) {
+      return name === '.' || name === '..' || /[\\/]/.test(name) || name.includes('\0')
+    }
+
+    /**
      * What the composer's send button will ask the background to create, or
      * `null` when the target is an existing Session after all.
      * @returns {{ mode: string, workspaceId: string, path: string, title: string } | null}
@@ -270,7 +369,8 @@
           state.newWorkspaceId = String(workspaceId || '')
           if (mode === 'new') {
             renderNewPanel()
-            pathInput.focus()
+            if (state.newManual === true) pathInput.focus()
+            else nameInput.focus()
             return
           }
           confirmNewSession(mode, workspaceId)
@@ -289,6 +389,49 @@
         )
       }
       addOption('new', t('workspaceNew'), '')
+      renderAnchorArea()
+    }
+
+    /**
+     * The 新建工作区 flow: anchor rows from the Host's own registered paths,
+     * one optional folder name, and the manual path as the demoted fallback.
+     * A host that reported no workspace at all keeps the typed path as the
+     * whole flow, exactly what M4.6 shipped.
+     */
+    function renderAnchorArea() {
+      const rows = anchors()
+      if (rows.length === 0) {
+        state.newManual = true
+        state.newAnchor = ''
+      } else if (!rows.some((row) => anchorKey(row) === anchorKey(state.newAnchor))) {
+        state.newAnchor = rows[0]
+      }
+      const manual = state.newManual === true
+      anchorList.textContent = ''
+      for (const path of rows) {
+        const row = createElement('button', 'target-row target-anchor')
+        row.type = 'button'
+        row.setAttribute('aria-pressed', anchorKey(path) === anchorKey(state.newAnchor) ? 'true' : 'false')
+        row.append(createElement('span', 'target-row-title', anchorTitle(path)))
+        row.append(createElement('span', 'target-row-meta', path))
+        row.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          state.newAnchor = path
+          state.newManual = false
+          renderAnchorArea()
+        })
+        anchorList.appendChild(row)
+      }
+      const pick = !manual && rows.length > 0
+      setVisible(anchorLabel, pick)
+      setVisible(anchorList, pick)
+      setVisible(nameLabel, pick)
+      setVisible(nameInput, pick)
+      setVisible(manualToggle, rows.length > 0)
+      setVisible(pathLabel, manual)
+      setVisible(pathInput, manual)
+      setVisible(noAnchorsHint, rows.length === 0)
     }
 
     function openNewPanel() {
@@ -448,8 +591,11 @@
       state.newWorkspaceId = ''
       state.newPath = ''
       state.newTitle = ''
+      state.newAnchor = ''
+      state.newManual = false
       targetSearch.value = ''
       pathInput.value = ''
+      nameInput.value = ''
       titleInput.value = ''
       targetNewError.textContent = ''
       setVisible(targetNewPanel, false)
@@ -495,16 +641,35 @@
     targetNewUse.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      const path = pathInput.value.trim()
-      if (path === '') {
-        targetNewError.textContent = t('workspacePathRequired')
-        pathInput.focus()
-        return
+      if (state.newManual === true || anchors().length === 0) {
+        const path = pathInput.value.trim()
+        if (path === '') {
+          targetNewError.textContent = t('workspacePathRequired')
+          pathInput.focus()
+          return
+        }
+        state.newPath = path
+      } else {
+        const name = nameInput.value.trim()
+        if (isBadName(name)) {
+          targetNewError.textContent = t('workspaceNameInvalid')
+          nameInput.focus()
+          return
+        }
+        state.newPath = name === '' ? state.newAnchor : joinPath(state.newAnchor, name)
       }
       targetNewError.textContent = ''
-      state.newPath = path
       state.newTitle = titleInput.value.trim()
       confirmNewSession('new')
+    })
+    manualToggle.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      state.newManual = !(state.newManual === true)
+      renderAnchorArea()
+    })
+    nameInput.addEventListener('input', () => {
+      if (targetNewError.textContent !== '') targetNewError.textContent = ''
     })
     pathInput.addEventListener('input', () => {
       state.newPath = pathInput.value.trim()

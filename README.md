@@ -451,7 +451,7 @@ First checkout (hooks, generated files, commit format):
 | M4 | Developer context, session routing, multi-window | planned |
 | M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; Desktop run pending (M4.5c) |
 | M4.6 | Send an annotation into a new session (default / existing / new workspace) | implemented; browser QA pending |
-| M4.7 | New-workspace path picking: anchors from known workspaces (extension-only), then Host-served directory browsing | planned (D26) |
+| M4.7 | New-workspace path picking: anchors from known workspaces (extension-only), then Host-served directory browsing | M4.7a implemented; browser QA pending; M4.7b planned (D26) |
 | M5 | Signing and distribution | pipeline live (npm, AMO, CWS, Edge lanes); Edge listing published, AMO/CWS in review |
 
 The detailed deliverables and acceptance criteria are in
