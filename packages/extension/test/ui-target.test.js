@@ -268,7 +268,7 @@ test('level one pins ＋新建工作区 first, then the workspaces', async () =>
 
   // The head: an icon + text back button on the left, a real breadcrumb on
   // the right, the current segment last.
-  assert.equal(backButton().children[0].tagName, 'SVG')
+  assert.equal(backButton().children[0].className, 'icon icon-arrow-back')
   assert.equal(backButton().children[1].textContent, 'targetBack')
   assert.deepEqual(
     crumbHead().children.map((child) => child.textContent),
@@ -347,17 +347,19 @@ test('a host without browsing keeps the workspace list fully usable', async () =
 
 test('the browser opens into the locations view', async () => {
   const host = hostOf(TREE)
-  const { fields, result, badge, up, crumb, enterCreate } = await installTarget(WORKSPACES, host)
+  const { fields, result, badge, up, home, crumb, enterCreate } = await installTarget(WORKSPACES, host)
   await enterCreate()
 
   assert.deepEqual(host.seen, [''])
   const rows = fields.children[F.FS_LIST].children.map((row) => row.children[0].textContent)
   assert.deepEqual(rows, ['fsHome', 'C:\\', 'D:\\'])
   assert.equal(up().disabled, true)
-  assert.deepEqual(
-    crumb().children.map((child) => child.textContent),
-    ['fsLocations'],
-  )
+  // The toolbar is icon-only now: the buttons carry their label in the title.
+  assert.equal(up().children[0].className, 'icon icon-arrow-upward')
+  assert.equal(home().children[0].className, 'icon icon-home')
+  assert.equal(home().title, 'fsHome')
+  // The directory breadcrumb has no leading word at the locations view.
+  assert.deepEqual(crumb().children, [])
   // Nothing is chosen yet: the result is an explicit placeholder, not a guess.
   assert.equal(result().className.includes('is-empty'), true)
   assert.equal(result().textContent, 'fsPickLocation')
@@ -368,23 +370,24 @@ test('the browser opens into the locations view', async () => {
 
 test('rows jump into the tree and the breadcrumb climbs back', async () => {
   const host = hostOf(TREE)
-  const { fields, home, crumb, enterCreate } = await installTarget(WORKSPACES, host)
+  const { fields, home, up, crumb, enterCreate } = await installTarget(WORKSPACES, host)
   await enterCreate()
 
   await walkToCoding(fields)
   assert.deepEqual(host.seen, ['', 'D:\\', 'D:\\coding'])
   assert.equal(fields.children[F.FS_LIST].children[0].textContent, 'app')
 
-  // D: › coding: every ancestor is one click, and the leading chip is the
-  // locations view itself.
+  // D: › coding: every ancestor is one click. Icon separators read as '' in
+  // the text-only map.
   assert.deepEqual(
     crumb().children.map((child) => child.textContent),
-    ['fsLocations', '›', 'D:', '›', 'coding'],
+    ['D:', '', 'coding'],
   )
-  crumb().children[2].fire('click')
+  crumb().children[0].fire('click')
   await ticks()
   assert.deepEqual(host.seen, ['', 'D:\\', 'D:\\coding', 'D:\\'])
-  crumb().children[0].fire('click')
+  // Without the word chip, the locations view is one Up press away.
+  up().fire('click')
   await ticks()
   assert.deepEqual(host.seen, ['', 'D:\\', 'D:\\coding', 'D:\\', ''])
 

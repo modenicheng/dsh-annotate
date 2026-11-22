@@ -20,9 +20,6 @@
     const { t, state, handlers, dom } = ctx
     const { createElement, createIcon, setVisible, clamp, viewportSize, scrollOffset } = dom
 
-    // mdi:send from Iconify (Apache-2.0), shown on the primary button.
-    const ICON_SEND = 'M2,21L23,12L2,3V10L17,12L2,14V21Z'
-
     // The card follows its subject: the rect arrives in viewport pixels, is
     // immediately promoted to a document rect, and every later placement
     // re-projects it with the live scroll offset — the same approach the
@@ -67,9 +64,8 @@
     cancelButton.type = 'button'
     const sendButton = createElement('button', 'btn btn-primary')
     sendButton.type = 'button'
-    const sendIcon = createIcon(ICON_SEND)
     const sendLabel = createElement('span')
-    sendButton.append(sendIcon, sendLabel)
+    sendButton.append(createIcon('send'), sendLabel)
     sendButton.disabled = true
     composerActions.append(cancelButton, sendButton)
     composerFoot.append(composerHint, composerActions)

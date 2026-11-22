@@ -117,6 +117,22 @@
 }
 *, *::before, *::after { box-sizing: border-box; }
 [f-hidden] { display: none !important; }
+/* Icons are the extension's own SVG files (assets/icons/) painted through a
+   CSS mask, so the shape follows currentColor like a glyph. Size comes from
+   the context; the mask url is set inline by dom.createIcon. */
+.icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  flex: none;
+}
 .hud {
   position: fixed;
   z-index: 10;
@@ -379,7 +395,7 @@
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn-primary { background: var(--accent); border-color: var(--accent-line); color: var(--white); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
-.btn .icon { width: 14px; height: 14px; fill: currentColor; flex: none; }
+.btn .icon { width: 14px; height: 14px; }
 /* Offline alert under the textarea: paired with the disabled send button. */
 .composer-alert {
   margin-top: 6px;
@@ -511,21 +527,35 @@
   min-width: 0;
 }
 /* One skin for the compact chip buttons of the sub-panel: the back button and
-   the browser toolbar's Up / Home. */
+   the browser toolbar's Up / Home. The toolbar pair is a square icon box — its
+   label rides in the title/aria-label, not the box. */
 .target-back, .target-fs-btn {
   flex: none;
-  padding: 2px 8px;
   border: 0;
   border-radius: var(--radius-m);
   background: var(--fill);
   color: var(--ink-soft);
-  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
   cursor: pointer;
 }
-.target-back { display: inline-flex; align-items: center; gap: 4px; }
+.target-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font: var(--text-label) / var(--text-label-lh) var(--font-ui);
+}
+.target-fs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+}
 .target-back:hover, .target-fs-btn:hover { background: var(--wash-strong); }
 .target-fs-btn:disabled { color: var(--text-dim); cursor: not-allowed; }
-.target-back .icon { width: 14px; height: 14px; fill: currentColor; }
+.target-back .icon { width: 14px; height: 14px; }
+.target-fs-btn .icon { width: 15px; height: 15px; }
 /* The head breadcrumb, right aligned: ancestor segments navigate, the
    current one is plain text. */
 .target-new-crumb {
@@ -540,7 +570,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
 }
-.target-new-crumb .icon { width: 12px; height: 12px; fill: var(--ink-sep); flex: none; }
+.target-new-crumb .icon { width: 12px; height: 12px; color: var(--ink-sep); }
 /* One skin for the two breadcrumb-ish link rows: the head's ancestor segments
    and the directory breadcrumb's jumps. */
 .target-new-crumb-seg, .target-fs-seg {
@@ -626,13 +656,19 @@
   flex: 1 1 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   color: var(--ink-faint);
   font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
+  /* Long paths shrink from the front: flex-end keeps the tail — the directory
+     the user is standing in — and the fade marks where the head was cut. */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 14px);
+  mask-image: linear-gradient(to right, transparent, #000 14px);
 }
+.target-fs-crumb .icon { width: 11px; height: 11px; color: var(--ink-sep); }
 .target-fs-sep { flex: none; color: var(--ink-sep); }
 .target-fs-here {
   flex: 0 1 auto;
