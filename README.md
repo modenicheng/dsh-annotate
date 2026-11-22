@@ -7,144 +7,254 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-Visual annotations from your everyday browser, as first-class context for
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH).
+dsh-marker lets you point at part of a web page and hand it to
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) as
+context for your conversation — with a cropped screenshot and the page
+information around it, not just a pasted URL.
 
-Point at a paragraph, a button, or a region of a page in Firefox, Zen, or a
-Chromium browser, write one line of intent, and the annotation lands in the
-running DSH session with a cropped screenshot, DOM selectors, and page context.
-The model can also ask you to point at something (`annotate_pick`) when a
-request is ambiguous.
+It is one product in two pieces, and you install both:
 
-> **Status: early development.** The protocol, the host plugin, and the
-> extension are implemented and covered by tests. The host half and the
-> mention-to-chip delivery are verified against a live `dsh web` instance;
-> Firefox capture and delivery are verified in a real browser, while Zen, the
-> discovery flow, and the Desktop run still need theirs. The acceptance
-> criteria per milestone are in [docs/PLAN.md](docs/PLAN.md).
+1. **The DSH plugin** (`dsh-marker` on npm). This is the half that receives
+   and stores annotations and gives your DSH sessions the `annotate_*` tools.
+   You install it with one `dsh` command.
+2. **The browser extension**. This is the half you use day to day. Press a
+   shortcut, mark text, an element, or a region of any page, optionally write
+   a comment, and send it. Firefox, Zen, and Chromium-based browsers are
+   supported.
+
+What happens on the way: the extension talks only to the DSH instance on the
+same machine (`127.0.0.1`), the annotation lands in the DSH Web UI as a chip
+in the composer of the session you chose — visible, removable, and never sent
+to the model until you send the message that carries it. The model can also
+turn the flow around and ask you to point at something (`annotate_pick`): a
+banner appears on the page and waits for your click.
+
+Nothing leaves the machine: no account, no telemetry, no developer server.
+What the extension reads and what is stored where is the privacy policy:
+[docs/privacy.md](docs/privacy.md).
+
+> **Status.** 1.0.0 is the first public release (2026-11-21). The Firefox and
+> Chrome Web Store listings are submitted and under review at the time of
+> writing, so the browser half is installed manually from a GitHub Release
+> below; an Edge Add-ons listing follows later (Edge can also install the
+> Chrome Web Store build). Capture and delivery are verified in a real
+> Firefox; the Chromium build passed an early bring-up but has not been
+> re-tested end to end, and Zen and the DSH Desktop app still need their
+> verification runs. Details and acceptance criteria: [docs/PLAN.md](docs/PLAN.md).
+
+If an AI agent is setting this up for you, there is a runbook written for it:
+[docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md).
+
+## What you need first
+
+| You need | Why |
+|---|---|
+| DSH 0.2 or newer, with the Web profile (`dsh web`) or the Desktop app | The plugin attaches to the DSH host's webserver; the extension connects to it there. |
+| Node.js 22 or newer | DSH runs on Node. Nothing in this project is built or compiled on your machine. |
+| Firefox 128+, Zen, or a Chromium browser (Chrome, Edge 88+, Brave, Vivaldi, Opera, Arc) | For the browser half. |
+| Both halves on the same machine | The extension connects to `127.0.0.1` only — it cannot reach a DSH instance on another computer. |
+
+A note on two words used throughout:
+
+- A **profile** is a named DSH configuration (its plugins, settings, and
+  sessions live under their own directory). `dsh web` boots the profile named
+  `web`, which serves the Web UI. If you use another profile, add
+  `--profile <name>` to the `dsh` commands below.
+- **`$DSH_HOME`** is DSH's data directory: `~/.dsh` on Linux and macOS,
+  `%USERPROFILE%\.dsh` on Windows. Two files there matter for setup.
 
 ## Install
 
-Requirements: Node.js 22+ and DSH 0.2 or newer with the Web profile. The
-extension runs in Firefox 128+ or Zen; the Chromium build (Chrome, Edge,
-Brave, …) is installed manually from a release, as below.
+Three steps: the plugin into DSH, the extension into the browser, then one
+token to connect them.
 
-### Host plugin
+### Step 1 — Install the DSH plugin
 
-The host plugin is an ordinary DSH bundle, published as `dsh-marker`:
+The plugin is an ordinary DSH plugin package, published on npm as `dsh-marker`:
 
 ```sh
-# install into the profile you boot (add --profile <name> for another one)
 dsh plugin add dsh-marker
 ```
 
-`plugin add` pulls the bundle from the npm registry together with its one
-runtime dependency (`ws`), so the machine needs the registry reachable once.
-Then boot the host as usual — on the profile you installed into — and it
-writes the bridge token the extension will ask for
-(`$DSH_HOME/ext-bridge-token`, created on first use).
+Add `--profile <name>` (before `add`) to install into a specific profile. The
+command downloads the package and its one dependency (`ws`) from the npm
+registry, so the machine needs the registry reachable this once. DSH checks
+its own version against the plugin's requirement before installing.
 
-If the bundle is installed but not active, open **Plugins** in the DSH Web UI
-and enable `dsh-marker`. The same page can install a local bundle directly
-(**Add plugin**), which is the easier route if you prefer the GUI.
+Then start DSH as you normally do — `dsh web`, or the Desktop app — on the
+profile you installed into. Two things tell you it worked:
 
-### Extension
+- `dsh-marker` shows up on the **Plugins** page of the Web UI, enabled. (If
+  the row is there but inactive, switch it on on the same page. The page's
+  **Add plugin** button can also install a package directly, if you prefer
+  the GUI over the command line.)
+- The first start writes the file `$DSH_HOME/ext-bridge-token` — a long
+  random string. That is the token the extension will ask for in Step 3.
 
-> **Not in a store yet.** The first AMO and Chrome Web Store listings are not
-> live, so pick a manual route below.
+Later updates: `dsh plugin update dsh-marker` (the **Plugins** page offers
+the same). Keep the plugin and the extension roughly in step — see
+[Troubleshooting](#troubleshooting) for what happens on a version mismatch.
 
-#### From a GitHub release — no store, no checkout
+### Step 2 — Install the browser extension
 
-Every published release carries both extension packages, built and checksummed
-by CI; nothing is built on your machine.
+Download the package for your browser from the current release (built and
+checksummed by CI; nothing is built locally):
 
-1. Download the package for your browser from
-   [Releases](https://github.com/modenicheng/dsh-annotate/releases) —
-   `dsh-marker-firefox-<version>.zip` or `dsh-marker-chromium-<version>.zip` —
-   together with `checksums.txt`, verify it, and unzip it:
-   `sha256sum -c checksums.txt --ignore-missing` (macOS: `shasum -a 256 -c …`;
-   Windows: `certutil -hashfile <file> SHA256`).
-2. **Chromium** (Chrome, Edge, Brave, Vivaldi, Opera, Arc): open
-   `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
-   and select the unzipped folder. The extension stays installed across
-   restarts. Two costs: the browser shows a developer-mode notice, and updates
-   are manual — download the next release and replace the folder. **On
-   Chromium, also set the keyboard shortcut by hand**: open
-   `chrome://extensions/shortcuts`, find **Annotate the current page**, and
-   assign `Alt+Shift+A` (or your preferred combination). Chromium does not let
-   extensions register or change their own commands, so without this step the
-   in-page fallback still enters annotate mode, but the browser never grants
-   `activeTab` — and without that grant the screenshot is skipped.
-3. **Firefox / Zen**: release Firefox installs add-ons signed by AMO only. The
-   release zip is unsigned, so load it as a temporary add-on —
-   `about:debugging#/runtime/this-firefox` (Zen: `about:debugging`), **Load
-   Temporary Add-on…**, the unzipped `manifest.json` — and reload it after each
-   browser restart. When a release carries a signed `.xpi` (CI attaches one as
-   soon as AMO signing is configured), it installs permanently via
-   `about:addons` → gear menu → **Install Add-on From File…**. On Firefox
-   Developer Edition, Nightly, or ESR you can instead set
-   `xpinstall.signatures.required` to `false` in `about:config` and install
-   the zip permanently by renaming it to `.xpi` first.
+| For | Package (v1.0.0) |
+|---|---|
+| Firefox / Zen | [dsh-marker-firefox-1.0.0.zip](https://github.com/modenicheng/dsh-annotate/releases/download/v1.0.0/dsh-marker-firefox-1.0.0.zip) |
+| Chromium browsers | [dsh-marker-chromium-1.0.0.zip](https://github.com/modenicheng/dsh-annotate/releases/download/v1.0.0/dsh-marker-chromium-1.0.0.zip) |
+| Both, checksums | [checksums.txt](https://github.com/modenicheng/dsh-annotate/releases/download/v1.0.0/checksums.txt) |
 
-#### From source — for development
+Verify before installing: `sha256sum -c checksums.txt --ignore-missing`
+(macOS: `shasum -a 256 -c checksums.txt`; Windows:
+`certutil -hashfile <file> SHA256`). Newer releases use the same file names
+with the version replaced — see [Releases](https://github.com/modenicheng/dsh-annotate/releases).
+Once the store listing for your browser is live, installing from the store
+replaces everything below: permanent, and updates arrive on their own.
 
-The source needs no build step — `packages/extension` is the extension, with no
-bundler, no TypeScript and no dependency. Load `packages/extension/manifest.json`
-as a temporary add-on (`about:debugging#/runtime/this-firefox`; Zen:
-`about:debugging`).
+Unzip the package, then follow the branch for your browser.
 
-Firefox is what has been run for real. An early build passed a basic bring-up
-pass in Chromium 156 — load, service worker, content script, popup, and the
-annotation HUD, behaving much like Firefox — but the current version has not
-been re-tested in a real Chromium.
+#### Firefox / Zen
 
-What the extension reads, where it sends it and what it keeps locally is
-[docs/privacy.md](docs/privacy.md) — the same page the stores link to.
+Release Firefox installs only add-ons signed by Mozilla, and the release zip
+is unsigned — so it loads as a **temporary add-on**:
 
-### First annotation
+1. Open `about:debugging#/runtime/this-firefox` (Zen: `about:debugging`).
+2. **Load Temporary Add-on…** → pick the unzipped folder's `manifest.json`.
 
-1. Open the extension popup and paste the bridge token from
-   `$DSH_HOME/ext-bridge-token` (`%USERPROFILE%\.dsh\ext-bridge-token` on
-   Windows). Leave **Connection** on *Automatic* and the address at the default
-   `127.0.0.1` / `3080`; the extension then finds a host whose port moved by
-   itself.
-2. On a page press `Alt+Shift+A` (the default; change it in the popup's
-   **Annotate** section): select text, click an element, or drag a region, then
-   press Enter. While an element is outlined, `Tab` widens it one ancestor at a time
-   and `Shift+Tab` steps back down; the click locks whatever level is outlined.
-   The comment is optional — with an empty one the mark is sent on its own (the
-   button reads **Send mark** / **只发标记**). A right-click on the page leaves
-   annotation mode (this can be turned off in the popup); inside the composer
-   the browser's own text menu wins.
-3. If the host cannot be found: switch to *Manual* and type the address — a
-   full URL such as `wss://anno.example.com` works, and with no scheme the
-   extension asks the host which one to use — or use **Import endpoint file…**
-   to read the address from `$DSH_HOME/ext-bridge-endpoint.json`. Details:
-   [docs/DISCOVERY.md](docs/DISCOVERY.md).
+A temporary add-on disappears when the browser exits; after a restart, load
+it again the same way. Two permanent routes exist today:
 
-The popup's **Annotate** section can also make a successful send leave the mode
-(off by default) and turn the right-click exit off. Recording a shortcut
-updates the browser command on Firefox, which is what keeps the screenshot's
-`activeTab` grant working. Chromium does not let extensions write commands, so
-there are two paths to the same mode: the browser command (set once in
-`chrome://extensions/shortcuts` — see the install step above) and the in-page
-matcher that the popup records for the page. Only the browser command carries
-the `activeTab` grant, so on Chromium the browser command is the path that
-produces screenshots; if you record a key that differs from the one registered
-in the browser, the in-page matcher still fires, but the mark goes out without
-its screenshot. Keep both on the same combination, or use **Annotate this
-page** in the popup, which always grants `activeTab`. The popup follows the
-browser UI language (English and
-Simplified Chinese ship today). If **Annotate this page** reports that the
-extension did not answer, the popup is newer than the extension loaded in this
-browser session: click **Reload** in `about:debugging` and refresh the page.
+- Firefox Developer Edition, Nightly, or ESR: set
+  `xpinstall.signatures.required` to `false` in `about:config`, rename the
+  zip to end in `.xpi`, then `about:addons` → gear menu → **Install Add-on
+  From File…**.
+- The Mozilla Add-ons listing, once its review completes: a normal
+  store install with automatic updates.
+
+#### Chromium (Chrome, Edge, Brave, Vivaldi, Opera, Arc)
+
+1. Open `chrome://extensions`, enable **Developer mode**, choose **Load
+   unpacked**, and select the unzipped folder. The extension survives
+   browser restarts. The costs: the browser keeps a developer-mode notice,
+   and updates are manual — download the next release and replace the folder.
+2. **Set the keyboard shortcut by hand** — this step decides whether
+   screenshots work. Open `chrome://extensions/shortcuts`, find **Annotate
+   the current page**, and assign `Alt+Shift+A` (or your preferred
+   combination). Chromium does not let an extension register its own
+   shortcut, and only a browser-registered shortcut grants `activeTab` — the
+   browser's permission to capture the visible tab. Without it, annotate
+   mode still works, but marks are sent without their screenshot. The
+   popup's **Annotate this page** button is the one path that always gets
+   the permission.
+
+#### From source (development)
+
+`packages/extension` in this repository *is* the extension — no build step,
+no bundler, no dependencies. Load its `manifest.json` as a temporary add-on
+as above. See [Development](#development) for the rest of the workflow.
+
+### Step 3 — Connect the two
+
+1. Click the dsh-marker icon in the browser toolbar. The popup opens.
+2. Open `$DSH_HOME/ext-bridge-token` in any text editor and paste its
+   content into the popup's **Token** field. Treat the token like a local
+   password: anyone who can read it can send things to your DSH host, so
+   keep it out of chats and screenshots.
+3. Leave **Connection** on **Automatic** and the address at its default
+   (`127.0.0.1`, port `3080`), and press **Save and connect**. Automatic
+   also finds hosts whose port is not 3080 — the DSH Desktop app picks a
+   fresh port at every launch, and the extension still finds it. Manual
+   address entry is only for non-default setups (remote hosts, reverse
+   proxies): [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+4. Done when the popup's status line reads **Connected** next to the host
+   address.
+
+## Using it
+
+1. On any page, press `Alt+Shift+A` (macOS: `Option+Shift+A`; configurable in
+   the popup). A small bar appears at the top: **Annotation mode**.
+2. Mark something — the bar shows the three gestures:
+   - **text**: hold `Shift` and drag across a paragraph;
+   - **element**: just click it; while it is outlined, `Tab` widens the
+     selection to its parent element one step at a time and `Shift+Tab`
+     steps back down — click locks whatever level is outlined;
+   - **region**: drag a rectangle.
+3. A small composer opens. Write a comment if you have one (empty is fine —
+   the mark alone is a complete annotation), pick the destination under
+   **Send to** (the default is the session the DSH window is currently
+   showing; **＋ New session** starts a fresh one), and press Enter.
+4. In the DSH Web UI, the annotation appears as a chip in that session's
+   composer. Hovering the chip (or a chip in a sent message) opens a card
+   with the cropped screenshot, the page, and your comment. The message goes
+   to the model only when you send it — the chip is yours to delete.
+5. `Esc` leaves annotate mode; a right-click does too, unless turned off in
+   the popup. Marks made while the host is unreachable are queued in the
+   browser and sent when it is back (the popup shows the count).
+
+From the other side, the model has the six tools listed
+[below](#tools); the one you will notice is `annotate_pick`, a banner on the
+page asking you to point at something. The popup's **This page** section
+lists the current page's annotations with **Resolve** / **Reopen** /
+**Delete**, matching what the tools do.
+
+## The popup, field by field
+
+**Annotate**
+
+| Control | What it does |
+|---|---|
+| Shortcut | Records a new combination. On Firefox this also updates the browser command, keeping screenshots working. On Chromium the browser command must be assigned in `chrome://extensions/shortcuts` (Step 2); keep both on the same keys, or use **Annotate this page**. |
+| Exit annotate mode after sending | Off by default, so you can mark several places in one go. |
+| Right-click leaves annotate mode | On by default. |
+| Annotate this page | Enters annotate mode right now; always receives the screenshot permission, even on a tab that was open before the extension was installed. |
+
+**Connection settings**
+
+| Control | What it does |
+|---|---|
+| Connection: Automatic / Manual | Automatic (default) finds the running host on its own — including hosts on non-default ports. Manual uses exactly the address below. |
+| Host or URL + Port | Usually left at the defaults. A full URL such as `wss://anno.example.com` is for hosts behind HTTPS; if you type no scheme, the host decides `ws` vs `wss` itself. |
+| Import endpoint file… | Reads the address out of `$DSH_HOME/ext-bridge-endpoint.json`, which the host rewrites on every start. Address only — the file never contains the token. |
+| Token | The content of `$DSH_HOME/ext-bridge-token`, pasted once. |
+| Send queued marks | Force-sends the outbox — marks captured while the host was unreachable, with their screenshots. |
+
+**This page** lists the page's annotations (state, age, resolve / reopen /
+delete), and the bottom status line shows the connection state, the connected
+address, and the outbox count. The popup follows the browser's UI language;
+English and Simplified Chinese ship today.
+
+## Troubleshooting
+
+- **Popup says *Cannot reach the host*.** Is DSH running, on the profile you
+  installed the plugin into? Press **Scan again**; if nothing answers,
+  **Import endpoint file…** with `$DSH_HOME/ext-bridge-endpoint.json`, or
+  switch to Manual and type the address. Details:
+  [docs/DISCOVERY.md](docs/DISCOVERY.md).
+- **Token rejected or missing.** Copy `$DSH_HOME/ext-bridge-token` again —
+  the file appears on the first host start with the plugin enabled. Only one
+  DSH profile should run the bridge at a time.
+- **Chromium: marks arrive without screenshots.** The browser shortcut from
+  Step 2 is missing, or the popup's recorded key differs from the one
+  registered in `chrome://extensions/shortcuts`. Make them identical, or use
+  **Annotate this page**.
+- ***The extension did not answer*** (after using **Annotate this page**):
+  the popup is newer than the extension loaded in this browser session.
+  Click **Reload** in `about:debugging` and refresh the page.
+- **The extension vanished after a browser restart** (Firefox): expected for
+  a temporary add-on — reload it from `about:debugging`, or switch to one of
+  the permanent routes in Step 2.
+- **Version mismatch between the halves.** The connection negotiates a
+  protocol window, and small gaps are tolerated by design; but if the popup
+  says one half is too old for the other, update both — `dsh plugin update
+  dsh-marker` and the latest extension release.
 
 ## Tools
 
-The host registers six tools, which appear in your DSH sessions; the one you
-will see most is `annotate_pick`, the banner asking you to point at something.
-All of them operate on the annotation store and broadcast changes back to
-connected browsers.
+The plugin registers six tools — functions the model can call in a DSH
+session. All of them operate on the annotation store and broadcast changes
+back to connected browsers.
 
 | Tool | What it does |
 |---|---|
@@ -157,40 +267,41 @@ connected browsers.
 
 ## Security model
 
-The bridge is local-only by design:
+The bridge — the websocket the extension and the host share — is local-only
+by design:
 
 - **No public port by default.** It attaches to the DSH host webserver, which
-  binds to loopback (`127.0.0.1`) by default. Putting that webserver behind a
-  tunnel or reverse proxy makes the websocket reachable wherever that server is,
-  so terminate TLS in front of it, do not log frames, and keep the port off
+  binds to `127.0.0.1` by default. Putting that webserver behind a tunnel or
+  reverse proxy makes the websocket reachable wherever that server is, so
+  terminate TLS in front of it, do not log frames, and keep the port off
   `0.0.0.0`.
-- **Token handshake.** The first frame must be `hello { token, version }`. The
-  token is 32 random bytes as hex, stored in `$DSH_HOME/ext-bridge-token` with
-  owner-only permissions on POSIX, and compared in constant time. A client that
-  does not authenticate within 5 seconds is disconnected, and the protocol
-  version must match exactly.
-- **No token, no data.** Without a valid token the host closes the socket; the
-  only anonymous endpoint is `/ext/anno/health`, which reports the protocol
-  version, counts, and the scheme/URL a browser should use — never annotation
-  content.
-- **The GUI routes sit behind the host's own fence.** The routes the Web Client
-  page reads (`/ext/anno/queue`, `/queue/ack`, `/focus`, `/events`, `/item`,
-  `/image`) are gated by DSH's Connection fence — Host/Origin checks that stop
-  DNS rebinding, plus the browser session the page already holds — and fall
-  back to the `sec-fetch-site: same-origin` header check on hosts without the
-  Connection service. The token is never in them: the page is a different trust
-  anchor from the extension.
-- **Discovery publishes an address, not a secret.** The loopback locator answers
-  one `GET` with the host's origin and a per-process id; it returns no token and
-  no annotation data, and refuses a `Host` that is not loopback.
-- **Bounded input.** Frames are capped at 32 MiB, records are validated against
-  `packages/protocol/src/index.js`, and the store only keeps references to
-  screenshots that DSH's own attachment service accepts.
+- **Token handshake.** The first frame must be `hello { token, version }`.
+  The token is 32 random bytes as hex, stored in `$DSH_HOME/ext-bridge-token`
+  with owner-only permissions on POSIX, and compared in constant time. A
+  client that does not authenticate within 5 seconds is disconnected.
+- **No token, no data.** Without a valid token the host closes the socket;
+  the only anonymous endpoint is `/ext/anno/health`, which reports the
+  protocol window and counts — never annotation content.
+- **The web UI routes sit behind DSH's own protections** (Host/Origin checks
+  and the browser session the page already holds). The token is never in
+  them: the web page is a different trust anchor from the extension.
+- **Protocol versions negotiate a window**, not one exact number: the host
+  accepts `MIN_PROTOCOL ≤ version ≤ PROTOCOL_VERSION` (both are 1 today), so
+  a wire change can ship without disconnecting every installed extension at
+  once. A mismatch is reported with both numbers.
+- **Discovery publishes an address, not a secret.** A host on a non-default
+  port answers one loopback lookup with its current origin and a per-process
+  id; it returns no token and no annotation data, and refuses a `Host` that
+  is not loopback.
+- **Bounded input.** Frames are capped at 32 MiB, records are validated
+  against `packages/protocol/src/index.js`, and the store only keeps
+  references to screenshots that DSH's own attachment service accepts.
 - **Local storage.** Annotations live under `$DSH_HOME`; nothing leaves the
   machine and there is no telemetry.
 
-The practical trust boundary: anyone who can read `$DSH_HOME/ext-bridge-token`
-or write to your profile directory can already act as you locally.
+The practical trust boundary: anyone who can read
+`$DSH_HOME/ext-bridge-token` or write to your profile directory can already
+act as you locally.
 
 ## Where data lives
 
@@ -198,21 +309,23 @@ or write to your profile directory can already act as you locally.
 |---|---|
 | `$DSH_HOME/annotations/queue.jsonl` | Append-only event log (`put`, `patch`, `del`, `img`), folded in memory at startup and compacted when it grows stale. |
 | DSH attachment service | Cropped screenshots; the log stores only the attachment reference. |
+| `$DSH_HOME/annotations/pending-mentions.json` | Annotations queued for a session's composer that has not read them yet. |
+| `$DSH_HOME/annotations/focus.json` | Which session the web UI is currently showing (expires after six hours). |
 | `$DSH_HOME/ext-bridge-token` | Bridge token, generated on first use with mode `0600`. |
 | `$DSH_HOME/ext-bridge-endpoint.json` | The listening origin, `instanceId`, profile label, and timestamps — address only, no token, written atomically on every start. |
 | Browser `storage.local` | Extension token, offline outbox, UI preferences, and the endpoint the host advertised last. Details: [docs/privacy.md](docs/privacy.md#what-is-stored-in-the-browser). |
 
-`$DSH_HOME` defaults to `~/.dsh` (`%USERPROFILE%\.dsh` on Windows). It is shared
-by every profile on the machine, so one token works for whichever profile is
-running — only one profile should run the bridge at a time.
+`$DSH_HOME` is shared by every profile on the machine, so one token works
+for whichever profile is running — but only one profile should run the bridge
+at a time.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Browser["Firefox / Zen extension (MV3)"]
+  subgraph Browser["Browser extension (MV3, Firefox/Zen + Chromium)"]
     CS["Content script\nanchor · hydrator · ui\ngestures: selection / element / region"]
-    BG["Background (event page)\ncore · socket · outbox\ncapture · routing"]
+    BG["Background (event page / service worker)\ncore · socket · outbox\ncapture · routing · discovery"]
     POP["Popup\nbridge token · address · status"]
     CS <-->|"runtime messages"| BG
     POP <-->|"storage / messages"| BG
@@ -220,11 +333,11 @@ flowchart LR
 
   BG <-->|"ws://127.0.0.1:PORT/ext/anno  (hello {token, version}, frames both ways)"| Bridge
 
-  subgraph Host["DSH host (`dsh web`) — dsh-marker bundle"]
+  subgraph Host["DSH host (`dsh web`) — dsh-marker plugin"]
     WS["webServer\nregister · registerUpgrade"]
     Bridge["/ext/anno WebSocket bridge\n(RFC 6455 via ws)"]
     Locator["/ext/anno/locate\nloopback locator 30810-30812\n(origin + instanceId only)"]
-    Health["/ext/anno/health\nprotocol version + counts\n+ wsUrl (scheme negotiation)"]
+    Health["/ext/anno/health\nprotocol window + counts\n+ wsUrl (scheme negotiation)"]
     Sessions["/ext/anno/sessions\nsession catalog (target picker)"]
     Store["AnnotationStore\nappend-only event log"]
     Tools["annotate_* tools\nlist · get · resolve · delete · pick · clear"]
@@ -257,10 +370,10 @@ flowchart LR
 ```
 
 There is no extra daemon, and on the default deployment no extra port. The
-bridge is mounted on the DSH host webserver and lives exactly as long as
-`dsh web` does. A host whose port is not `3080` also opens one small loopback
-*locator* so a browser can find it; it answers a single address lookup and
-carries no annotation data. Both sides are plain ESM JavaScript with no build
+bridge is mounted on the DSH host webserver and lives exactly as long as the
+host does. A host whose port is not `3080` also opens one small loopback
+*locator* — a single-purpose address lookup, carrying no annotation data —
+so a browser can find it. Both halves are plain ESM JavaScript with no build
 step.
 
 Non-default deployments — Desktop's moving port, TLS, reverse proxies — are
@@ -269,18 +382,18 @@ rationale are in [docs/DISCOVERY.md](docs/DISCOVERY.md).
 
 ## Development
 
-An isolated `anno` profile keeps the daily `web` profile untouched, and installs
-the bundle from this checkout instead of the registry:
+Work in an isolated `anno` profile, and install the plugin from this checkout
+instead of the registry:
 
 ```sh
 # 1. Create the isolated profile from the shipped Web template (once).
-#    This initialises the profile before booting it; Ctrl+C if port 3080 is busy.
+#    It initialises the profile before booting it; Ctrl+C if port 3080 is busy.
 dsh --profile anno --from-default-profile web
 
-# 2. Install the bundle from this checkout (a local directory, no registry).
+# 2. Install the plugin from this checkout (a local directory, no registry).
 dsh plugin --profile anno add /absolute/path/to/dsh-annotate/packages/plugin
 
-# 3. Boot the profile and open the Web UI it prints.
+# 3. Boot the profile and open the Web UI address it prints.
 dsh --profile anno
 ```
 
@@ -296,45 +409,46 @@ node scripts/smoke-discovery.mjs                    # verify the record + locato
 ```
 
 `smoke-ws.mjs` drives the real socket end to end (health probe, token
-handshake, create → query → resolve, idempotent replay); run it after installing
-the bundle and after any protocol change. `smoke-discovery.mjs` is its discovery
-counterpart against a `dsh --profile anno --port 0` host. The quoted glob is
-intentional: Node expands it itself, which keeps the command identical on
-Windows, macOS, and Linux. Biome is a pinned devDependency: after one
-`pnpm install`, `pnpm run check`, the hooks, and the tests all run offline;
-only `pnpm install` itself needs the registry.
+handshake, create → query → resolve, idempotent replay); run it after
+installing the plugin and after any protocol change. `smoke-discovery.mjs`
+is its discovery counterpart against a `dsh --profile anno --port 0` host.
+The quoted glob is intentional: Node expands it itself, which keeps the
+command identical on Windows, macOS, and Linux. Biome is a pinned
+devDependency: after one `pnpm install`, `pnpm run check`, the hooks, and
+the tests all run offline.
 
-The extension's `_locales/` currently localizes only the manifest metadata (the
-store name and description); the interface strings come from the built-in
-bilingual table in `src/content/ui/strings.js`, not from `_locales/`.
+The extension's `_locales/` localizes only the manifest metadata (the store
+name and description); the interface strings come from the built-in bilingual
+tables in `src/content/ui/strings.js` and `src/shared/popup-strings.js`, not
+from `_locales/`.
 
-The two store targets are generated from one source tree for local QA and
-inspection — `node scripts/build-extension.mjs` writes `dist/firefox` and
-`dist/chromium`. A local build is for testing only: the packages a store
-receives are built by CI from the release tag
-([docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) §4.4), and a manual install above
-downloads those same CI bytes — never a local build.
+The two store targets are generated from one source tree for local QA —
+`node scripts/build-extension.mjs` writes `dist/firefox` and `dist/chromium`.
+A local build is for testing only: the packages a store receives are built by
+CI from the release tag ([docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) §4.4),
+and the manual install in Step 2 downloads those same CI bytes — never a
+local build.
 
-Local hooks enforce Conventional Commits and run the checks before each
-commit; [CONTRIBUTING.md](CONTRIBUTING.md) has the one-line setup and the
-rules.
+First checkout (hooks, generated files, commit format):
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status and roadmap
 
 | Phase | Scope | State |
 |---|---|---|
 | M0 | Protocol, repository base, CI, hooks | done |
-| M1 | Host plugin, storage loop, tools | implemented, verified against a live host |
-| M2 | Extension capture: gestures, overlay, crop, outbox | implemented; browser QA pending |
-| M3 / M3.5–M3.8 | Re-anchoring, picks, `dsh-anno:` mentions, chip hover card, push delivery | implemented; browser-side pieces pending live verification |
+| M1 | Host plugin, storage loop, tools | done, verified against a live host |
+| M2 | Extension capture: gestures, overlay, crop, outbox | done; verified in Firefox, Chromium QA pending |
+| M3 / M3.5–M3.8 | Re-anchoring, picks, `dsh-anno:` mentions, chip hover card, push delivery | done; Firefox-verified, Zen pending |
 | M4 | Developer context, session routing, multi-window | planned |
-| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; real-browser and Desktop runs pending (M4.5c) |
+| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; Desktop run pending (M4.5c) |
 | M4.6 | Send an annotation into a new session (default / existing / new workspace) | implemented; browser QA pending |
-| M5 | Signing and distribution | planned |
+| M5 | Signing and distribution | pipeline live (npm, AMO, CWS, Edge lanes); first store submissions in review |
 
 The detailed deliverables and acceptance criteria are in
 [docs/PLAN.md](docs/PLAN.md); implementation decisions and their rationale are
-in [docs/DECISIONS.md](docs/DECISIONS.md).
+in [docs/DECISIONS.md](docs/DECISIONS.md); releases are listed in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Documentation
 
@@ -343,6 +457,7 @@ Using dsh-marker:
 - [docs/INTERACTION.md](docs/INTERACTION.md) — interaction and capture UX
 - [docs/privacy.md](docs/privacy.md) — data handling and privacy
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — TLS, reverse proxies, Desktop's moving port
+- [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md) — a runbook for AI agents setting dsh-marker up for a user
 
 Design and internals:
 
@@ -352,7 +467,7 @@ Design and internals:
 For contributors:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — commit format, hooks, generated-file rule
-- [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) / [docs/STORE_LISTING.md](docs/STORE_LISTING.md) — store packaging and listing
+- [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) / [docs/STORE_LISTING.md](docs/STORE_LISTING.md) — release pipeline, store packaging and listing
 
 ## License
 
