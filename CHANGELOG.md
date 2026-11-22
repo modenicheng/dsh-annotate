@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.0.1](https://github.com/modenicheng/dsh-annotate/compare/v1.0.0...v1.0.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **release:** check out the run ref before the npm lane's local action ([9b20a43](https://github.com/modenicheng/dsh-annotate/commit/9b20a435b8d680f0787d52b0774aef6287d5ba78))
+* **release:** check out the run ref before the npm lane's local action ([626ed43](https://github.com/modenicheng/dsh-annotate/commit/626ed433e0b06b9d5cf95031908bdaa4a379e73c))
+* **release:** each publish lane verifies itself ([d1f471b](https://github.com/modenicheng/dsh-annotate/commit/d1f471b6fc5552a38e1aa7fc2e82b8a499901269))
+* **release:** each publish lane verifies itself ([49a5812](https://github.com/modenicheng/dsh-annotate/commit/49a58127c86a1cd53261395a87640b1f676b79fc))
+* **release:** read the Edge publish opt-in through the channels job ([37d7f2c](https://github.com/modenicheng/dsh-annotate/commit/37d7f2ca6e438038833fe10b1e405d835cc1220b))
+* **release:** read the Edge publish opt-in through the channels job ([4d44814](https://github.com/modenicheng/dsh-annotate/commit/4d44814bfa7799649ff2a72a6a1e30641411ac6a))
+* **release:** split the asset pattern list before handing it to gh ([45048c9](https://github.com/modenicheng/dsh-annotate/commit/45048c9ffad73e2f8c2cf49e757a36c0059fae20))
+* **release:** split the asset pattern list before handing it to gh ([ec6f375](https://github.com/modenicheng/dsh-annotate/commit/ec6f3756dc82b68e82d1218b526df0b98ae883aa))
+* **release:** treat AMO's approval timeout as an accepted submission ([95859ec](https://github.com/modenicheng/dsh-annotate/commit/95859ec035885a368586793380a42a8db5f94c0e))
+* **release:** treat AMO's approval timeout as an accepted submission ([c8a340f](https://github.com/modenicheng/dsh-annotate/commit/c8a340f6b86e640be1db5e4feafd47105ccc56e4))
+* **release:** verify inline and refresh the AMO lane actions from the run ref ([ce1365f](https://github.com/modenicheng/dsh-annotate/commit/ce1365f5c6c875053496ebdaba4e920a2110ffc7))
+* **release:** verify inline and refresh the AMO lane actions from the run ref ([ff26995](https://github.com/modenicheng/dsh-annotate/commit/ff26995d51a4909a36d77af0e3a6a6cd4fcec4b1))
+
+
+### Documentation
+
+* post-1.0.0 documentation batch ([2258adb](https://github.com/modenicheng/dsh-annotate/commit/2258adb6a304a5a5f51a87690129d0d481f091e6))
+* post-1.0.0 documentation batch ([#44](https://github.com/modenicheng/dsh-annotate/issues/44)) ([4a00cff](https://github.com/modenicheng/dsh-annotate/commit/4a00cff669325ea97574c1254a1eb2a78cfd12f1))
+
+
+### CI
+
+* **release:** gate the draft build on an explicit input, not event_name ([bc686a3](https://github.com/modenicheng/dsh-annotate/commit/bc686a3fa7247b97d419774b18849f1ff0543238))
+* **release:** gate the draft build on an explicit input, not event_name ([d4cddd5](https://github.com/modenicheng/dsh-annotate/commit/d4cddd5f1d3e72662a5d203902ba520649f6949d))
+
+
+### Internal
+
+* merge dev into main with the AMO approval-timeout fix ([82b934f](https://github.com/modenicheng/dsh-annotate/commit/82b934f2138928bb9e089d23d372dd6c0fe91e18))
+* merge dev into main with the draft-build gate fix ([1fa3d61](https://github.com/modenicheng/dsh-annotate/commit/1fa3d61141438334573ad817b54374eb0471568f))
+* merge dev into main with the Edge publish-gate fix ([e7423ce](https://github.com/modenicheng/dsh-annotate/commit/e7423ce71f6e59fafdad4692a9aece8350c4b411))
+* merge dev into main with the npm-lane checkout fix ([2b45a78](https://github.com/modenicheng/dsh-annotate/commit/2b45a780272f21f564391d86fc9a7a0b0e59eb1b))
+* merge dev into main with the release verification fixes ([f2ef784](https://github.com/modenicheng/dsh-annotate/commit/f2ef78486171c3a53e44b0e23582ac7eefc127fc))
+
 ## [1.0.0](https://github.com/modenicheng/dsh-annotate/compare/v0.1.4...v1.0.0) (2026-11-21)
 
 First public release. Beyond the commit log:
