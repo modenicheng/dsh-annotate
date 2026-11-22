@@ -205,6 +205,14 @@ runs:
           echo "::notice::AMO already holds $ADDON_ID $FF_VERSION (web-ext reported a duplicate); nothing to upload"
           exit 0
         fi
+        # A listed submission needs a human approval on AMO's side; web-ext
+        # waits for it and gives up with "Approval: timeout exceeded" while
+        # naming the version URL. That is submission accepted, not a failure.
+        if grep -qiE 'approval: timeout' "$log"; then
+          url="$(grep -oiE 'https://addons\.mozilla\.org[^ ]*' "$log" | head -1)"
+          echo "::notice::AMO accepted $ADDON_ID $FF_VERSION and is waiting for its reviewer's approval (web-ext stopped waiting; version page: ${url:-see the AMO dashboard}). It is not live until approved."
+          exit 0
+        fi
         if grep -qiE 'submitted for review|pending review|awaiting review|in review|timed out waiting' "$log"; then
           echo "::notice::AMO accepted $ADDON_ID $FF_VERSION — submitted, pending review. Nothing is live until a reviewer approves it."
           exit 0
