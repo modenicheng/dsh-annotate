@@ -764,3 +764,35 @@ queue until the user opens the session by hand — the queued delivery, the
 acknowledgement, and the no-auto-send rule are untouched (D24). A blank
 session created but never sent into is covered by the controller's blank
 reuse: nothing is leaked by an abandoned gesture.
+
+## D26 — The new workspace's path is assembled from host-known locations, never picked in the browser
+
+**Decision.** The 新建工作区 arm stops asking for a hand-typed absolute path,
+and the replacement is deliberately not a browser file picker: no
+cross-browser picker yields an absolute path (Chromium hides it from every
+input and `showDirectoryPicker` returns no path; Firefox's `mozFullPath` is a
+non-standard privileged leftover), and a deployment can put the Host on
+another machine entirely, where the browser's filesystem is the wrong
+namespace to choose from. Stage one assembles the path from what the picker
+already holds: the registered workspaces' paths and their parents become
+anchor rows, the user types at most the new folder's name, and the content
+script joins the two with the anchor's own separator. Stage two adds one GET
+route (`/ext/anno/dirs`), token-gated like the catalog, answering one
+directory level — directories only, symlinks skipped, bounded — plus a roots
+answer (home and drive roots); the extension treats any non-OK answer, 404
+from an older Host included, as "not there" and falls back to stage one.
+
+**Consequences.** Stage one ships as one store review: no protocol file, no
+background message, no Host route, and the `anno.session.create` body is
+unchanged, so an npm release is not part of its critical path. Stage two is
+additive in exactly the D25 sense — constants and a shared absolute-path
+validator join the protocol source and sync to the copies, but no frame or
+record shape changes and `PROTOCOL_VERSION` stays 1 — so the plugin can go
+out through npm first and light the browser up whenever store review clears,
+with no window in which either half breaks: an old extension never calls the
+route, an old Host answers 404 into the anchor fallback. The route's
+disclosure stays narrower than the powers its token already grants
+(`session-create` accepts any absolute path): directory names only, one
+level per request, no files, no metadata, no symlink targets. The typed
+absolute path survives as a demoted "advanced" input, because a remote host
+and a machine before DSH's first run have no anchors to offer.

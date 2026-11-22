@@ -304,6 +304,94 @@ an existing one, or a brand-new directory. Design: [INTERACTION.md](INTERACTION.
   the Host's message in the composer and never lose the written comment.
 - `pnpm run check` stays green.
 
+## M4.7 — The new workspace's path is chosen, not typed
+
+**Goal:** the 新建工作区 arm of the target picker stops asking for a
+hand-typed absolute path — the picker offers locations to click, and the only
+typed part is the new folder's name. A browser-side file picker cannot
+provide the path (Chromium exposes no absolute path from any picker; Firefox's
+`mozFullPath` is a non-standard privileged leftover; and a deployment can put
+the Host on another machine, where the browser's filesystem is the wrong
+namespace), so the choice is assembled from paths the picker already holds
+and, later, from a Host-served directory listing. Design:
+[DECISIONS.md](DECISIONS.md) (decision D26). Two stages, each independently
+shippable: (a) changes the extension alone and works against every Host ever
+released — a pre-M4.6 Host simply keeps the manual input; (b) is additive on
+the Host and degrades to (a) exactly.
+
+### M4.7a — Anchors from what the picker already holds
+
+**Status:** planned.
+
+**Deliverables**
+
+- Extension only — no protocol file, no background message, no Host route.
+  In the workspace sub-panel, the absolute-path input is demoted to an
+  "advanced" fallback; the primary flow picks one anchor row — each
+  registered workspace's path and its parent directory, deduplicated, in the
+  registry's order — then optionally names the new folder. An empty name
+  targets the anchor directory itself, so promoting an existing directory to
+  a workspace needs no typing at all.
+- The absolute path is joined in the content script using the anchor's own
+  separator (drive roots included), so the `anno.session.create` message is
+  byte-for-byte what M4.6 already sends; registration and idempotence on the
+  Host are untouched.
+- Anchors come from the `workspaces[]` array `/ext/anno/sessions` already
+  returns. A fresh install is not stranded: DSH registers the default
+  workspace on first run. The manual input stays for remote hosts and the
+  pre-first-run corner.
+- Strings (both locales), styles, and tests: anchor rendering, dedupe,
+  separator join, the demoted manual path, i18n parity.
+
+**Acceptance criteria (a):**
+
+- Choosing 新建工作区 lists anchor rows; picking one and naming a folder
+  sends an absolute path the Host registers or creates exactly as M4.6 did,
+  with no new wire traffic of any kind.
+- A Host old enough to predate M4.6 (no `workspaces[]`) still offers the
+  manual path input; no other picker behaviour changes.
+- `pnpm run check` stays green.
+
+### M4.7b — Host-served directory browsing
+
+**Status:** planned.
+
+**Deliverables**
+
+- Protocol: `DIRS_PATH = '/ext/anno/dirs'`, `LIMITS.fsEntries`, and the
+  absolute-path rule extracted out of `validateSessionCreateRequest` and
+  shared, not duplicated; synced copies; no frame or record shape change
+  (`PROTOCOL_VERSION` stays 1 — the D25 argument).
+- Host: `packages/plugin/src/dirs.js` — one directory level per request:
+  `readdir` with `withFileTypes`, directories only, symlinks skipped,
+  case-insensitive sort, bounded by `LIMITS.fsEntries` with a `truncated`
+  flag. An empty `path` answers the roots view: the Host's home plus drive
+  roots on win32 (or `/`). Filesystem access and `homedir` are injected so
+  tests stay deterministic and cross-platform. Route: GET/HEAD/OPTIONS,
+  token-gated exactly like the catalog, same CORS posture.
+- Extension: one `anno.fs.dirs` background message (token in the header, path
+  in the query — never the reverse); the M4.7a widget upgrades to real
+  browsing — landing at the newest workspace's parent or the home answer,
+  rows descend, one Up affordance climbs to the roots view. Any non-OK
+  answer (404 from an older Host included) falls back to the M4.7a anchors;
+  capability never drops below stage (a) in the same build.
+- Documentation: INTERACTION.md's target-picker section, README security
+  model and architecture route list, `DETAIL.md`, and this roadmap row.
+- Tests: route token gate, roots answer, directories-only filtering,
+  truncation, unreadable-directory error mapping (plugin); validator cases
+  (protocol); message mirror (extension); browse render and fallback branch
+  (content harness).
+
+**Acceptance criteria (b):**
+
+- With both halves current, 新建工作区 browses the Host's real directories
+  from home or a drive root down, needs no typed path, and an unreadable
+  folder shows the Host's message inline without losing the comment.
+- The route refuses anonymous requests, never lists files, and bounds every
+  answer; against an older Host the same extension build keeps the anchor
+  flow working end to end.
+- `pnpm run check` stays green.
+
 ## M5 — Signing and distribution
 
 **Goal:** a normal user can install both halves and upgrade them safely.
