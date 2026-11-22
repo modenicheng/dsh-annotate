@@ -321,7 +321,7 @@ the Host and degrades to (a) exactly.
 
 ### M4.7a — Anchors from what the picker already holds
 
-**Status:** planned.
+**Status:** implemented; browser QA pending.
 
 **Deliverables**
 

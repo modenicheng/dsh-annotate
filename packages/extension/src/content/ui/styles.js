@@ -469,6 +469,40 @@
   font: var(--text-caption) / var(--text-caption-lh) var(--font-mono);
   outline: none;
 }
+/* M4.7a: the new workspace is chosen from the host's own registered paths;
+   the anchor list reuses the picker's row skin so both arms read as one. */
+.target-new-name {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e7eb;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  outline: none;
+}
+.target-anchor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+.target-anchor[aria-pressed="true"] { background: rgba(37, 99, 235, 0.28); }
+.target-new-manual-toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #93c5fd;
+  font: var(--text-caption) / var(--text-caption-lh) var(--font-ui);
+  cursor: pointer;
+}
+.target-new-manual-toggle:hover { text-decoration: underline; }
+.target-new-hint {
+  color: var(--text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+}
 .target-new-title-input {
   padding: 4px 6px;
   border-radius: 6px;
