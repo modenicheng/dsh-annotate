@@ -321,7 +321,9 @@ the Host and degrades to (a) exactly.
 
 ### M4.7a — Anchors from what the picker already holds
 
-**Status:** implemented; browser QA pending.
+**Status:** superseded by M4.7c before release; the wire-level claim below
+(an extension-only change against every Host) was honoured, and the anchor
+widget itself never shipped.
 
 **Deliverables**
 
@@ -354,7 +356,9 @@ the Host and degrades to (a) exactly.
 
 ### M4.7b — Host-served directory browsing
 
-**Status:** implemented; browser QA pending.
+**Status:** implemented as shipped (route + message + browsing); the picker
+half was reshaped by M4.7c — landing, navigation, and fallback below describe
+the pre-c shape.
 
 **Deliverables**
 
@@ -388,8 +392,55 @@ the Host and degrades to (a) exactly.
   from home or a drive root down, needs no typed path, and an unreadable
   folder shows the Host's message inline without losing the comment.
 - The route refuses anonymous requests, never lists files, and bounds every
-  answer; against an older Host the same extension build keeps the anchor
-  flow working end to end.
+  answer; against an older Host the same extension build keeps a working
+  flow end to end.
+- `pnpm run check` stays green.
+
+### M4.7c — One flat directory browser
+
+**Status:** implemented; browser QA pending.
+
+M4.7a/b reached `dev` but no release; browser QA of the staged flow showed
+it classified one act — picking a directory — into a taxonomy
+(默认/已有/新建, then anchors/browse/manual) whose intermediate states hid the
+absolute path, the one fact the user cares about. The arm is flattened before
+first release; both wire stages stay as M4.7b defined them. See D26's
+revision note.
+
+**Deliverables**
+
+- The ＋ 新建会话 row opens the directory browser directly — no mode screen.
+  Every open starts from the locations view (`path=''`): the registered
+  workspaces, the host home, and the drive roots; every row is a jump, never
+  a silent confirm.
+- The breadcrumb (locations chip › `D:` › `coding` …) makes every ancestor
+  one click; Up climbs to the locations view and rests there.
+- The result line and the confirm button always name the exact absolute path
+  being acted on, live: an optional folder name adopts the directory
+  (使用 `{path}`) or creates a child (创建 `{path}`); the registered-workspace
+  badge shows inline when the path is already a workspace.
+- Confirming a registered directory sends `existing` + `workspaceId` — the
+  same record DSH's own picker would target, never re-registered; any other
+  path sends `new` + path as before.
+- The anchor mode is deleted (it never shipped): an incapable Host degrades
+  straight to the typed absolute path, now validated client-side by the
+  shared `validateDirsPath` rules; the manual toggle is two-way on capable
+  hosts — no dead ends.
+- Strings (both locales), styles, tests: locations view, breadcrumb jumps,
+  live result + badge, existing/new confirmation (case-insensitive on
+  Windows), live refusals (bad folder name, relative path), probe failure,
+  manual round-trip, Escape reset.
+
+**Acceptance criteria (c):**
+
+- From ＋ 新建会话, any absolute path on the Host is reachable by clicks
+  alone, and at every moment the exact path about to be used is visible in
+  the result line and on the confirm button.
+- Standing on a registered workspace and confirming targets that workspace
+  (`existing`); typing a folder name there creates a child (`new`) — the
+  difference is visible before the click.
+- Against an older Host (no `/ext/anno/dirs`), the same build offers the
+  typed path with the host note, and relative paths are refused before send.
 - `pnpm run check` stays green.
 
 ## M5 — Signing and distribution

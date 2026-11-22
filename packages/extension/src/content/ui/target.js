@@ -8,15 +8,18 @@
  * The picker owns its own reset so the composer does not have to know which
  * nodes or flags are involved in opening and closing it.
  *
- * The picker's second arm is "new session": a pinned action row above the list
- * opens a workspace sub-panel (default / an existing workspace / a brand-new
- * directory). The brand-new directory is chosen, not typed: anchor rows come
- * from the registered workspaces' own paths and parents, and only the optional
- * folder name is written (D26). When the host serves `/ext/anno/dirs` the same
- * panel browses the host's real directories instead (M4.7b); any browse
- * failure falls back to the anchors without losing the panel. Confirming a
- * workspace targets a session the Host will create at send time; the choice
- * travels to `main.js` through `handlers.onTargetNew`.
+ * The picker's second arm is "new session", and it is one flat directory
+ * browser — no workspace taxonomy to walk through. Directories are just
+ * directories (D26): the host's real tree served by `/ext/anno/dirs` (M4.7b),
+ * starting from the locations view (the known workspaces, the home, the
+ * drives) and reaching any absolute path through the breadcrumb. Registration
+ * is a property of the directory the user stands on, shown inline: confirming
+ * a registered directory targets that exact workspace the way DSH itself
+ * would (`existing` + id), any other path registers it (`new` + path). The
+ * result line and the confirm button always name the exact path being acted
+ * on; a host that cannot browse gets the typed absolute path (checked against
+ * the shared protocol rules) instead. The choice travels to `main.js` through
+ * `handlers.onTargetNew`.
  */
 ;(function installUiTarget(global) {
   const ns = (global.__DSH_ANNO__ = global.__DSH_ANNO__ || {})
@@ -52,44 +55,54 @@
     targetNewRow.type = 'button'
     targetNewRow.append(createElement('span', 'target-row-title', t('targetNewRow')))
 
-    // The workspace sub-panel replaces the list while it is open. Its rows are
-    // an immediate choice, not a draft: picking one confirms the new-session
-    // target and closes the panel, the same shape as choosing a Session.
+    // The new-session sub-panel replaces the list while it is open: it is one
+    // directory browser — navigate anywhere on the host, and the result line
+    // always names the exact path the confirm button will act on.
     const targetNewPanel = createElement('div', 'target-new-panel')
     const targetNewHead = createElement('div', 'target-new-head')
     const targetNewBack = createElement('button', 'target-back', t('targetBack'))
     targetNewBack.type = 'button'
-    const targetNewHeadTitle = createElement('span', 'target-new-title', t('targetNewTitle'))
+    const targetNewHeadTitle = createElement('span', 'target-new-title', t('targetBrowseTitle'))
     targetNewHead.append(targetNewBack, targetNewHeadTitle)
-    const targetNewOptions = createElement('div', 'target-new-options')
     const targetNewFields = createElement('div', 'target-new-fields')
-    // The M4.7b browser: an Up affordance and the current directory above the
-    // same scrolling list the anchors use.
-    const fsHead = createElement('div', 'target-fs-head')
-    const fsUp = createElement('button', 'target-fs-up', t('fsUp'))
+    // The browser toolbar: climb one level, jump to the host home, and the
+    // breadcrumb of ancestors — every segment is a jump, the current directory
+    // is plain text. Together with the roots view this reaches any absolute
+    // path the host can read.
+    const fsToolbar = createElement('div', 'target-fs-head')
+    const fsUp = createElement('button', 'target-fs-btn', t('fsUp'))
     fsUp.type = 'button'
-    const fsPathLabel = createElement('span', 'target-fs-path', '')
-    fsHead.append(fsUp, fsPathLabel)
-    const fsList = createElement('div', 'target-anchor-list')
-    const anchorLabel = createElement('div', 'target-new-label', t('workspaceAnchorLabel'))
-    const anchorList = createElement('div', 'target-anchor-list')
+    const fsHomeBtn = createElement('button', 'target-fs-btn', t('fsHome'))
+    fsHomeBtn.type = 'button'
+    const fsCrumb = createElement('div', 'target-fs-crumb')
+    fsToolbar.append(fsUp, fsHomeBtn, fsCrumb)
+    const fsList = createElement('div', 'target-fs-list')
     const nameLabel = createElement('label', 'target-new-label', t('workspaceNameLabel'))
     const nameInput = createElement('input', 'target-new-name')
     nameInput.type = 'text'
-    nameInput.placeholder = t('workspaceNameLabel')
+    nameInput.placeholder = t('workspaceNamePlaceholder')
     nameInput.setAttribute('aria-label', t('workspaceNameLabel'))
     nameInput.spellcheck = false
+    // The one line the whole arm exists for: the exact absolute path the
+    // confirm button will act on, recomputed live while browsing or typing —
+    // with the registered-workspace badge when the host already knows it.
+    const resultRow = createElement('div', 'target-new-result')
+    const resultLabel = createElement('span', 'target-new-result-label', t('workspaceResultLabel'))
+    const resultBadge = createElement('span', 'target-new-result-badge', t('workspaceRegistered'))
+    const resultPath = createElement('span', 'target-new-result-path', '')
+    resultRow.append(resultLabel, resultBadge, resultPath)
     const titleLabel = createElement('label', 'target-new-label', t('workspaceTitleLabel'))
     const titleInput = createElement('input', 'target-new-title-input')
     titleInput.type = 'text'
     titleInput.placeholder = t('workspaceTitleLabel')
     titleInput.setAttribute('aria-label', t('workspaceTitleLabel'))
     titleInput.spellcheck = false
-    const targetNewUse = createElement('button', 'target-new-use', t('workspaceUse'))
+    const targetNewUse = createElement('button', 'target-new-use', t('workspaceChooseLocation'))
     targetNewUse.type = 'button'
-    // The typed path is the demoted fallback (D26): anchors are the flow, the
-    // manual input covers a host that reported no workspace at all.
-    const manualToggle = createElement('button', 'target-new-manual-toggle', t('workspaceManualToggle'))
+    // The typed path is the degraded mode (D26): the only flow on a host that
+    // cannot browse, and a power shortcut behind a two-way toggle on one that
+    // can — never a dead end.
+    const manualToggle = createElement('button', 'target-new-manual-toggle', t('manualToType'))
     manualToggle.type = 'button'
     const pathLabel = createElement('label', 'target-new-label', t('workspacePathLabel'))
     const pathInput = createElement('input', 'target-new-path')
@@ -97,24 +110,23 @@
     pathInput.placeholder = t('workspacePathPlaceholder')
     pathInput.setAttribute('aria-label', t('workspacePathLabel'))
     pathInput.spellcheck = false
-    const noAnchorsHint = createElement('div', 'target-new-hint', t('workspaceNoAnchors'))
+    const manualHint = createElement('div', 'target-new-hint', t('fsManualHint'))
     targetNewFields.append(
-      fsHead,
+      fsToolbar,
       fsList,
-      anchorLabel,
-      anchorList,
       nameLabel,
       nameInput,
+      resultRow,
       titleLabel,
       titleInput,
       targetNewUse,
       manualToggle,
       pathLabel,
       pathInput,
-      noAnchorsHint,
+      manualHint,
     )
     const targetNewError = createElement('div', 'target-new-error')
-    targetNewPanel.append(targetNewHead, targetNewOptions, targetNewFields, targetNewError)
+    targetNewPanel.append(targetNewHead, targetNewFields, targetNewError)
     setVisible(targetNewPanel, false)
 
     const targetTip = createElement('div', 'target-tip')
@@ -217,7 +229,9 @@
     function renderTargetButton() {
       if (state.targetMode === 'new') {
         targetValue.textContent = fill(t('newSessionLabel'), { name: newSessionName() })
-        targetButton.title = t('targetNew')
+        // The full path is the one fact worth hovering for: the last segment
+        // alone cannot say where the workspace lives.
+        targetButton.title = String(state.newPath || t('targetNew'))
         return
       }
       const current = state.targets.find((item) => item.id === state.targetId)
@@ -233,26 +247,20 @@
     }
 
     /**
-     * Host locations a new workspace can start from (M4.7a): every registered
-     * workspace's own path and its parent, deduplicated, registry order. The
-     * paths are host-side truth the picker already holds, so choosing needs no
-     * new wire surface at all.
+     * The breadcrumb chain from the filesystem top down to `path`, inclusive:
+     * `['D:\\', 'D:\\coding']`, `['/', '/home', '/home/u']`. Every entry but
+     * the last is a jump target; the last is where the user stands.
+     * @param {string} path
      * @returns {string[]}
      */
-    function anchors() {
-      const seen = new Set()
-      const rows = []
-      for (const workspace of workspaces()) {
-        if (!workspace || typeof workspace.path !== 'string' || workspace.path === '') continue
-        for (const candidate of [workspace.path, parentDirectory(workspace.path)]) {
-          if (candidate === null) continue
-          const key = anchorKey(candidate)
-          if (seen.has(key)) continue
-          seen.add(key)
-          rows.push(candidate)
-        }
+    function crumbChain(path) {
+      const chain = []
+      let current = path
+      while (typeof current === 'string' && current !== '') {
+        chain.unshift(current)
+        current = parentDirectory(current) ?? ''
       }
-      return rows
+      return chain
     }
 
     /**
@@ -287,13 +295,8 @@
       return `${base}${separator}${name}`
     }
 
-    /** Windows-style paths compare the way their filesystem does. */
-    function anchorKey(path) {
-      return path.includes('\\') || /^[A-Za-z]:/.test(path) ? path.toLowerCase() : path
-    }
-
-    /** The short name a location shows; roots show as themselves. */
-    function anchorTitle(path) {
+    /** The short name a breadcrumb segment shows; roots show as themselves. */
+    function lastSegment(path) {
       const segments = path.split(/[\\/]/).filter((part) => part !== '')
       return segments[segments.length - 1] ?? path
     }
@@ -318,11 +321,11 @@
       }
     }
 
-    /** The workspace name shown on the target button once a mode is chosen. */
+    /** The workspace name shown on the target button once a choice is made. */
     function newSessionName() {
       if (state.newMode === 'existing') {
         const workspace = workspaces().find((item) => item && item.id === state.newWorkspaceId)
-        return String((workspace && (workspace.title || workspace.path)) || t('workspaceDefault'))
+        return String((workspace && (workspace.title || workspace.path)) || t('targetNew'))
       }
       if (state.newMode === 'new') {
         const path = String(state.newPath || '').trim()
@@ -330,9 +333,9 @@
           .split(/[\\/]/)
           .filter((part) => part !== '')
           .pop()
-        return segment || t('workspaceNew')
+        return segment || t('targetNew')
       }
-      return t('workspaceDefault')
+      return t('targetNew')
     }
 
     /** @param {string} mode @param {string} [workspaceId] */
@@ -357,128 +360,196 @@
       if (typeof handlers.onTargetNew === 'function') handlers.onTargetNew(null)
     }
 
-    function renderNewPanel() {
-      targetNewOptions.textContent = ''
-      targetNewError.textContent = ''
-      setVisible(targetNewFields, state.newMode === 'new')
-
-      /**
-       * @param {string} mode
-       * @param {string} label
-       * @param {string} [meta]
-       * @param {string} [workspaceId]
-       */
-      const addOption = (mode, label, meta, workspaceId) => {
-        const row = createElement('button', 'target-row target-new-option')
-        row.type = 'button'
-        row.setAttribute('aria-pressed', state.newMode === mode ? 'true' : 'false')
-        row.append(createElement('span', 'target-row-title', label))
-        if (meta) row.append(createElement('span', 'target-row-meta', meta))
-        row.addEventListener('click', (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          state.newMode = mode
-          state.newWorkspaceId = String(workspaceId || '')
-          if (mode === 'new') {
-            renderNewPanel()
-            if (state.newManual === true) pathInput.focus()
-            else nameInput.focus()
-            return
-          }
-          confirmNewSession(mode, workspaceId)
-        })
-        targetNewOptions.appendChild(row)
-      }
-
-      addOption('default', t('workspaceDefault'), '')
-      for (const workspace of workspaces()) {
-        if (!workspace || typeof workspace.id !== 'string' || workspace.id === '') continue
-        addOption(
-          'existing',
-          String(workspace.title || workspace.path || workspace.id),
-          String(workspace.path || ''),
-          workspace.id,
-        )
-      }
-      addOption('new', t('workspaceNew'), '')
-      renderAnchorArea()
+    /** Windows-style paths compare the way their filesystem does. */
+    function pathKey(path) {
+      const trimmed = String(path).replace(/[\\/]+$/, '')
+      return trimmed.includes('\\') || /^[A-Za-z]:/.test(trimmed) ? trimmed.toLowerCase() : trimmed
     }
 
     /**
-     * The 新建工作区 flow: the Host's real directories when it can browse
-     * (M4.7b), anchor rows from its registered paths when it cannot, one
-     * optional folder name either way, and the manual path as the demoted
-     * fallback for a host that reported no workspace at all.
+     * The registered workspace standing at `path`, if any. Registration is a
+     * property of the directory, not a choice the user makes: confirming a
+     * registered directory targets that exact workspace record — the same one
+     * DSH itself would use — instead of registering it a second time.
+     * @param {string} path
      */
-    function renderAnchorArea() {
-      const rows = anchors()
-      // Browsing owns the view whenever the host could still answer: ready,
-      // mid-probe, or merely capable (the probe follows this render). Only a
-      // host that cannot browse at all falls back to anchors or the manual
-      // path, so an empty workspace list never forces the typed input first.
-      const browseCapable = typeof handlers.onBrowseDirs === 'function' && state.fsUnsupported !== true
-      const browseView = state.fsReady === true || state.fsBusy === true || browseCapable
-      if (rows.length === 0 && browseCapable !== true) {
-        state.newManual = true
-        state.newAnchor = ''
-      } else if (rows.length > 0 && !rows.some((row) => anchorKey(row) === anchorKey(state.newAnchor))) {
-        state.newAnchor = rows[0]
-      }
-      const manual = state.newManual === true
-      const pick = browseView !== true && !manual && rows.length > 0
-      const naming = state.fsReady === true ? state.fsPath !== '' : pick
-
-      fsPathLabel.textContent = state.fsPath
-      fsList.textContent = ''
-      if (browseView) renderFsRows()
-      anchorList.textContent = ''
-      for (const path of rows) {
-        const row = createElement('button', 'target-row target-anchor')
-        row.type = 'button'
-        row.setAttribute('aria-pressed', anchorKey(path) === anchorKey(state.newAnchor) ? 'true' : 'false')
-        row.append(createElement('span', 'target-row-title', anchorTitle(path)))
-        row.append(createElement('span', 'target-row-meta', path))
-        row.addEventListener('click', (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          state.newAnchor = path
-          state.newManual = false
-          renderAnchorArea()
-        })
-        anchorList.appendChild(row)
-      }
-
-      setVisible(fsHead, browseView)
-      setVisible(fsList, browseView)
-      setVisible(anchorLabel, pick)
-      setVisible(anchorList, pick)
-      setVisible(nameLabel, naming)
-      setVisible(nameInput, naming)
-      setVisible(targetNewUse, naming || pick || manual)
-      setVisible(manualToggle, pick)
-      setVisible(pathLabel, manual)
-      setVisible(pathInput, manual)
-      setVisible(noAnchorsHint, browseView !== true && rows.length === 0)
-      startBrowse()
+    function workspaceAt(path) {
+      return (
+        workspaces().find((item) => item && typeof item.path === 'string' && pathKey(item.path) === pathKey(path)) ??
+        null
+      )
     }
 
-    /** The browse list: loading, an inline error, the roots view, or one level. */
-    function renderFsRows() {
+    /**
+     * The folder browser: the host's real directories when it serves
+     * `/ext/anno/dirs`, the typed absolute path when it cannot. Whatever the
+     * mode, the result line and the confirm button always name the exact path
+     * that will be registered — the user never has to predict it.
+     */
+    function renderBrowseArea() {
+      const capable = typeof handlers.onBrowseDirs === 'function' && state.fsUnsupported !== true
+      // A host that cannot browse has no other flow: the typed path is the
+      // whole screen, and the toggle stays hidden rather than dead-ending.
+      state.newManual = state.newManual === true || capable !== true
+      const manual = state.newManual === true
+
+      renderCrumb()
+      fsList.textContent = ''
+      renderFsRows()
+      setVisible(fsToolbar, !manual)
+      setVisible(fsList, !manual)
+      setVisible(nameLabel, !manual)
+      setVisible(nameInput, !manual)
+      setVisible(pathLabel, manual)
+      setVisible(pathInput, manual)
+      setVisible(manualHint, capable !== true)
+      setVisible(manualToggle, capable)
+      manualToggle.textContent = t(manual ? 'manualToBrowse' : 'manualToType')
+      renderResult()
+      if (capable) startBrowse()
+    }
+
+    /** The breadcrumb of the current directory; every ancestor is a jump. */
+    function renderCrumb() {
+      fsCrumb.textContent = ''
+      fsHomeBtn.disabled = state.fsHome === ''
+      // The locations view is the virtual top of the world: the crumb always
+      // begins there, and Up never climbs past it.
+      const top = createElement('button', 'target-fs-seg target-fs-top', t('fsLocations'))
+      top.type = 'button'
+      top.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        browseDirs('')
+      })
+      fsCrumb.append(top)
       if (state.fsBusy === true || state.fsReady !== true) {
         fsUp.disabled = true
-        fsList.appendChild(createElement('div', 'target-empty', t('fsLoading')))
+        return
+      }
+      if (state.fsError !== '') {
+        // Keep the last known location legible beside the error the list carries.
+        fsUp.disabled = true
+        fsCrumb.append(
+          createElement('span', 'target-fs-sep', '›'),
+          createElement('span', 'target-fs-here', state.fsPath),
+        )
+        return
+      }
+      if (Array.isArray(state.fsRoots)) {
+        fsUp.disabled = true
         return
       }
       fsUp.disabled = false
+      const chain = crumbChain(state.fsPath)
+      for (const [index, path] of chain.entries()) {
+        fsCrumb.append(createElement('span', 'target-fs-sep', '›'))
+        if (index === chain.length - 1) {
+          fsCrumb.append(createElement('span', 'target-fs-here', lastSegment(path)))
+          continue
+        }
+        const jump = createElement('button', 'target-fs-seg', lastSegment(path))
+        jump.type = 'button'
+        jump.title = path
+        jump.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          browseDirs(path)
+        })
+        fsCrumb.append(jump)
+      }
+    }
+
+    /**
+     * Client-side shape check for the typed path, from the same shared
+     * protocol rules the host enforces: catching a relative path here beats a
+     * host refusal after the send.
+     * @param {string} path
+     * @returns {string} '' when usable
+     */
+    function manualPathError(path) {
+      const protocol = globalThis.__DSH_PROTOCOL__
+      if (!protocol || typeof protocol.validateDirsPath !== 'function') return ''
+      const errors = protocol.validateDirsPath(path)
+      return Array.isArray(errors) && errors.length > 0 ? t('workspacePathInvalid') : ''
+    }
+
+    /**
+     * The live result: the exact path the confirm button will act on, shown
+     * as a line — with the registered badge when the host already knows the
+     * directory — and again inside the button's own label, so the outcome is
+     * readable before anything is committed.
+     */
+    function renderResult() {
+      let path = null
+      let action = 'use'
+      if (state.newManual === true) {
+        path = pathInput.value.trim()
+        const invalid = path === '' ? '' : manualPathError(path)
+        if (invalid !== '') {
+          resultBadge.setAttribute('f-hidden', '')
+          resultPath.className = 'target-new-result-path is-invalid'
+          resultPath.textContent = invalid
+          targetNewUse.disabled = true
+          targetNewUse.textContent = t('workspaceChooseLocation')
+          return
+        }
+      } else if (state.fsReady === true && !Array.isArray(state.fsRoots)) {
+        const name = nameInput.value.trim()
+        if (isBadName(name)) {
+          resultBadge.setAttribute('f-hidden', '')
+          resultPath.className = 'target-new-result-path is-invalid'
+          resultPath.textContent = t('workspaceNameInvalid')
+          targetNewUse.disabled = true
+          targetNewUse.textContent = t('workspaceChooseLocation')
+          return
+        }
+        path = name === '' ? state.fsPath : joinPath(state.fsPath, name)
+        action = name === '' ? 'use' : 'create'
+      }
+      if (path === null || path === '') {
+        resultBadge.setAttribute('f-hidden', '')
+        resultPath.className = 'target-new-result-path is-empty'
+        resultPath.textContent = t('fsPickLocation')
+        targetNewUse.disabled = true
+        targetNewUse.textContent = t('workspaceChooseLocation')
+        return
+      }
+      const workspace = workspaceAt(path)
+      if (workspace !== null) resultBadge.removeAttribute('f-hidden')
+      else resultBadge.setAttribute('f-hidden', '')
+      resultPath.className = 'target-new-result-path'
+      resultPath.textContent = path
+      resultPath.title = path
+      targetNewUse.disabled = false
+      targetNewUse.textContent = fill(
+        t(action === 'create' && workspace === null ? 'workspaceCreateAt' : 'workspaceUseAt'),
+        { path },
+      )
+    }
+
+    /** The browse list: loading, an inline error, the locations view, or one level. */
+    function renderFsRows() {
+      if (state.fsBusy === true || state.fsReady !== true) {
+        fsList.appendChild(createElement('div', 'target-empty', t('fsLoading')))
+        return
+      }
       if (state.fsError !== '') {
         fsList.appendChild(createElement('div', 'target-new-error', state.fsError))
         return
       }
-      /** @param {string} label @param {string} path */
-      const addRow = (label, path) => {
+      /**
+       * @param {string} label
+       * @param {string} path
+       * @param {boolean} [pathFirst]
+       */
+      const addRow = (label, path, pathFirst) => {
         const row = createElement('button', 'target-row target-fs-row')
         row.type = 'button'
-        row.append(createElement('span', 'target-row-title', label))
+        const titleClass = pathFirst === true ? 'target-row-title target-row-path' : 'target-row-title'
+        const title = createElement('span', titleClass, label)
+        title.title = path
+        row.append(title)
         row.addEventListener('click', (event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -487,11 +558,15 @@
         fsList.appendChild(row)
       }
       if (Array.isArray(state.fsRoots)) {
-        // The roots view is the top: Up has nowhere to go, and the flow starts
-        // by picking the home directory or a drive.
-        fsUp.disabled = true
+        // The locations view is the top of the world: the known workspaces
+        // first — the likeliest destinations — then the home and the drives.
+        // Every row is a jump, never a silent confirm.
+        for (const workspace of workspaces()) {
+          if (!workspace || typeof workspace.path !== 'string' || workspace.path === '') continue
+          addRow(String(workspace.path), workspace.path, true)
+        }
         if (state.fsHome !== '') addRow(t('fsHome'), state.fsHome)
-        for (const root of state.fsRoots) addRow(String(root), String(root))
+        for (const root of state.fsRoots) addRow(String(root), String(root), true)
         return
       }
       if (state.fsEntries.length === 0) {
@@ -507,9 +582,9 @@
 
     /**
      * Begin browsing once per composer open: one probe decides whether the
-     * host can browse at all. The landing directory is the newest workspace's
-     * parent — the likeliest home for a sibling — and the host's home
-     * directory when no workspace exists yet.
+     * host can browse at all, and every open starts from the locations view —
+     * the known workspaces, the home and the drives — instead of guessing
+     * where the user probably wants to be.
      */
     function startBrowse() {
       if (state.fsReady === true || state.fsBusy === true || state.fsUnsupported === true) return
@@ -517,59 +592,52 @@
         state.fsUnsupported = true
         return
       }
-      const newest = workspaces()[0]
-      const landing =
-        newest && typeof newest.path === 'string' && newest.path !== '' ? parentDirectory(newest.path) : null
-      if (landing !== null && landing !== undefined) browseDirs(landing)
-      else browseDirs('', true)
+      browseDirs('')
     }
 
     /**
      * Ask the host for one level of its tree. A failure before the first
-     * success retires the browser for this open — the anchors are the whole
-     * flow then, exactly as M4.7a shipped; a later failure keeps the current
-     * level and shows the host's message inline.
+     * success retires the browser for this open — the typed absolute path is
+     * the whole flow then; a later failure keeps the current level and shows
+     * the host's message inline.
      * @param {string} path
-     * @param {boolean} [descendHome] after the roots answer, continue into home
      */
-    function browseDirs(path, descendHome = false) {
+    function browseDirs(path) {
       if (typeof handlers.onBrowseDirs !== 'function') {
         state.fsUnsupported = true
         return
       }
       state.fsBusy = true
       state.fsError = ''
-      renderAnchorArea()
+      renderBrowseArea()
       Promise.resolve(handlers.onBrowseDirs(path)).then(
         (reply) => {
           state.fsBusy = false
-          // A user who picked the manual path while the probe was in flight
-          // has made a choice; honour it rather than swapping the panel.
-          if (reply && reply.ok === true && state.newManual !== true) {
+          if (reply && reply.ok === true) {
+            // Adopt the level even while the user types a path by hand: the
+            // position waits behind the toggle instead of being thrown away.
             state.fsReady = true
             const roots = Array.isArray(reply.roots) ? reply.roots : null
             state.fsRoots = roots
-            state.fsHome = typeof reply.home === 'string' ? reply.home : ''
+            // Only the locations answer carries `home`; a plain listing must
+            // not wipe it, or the home button dies after one jump.
+            if (typeof reply.home === 'string') state.fsHome = reply.home
             state.fsPath = roots !== null ? '' : String(reply.path || path)
             state.fsParent = typeof reply.parent === 'string' ? reply.parent : ''
             state.fsEntries = Array.isArray(reply.entries) ? reply.entries : []
             state.fsTruncated = reply.truncated === true
-            if (roots !== null && descendHome === true && state.fsHome !== '') {
-              browseDirs(state.fsHome)
-              return
-            }
           } else if (state.fsReady !== true) {
             state.fsUnsupported = true
           } else {
             state.fsError = String((reply && reply.error) || t('fsFailed'))
           }
-          renderAnchorArea()
+          renderBrowseArea()
         },
         () => {
           state.fsBusy = false
           if (state.fsReady !== true) state.fsUnsupported = true
           else state.fsError = t('fsFailed')
-          renderAnchorArea()
+          renderBrowseArea()
         },
       )
     }
@@ -578,12 +646,15 @@
       state.newPanelOpen = true
       state.newMode = 'default'
       state.newWorkspaceId = ''
+      targetNewError.textContent = ''
+      targetNewHeadTitle.textContent = t('targetBrowseTitle')
       setVisible(targetSearch, false)
       setVisible(targetList, false)
       setVisible(targetNewRow, false)
       setVisible(targetNewPanel, true)
-      renderNewPanel()
-      targetNewBack.focus()
+      renderBrowseArea()
+      if (state.newManual === true) pathInput.focus()
+      else nameInput.focus()
     }
 
     function closeNewPanel() {
@@ -715,7 +786,7 @@
       )
       renderTargetButton()
       if (state.targetOpen) {
-        if (state.newPanelOpen === true) renderNewPanel()
+        if (state.newPanelOpen === true) renderBrowseArea()
         else renderTargetList()
       }
     }
@@ -731,7 +802,6 @@
       state.newWorkspaceId = ''
       state.newPath = ''
       state.newTitle = ''
-      state.newAnchor = ''
       state.newManual = false
       state.fsReady = false
       state.fsUnsupported = false
@@ -783,45 +853,60 @@
       if (targetNewRow.disabled) return
       openNewPanel()
     })
-    targetNewBack.addEventListener('click', (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      closeNewPanel()
-    })
     /** Refuse a folder name that is really a path, keeping the panel open. */
     function refuseBadName() {
       targetNewError.textContent = t('workspaceNameInvalid')
       nameInput.focus()
     }
 
-    targetNewUse.addEventListener('click', (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      const name = nameInput.value.trim()
-      if (state.fsReady === true && state.newManual !== true) {
-        if (isBadName(name)) {
-          refuseBadName()
-          return
-        }
-        state.newPath = name === '' ? state.fsPath : joinPath(state.fsPath, name)
-      } else if (state.newManual === true || anchors().length === 0) {
-        const path = pathInput.value.trim()
+    /** Commit the path the result line names; the button is disabled otherwise. */
+    function confirmWorkspace() {
+      let path = ''
+      if (state.newManual === true) {
+        path = pathInput.value.trim()
         if (path === '') {
           targetNewError.textContent = t('workspacePathRequired')
           pathInput.focus()
           return
         }
-        state.newPath = path
+        const invalid = manualPathError(path)
+        if (invalid !== '') {
+          targetNewError.textContent = invalid
+          pathInput.focus()
+          return
+        }
       } else {
+        if (state.fsReady !== true || Array.isArray(state.fsRoots)) return
+        const name = nameInput.value.trim()
         if (isBadName(name)) {
           refuseBadName()
           return
         }
-        state.newPath = name === '' ? state.newAnchor : joinPath(state.newAnchor, name)
+        path = name === '' ? state.fsPath : joinPath(state.fsPath, name)
       }
       targetNewError.textContent = ''
       state.newTitle = titleInput.value.trim()
+      // A directory the host already registered is targeted as that workspace —
+      // the same record DSH itself would use — never registered a second time.
+      const workspace = workspaceAt(path)
+      if (workspace !== null) {
+        state.newPath = ''
+        confirmNewSession('existing', workspace.id)
+        return
+      }
+      state.newPath = path
       confirmNewSession('new')
+    }
+
+    targetNewBack.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      closeNewPanel()
+    })
+    targetNewUse.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      confirmWorkspace()
     })
     fsUp.addEventListener('click', (event) => {
       event.preventDefault()
@@ -829,22 +914,38 @@
       // `fsParent === ''` at a filesystem top means the roots view is Up.
       browseDirs(Array.isArray(state.fsRoots) ? '' : state.fsParent)
     })
+    fsHomeBtn.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (state.fsHome !== '') browseDirs(state.fsHome)
+    })
     manualToggle.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
       state.newManual = !(state.newManual === true)
-      renderAnchorArea()
+      renderBrowseArea()
+      if (state.newManual === true) pathInput.focus()
+      else nameInput.focus()
     })
     nameInput.addEventListener('input', () => {
       if (targetNewError.textContent !== '') targetNewError.textContent = ''
+      renderResult()
     })
     pathInput.addEventListener('input', () => {
-      state.newPath = pathInput.value.trim()
       if (targetNewError.textContent !== '') targetNewError.textContent = ''
+      renderResult()
     })
     titleInput.addEventListener('input', () => {
       state.newTitle = titleInput.value.trim()
     })
+    for (const input of [nameInput, pathInput, titleInput]) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return
+        event.preventDefault()
+        event.stopPropagation()
+        confirmWorkspace()
+      })
+    }
     targetSearch.addEventListener('input', () => {
       state.targetQuery = targetSearch.value
       state.targetActive = 0

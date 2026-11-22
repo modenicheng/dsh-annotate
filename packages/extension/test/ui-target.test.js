@@ -1,14 +1,15 @@
 /**
- * The target picker's new-workspace arm (M4.7a + M4.7b).
+ * The target picker's new-session arm: one flat directory browser (M4.7c).
  *
- * D26: the path is chosen, not typed — anchor rows come from the registered
- * workspaces' own paths and parents, the user writes at most one folder
- * name, and the manual absolute path survives as the demoted fallback for a
- * host that reports no workspace at all. When the host serves
- * `/ext/anno/dirs`, the same panel browses its real directory tree instead,
- * and any browse failure falls back to the anchors without losing the panel.
- * Everything below runs against the same `anno.session.create` body M4.6
- * already sent: no new wire surface on the create path.
+ * D26: directories are just directories — no workspace taxonomy, no nested
+ * screens. The arm opens straight into the host's tree served by
+ * `/ext/anno/dirs`, starting from the locations view (registered workspaces,
+ * home, drives) and reaching any absolute path through the breadcrumb. The
+ * result line and the confirm button always name the exact path being acted
+ * on; a registered directory confirms as that exact workspace record
+ * (`existing` + id, the way DSH itself targets it), any other path registers
+ * it (`new`). A host that cannot browse gets the typed absolute path, checked
+ * against the same shared protocol rules the host enforces.
  */
 
 import assert from 'node:assert/strict'
@@ -17,6 +18,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import vm from 'node:vm'
+
+import { validateDirsPath } from '../src/shared/protocol.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const extensionRoot = dirname(here)
@@ -28,6 +31,7 @@ class FakeNode {
     this.className = ''
     this.value = ''
     this.type = ''
+    this.title = ''
     this.disabled = false
     this.spellcheck = false
     this.style = {}
@@ -80,9 +84,9 @@ class FakeNode {
 
   focus() {}
 
-  fire(type) {
+  fire(type, extra = {}) {
     for (const entry of this.listeners) {
-      if (entry.type === type) entry.listener({ preventDefault() {}, stopPropagation() {} })
+      if (entry.type === type) entry.listener({ preventDefault() {}, stopPropagation() {}, ...extra })
     }
   }
 }
@@ -98,29 +102,29 @@ async function ticks(rounds = 8) {
 }
 
 /**
- * The fields area is `[fsHead, fsList, anchorLabel, anchorList, nameLabel,
- * nameInput, titleLabel, titleInput, use, manualToggle, pathLabel, pathInput,
- * noAnchorsHint]`.
+ * The fields area is `[fsToolbar, fsList, nameLabel, nameInput, resultRow,
+ * titleLabel, titleInput, use, manualToggle, pathLabel, pathInput, hint]`;
+ * the toolbar is `[fsUp, fsHomeBtn, fsCrumb]` and the result row is
+ * `[label, badge, path]`.
  */
 const F = {
-  FS_HEAD: 0,
+  TOOLBAR: 0,
   FS_LIST: 1,
-  ANCHOR_LABEL: 2,
-  ANCHORS: 3,
-  NAME_LABEL: 4,
-  NAME: 5,
-  TITLE_LABEL: 6,
-  TITLE: 7,
-  USE: 8,
-  MANUAL: 9,
-  PATH_LABEL: 10,
-  PATH: 11,
-  HINT: 12,
+  NAME_LABEL: 2,
+  NAME: 3,
+  RESULT: 4,
+  TITLE_LABEL: 5,
+  TITLE: 6,
+  USE: 7,
+  MANUAL: 8,
+  PATH_LABEL: 9,
+  PATH: 10,
+  HINT: 11,
 }
 
 /**
  * Boot `ui/dom.js` + `ui/target.js`, adopt a workspace list, and drive the
- * picker straight into the 新建工作区 mode.
+ * picker straight into the new-session browser.
  * @param {any[]} workspacesList
  * @param {{ onBrowseDirs?: (path: string) => any }} [extraHandlers]
  */
@@ -128,6 +132,8 @@ async function installTarget(workspacesList, extraHandlers = {}) {
   const document = { createElement: (tag) => new FakeNode(tag) }
   const sandbox = { document }
   sandbox.globalThis = sandbox
+  // The shared protocol copy the content realm exposes to the picker.
+  sandbox.__DSH_PROTOCOL__ = { validateDirsPath }
   const context = vm.createContext(sandbox)
   for (const path of ['src/content/ui/dom.js', 'src/content/ui/target.js']) {
     const code = await readFile(join(extensionRoot, path), 'utf8')
@@ -150,7 +156,6 @@ async function installTarget(workspacesList, extraHandlers = {}) {
     newWorkspaceId: '',
     newPath: '',
     newTitle: '',
-    newAnchor: '',
     newManual: false,
     newUnavailable: false,
     fsReady: false,
@@ -177,136 +182,23 @@ async function installTarget(workspacesList, extraHandlers = {}) {
     dom: ui.dom,
   })
   part.setTargets([], '', '', workspacesList)
-  // The pinned ＋ row opens the workspace sub-panel; its last option is 新建工作区.
+  // The pinned ＋ row opens the directory browser directly — no mode screen.
   part.panel.children[1].fire('click')
   const newPanel = part.panel.children[3]
-  const options = newPanel.children[1]
-  options.children[options.children.length - 1].fire('click')
-  return { part, state, news, newPanel, fields: newPanel.children[2], error: newPanel.children[3] }
-}
-
-test('anchors come from the registered workspaces and their parents', async () => {
-  const { fields } = await installTarget([
-    { id: 'w1', title: 'app', path: 'D:\\coding\\app' },
-    { id: 'w2', title: 'docs', path: 'D:\\docs' },
-  ])
-  const list = fields.children[F.ANCHORS]
-  const paths = list.children.map((row) => row.children[1].textContent)
-  assert.deepEqual(paths, ['D:\\coding\\app', 'D:\\coding', 'D:\\docs', 'D:\\'])
-  assert.equal(list.children[0].getAttribute('aria-pressed'), 'true')
-  // The anchor flow is the default; the typed path waits behind the toggle.
-  assert.equal(list.hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.NAME].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.MANUAL].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), true)
-  assert.equal(fields.children[F.HINT].hasAttribute('f-hidden'), true)
-})
-
-test('a folder name joins onto the anchor with the separator it already uses', async () => {
-  const { news, fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }])
-  fields.children[F.NAME].value = 'fresh'
-  fields.children[F.USE].fire('click')
-  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'D:\\coding\\app\\fresh', title: '' }])
-})
-
-test('an empty name targets the anchor directory itself', async () => {
-  const { news, fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }])
-  fields.children[F.USE].fire('click')
-  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'D:\\coding\\app', title: '' }])
-})
-
-test('picking another anchor re-targets the join', async () => {
-  const { news, fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }])
-  fields.children[F.ANCHORS].children[1].fire('click')
-  assert.equal(fields.children[F.ANCHORS].children[1].getAttribute('aria-pressed'), 'true')
-  assert.equal(fields.children[F.ANCHORS].children[0].getAttribute('aria-pressed'), 'false')
-  fields.children[F.NAME].value = 'x'
-  fields.children[F.USE].fire('click')
-  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'D:\\coding\\x', title: '' }])
-})
-
-test('posix paths anchor and join with slashes, root included', async () => {
-  const first = await installTarget([{ id: 'w1', title: 'app', path: '/home/u/app' }])
-  assert.deepEqual(
-    first.fields.children[F.ANCHORS].children.map((row) => row.children[1].textContent),
-    ['/home/u/app', '/home/u'],
-  )
-  first.fields.children[F.ANCHORS].children[1].fire('click')
-  first.fields.children[F.NAME].value = 'x'
-  first.fields.children[F.USE].fire('click')
-  assert.equal(first.news[0].path, '/home/u/x')
-
-  const root = await installTarget([{ id: 'w1', title: 'root', path: '/' }])
-  assert.deepEqual(
-    root.fields.children[F.ANCHORS].children.map((row) => row.children[1].textContent),
-    ['/'],
-  )
-  root.fields.children[F.NAME].value = 'x'
-  root.fields.children[F.USE].fire('click')
-  assert.equal(root.news[0].path, '/x')
-})
-
-test('a folder name that is really a path is refused', async () => {
-  const { news, fields, error } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }])
-  for (const bad of ['a/b', 'a\\b', '..', '.']) {
-    fields.children[F.NAME].value = bad
-    fields.children[F.USE].fire('click')
-    assert.equal(error.textContent, 'workspaceNameInvalid')
+  return {
+    part,
+    state,
+    news,
+    newPanel,
+    fields: newPanel.children[1],
+    error: newPanel.children[2],
+    crumb: () => newPanel.children[1].children[F.TOOLBAR].children[2],
+    up: () => newPanel.children[1].children[F.TOOLBAR].children[0],
+    home: () => newPanel.children[1].children[F.TOOLBAR].children[1],
+    result: () => newPanel.children[1].children[F.RESULT].children[2],
+    badge: () => newPanel.children[1].children[F.RESULT].children[1],
   }
-  assert.equal(news.length, 0)
-})
-
-test('the manual toggle swaps the typed path in, and back out', async () => {
-  const { news, fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }])
-  fields.children[F.MANUAL].fire('click')
-  assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.ANCHORS].hasAttribute('f-hidden'), true)
-  fields.children[F.PATH].value = 'E:\\ws'
-  fields.children[F.USE].fire('click')
-  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'E:\\ws', title: '' }])
-
-  fields.children[F.MANUAL].fire('click')
-  assert.equal(fields.children[F.ANCHORS].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), true)
-})
-
-test('a host without workspaces keeps the typed path as the whole flow', async () => {
-  const { news, fields, error } = await installTarget([])
-  assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.ANCHORS].children.length, 0)
-  assert.equal(fields.children[F.MANUAL].hasAttribute('f-hidden'), true)
-  assert.equal(fields.children[F.HINT].hasAttribute('f-hidden'), false)
-
-  fields.children[F.USE].fire('click')
-  assert.equal(error.textContent, 'workspacePathRequired')
-  assert.equal(news.length, 0)
-
-  fields.children[F.PATH].value = 'E:\\first'
-  fields.children[F.USE].fire('click')
-  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'E:\\first', title: '' }])
-})
-
-test('windows-style duplicates fold case-insensitively', async () => {
-  const { fields } = await installTarget([
-    { id: 'w1', title: 'app', path: 'D:\\Coding\\App' },
-    { id: 'w2', title: 'app again', path: 'd:\\coding\\app' },
-  ])
-  assert.deepEqual(
-    fields.children[F.ANCHORS].children.map((row) => row.children[1].textContent),
-    ['D:\\Coding\\App', 'D:\\Coding'],
-  )
-})
-
-test('reopening the composer resets the anchor choice', async () => {
-  const { part, state } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }])
-  state.newAnchor = 'D:\\coding'
-  state.newManual = true
-  part.resetForOpen()
-  assert.equal(state.newAnchor, '')
-  assert.equal(state.newManual, false)
-})
-
-// ── host-served browsing (M4.7b) ─────────────────────────────────────────────
+}
 
 /** A host that answers each path from a fixed table, recording every call. */
 function hostOf(table, failing = new Set()) {
@@ -330,100 +222,213 @@ const TREE = {
       { name: 'zeta', path: 'D:\\coding\\zeta' },
     ],
   },
+  'D:\\coding\\app': { path: 'D:\\coding\\app', parent: 'D:\\coding', entries: [] },
   'D:\\coding\\zeta': { path: 'D:\\coding\\zeta', parent: 'D:\\coding', entries: [] },
   'D:\\': { path: 'D:\\', parent: '', entries: [{ name: 'coding', path: 'D:\\coding' }] },
   '': { roots: ['C:\\', 'D:\\'], home: 'C:\\Users\\u' },
   'C:\\Users\\u': { path: 'C:\\Users\\u', parent: 'C:\\Users', entries: [] },
 }
 
-test('the picker upgrades to host browsing and lands at the newest workspace parent', async () => {
+const WORKSPACES = [{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }]
+
+test('the arm opens straight into the locations view', async () => {
   const host = hostOf(TREE)
-  const { news, fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }], host)
+  const { fields, result, badge, up, crumb } = await installTarget(WORKSPACES, host)
   await ticks()
 
-  assert.deepEqual(host.seen, ['D:\\coding'])
-  assert.equal(fields.children[F.FS_LIST].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.ANCHORS].hasAttribute('f-hidden'), true)
-  assert.equal(fields.children[F.FS_HEAD].children[1].textContent, 'D:\\coding')
+  assert.deepEqual(host.seen, [''])
   const rows = fields.children[F.FS_LIST].children.map((row) => row.children[0].textContent)
-  assert.deepEqual(rows, ['app', 'zeta'])
-
-  fields.children[F.NAME].value = 'fresh'
-  fields.children[F.USE].fire('click')
-  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'D:\\coding\\fresh', title: '' }])
+  // Registered workspaces first, then the home, then the drives.
+  assert.deepEqual(rows, ['D:\\coding\\app', 'fsHome', 'C:\\', 'D:\\'])
+  assert.equal(up().disabled, true)
+  assert.deepEqual(
+    crumb().children.map((child) => child.textContent),
+    ['fsLocations'],
+  )
+  // Nothing is chosen yet: the result is an explicit placeholder, not a guess.
+  assert.equal(result().className.includes('is-empty'), true)
+  assert.equal(result().textContent, 'fsPickLocation')
+  assert.equal(badge().hasAttribute('f-hidden'), true)
+  assert.equal(fields.children[F.USE].disabled, true)
+  assert.equal(fields.children[F.USE].textContent, 'workspaceChooseLocation')
 })
 
-test('rows descend and Up climbs, through the roots view', async () => {
+test('rows jump into the tree and the breadcrumb climbs back', async () => {
   const host = hostOf(TREE)
-  const { fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }], host)
+  const { fields, home, crumb } = await installTarget(WORKSPACES, host)
   await ticks()
 
-  fields.children[F.FS_LIST].children[1].fire('click')
+  fields.children[F.FS_LIST].children[3].fire('click')
   await ticks()
-  assert.deepEqual(host.seen, ['D:\\coding', 'D:\\coding\\zeta'])
-  assert.equal(fields.children[F.FS_LIST].children[0].textContent, 'fsEmpty')
-
-  fields.children[F.FS_HEAD].children[0].fire('click')
-  await ticks()
-  assert.deepEqual(host.seen, ['D:\\coding', 'D:\\coding\\zeta', 'D:\\coding'])
-
-  // Climbing from a drive root lands in the roots view, where Up rests and
-  // the naming row has nothing to join onto yet.
-  fields.children[F.FS_HEAD].children[0].fire('click')
-  await ticks()
-  assert.equal(fields.children[F.FS_HEAD].children[1].textContent, 'D:\\')
-  fields.children[F.FS_HEAD].children[0].fire('click')
-  await ticks()
-  assert.deepEqual(host.seen, ['D:\\coding', 'D:\\coding\\zeta', 'D:\\coding', 'D:\\', ''])
-  assert.equal(fields.children[F.FS_HEAD].children[0].disabled, true)
-  assert.equal(fields.children[F.NAME].hasAttribute('f-hidden'), true)
-  assert.equal(fields.children[F.USE].hasAttribute('f-hidden'), true)
-  const roots = fields.children[F.FS_LIST].children.map((row) => row.children[0].textContent)
-  assert.deepEqual(roots, ['fsHome', 'C:\\', 'D:\\'])
-
   fields.children[F.FS_LIST].children[0].fire('click')
   await ticks()
-  assert.equal(fields.children[F.FS_HEAD].children[1].textContent, 'C:\\Users\\u')
+  assert.deepEqual(host.seen, ['', 'D:\\', 'D:\\coding'])
+  assert.equal(fields.children[F.FS_LIST].children[0].textContent, 'app')
+
+  // D: › coding: every ancestor is one click, and the leading chip is the
+  // locations view itself.
+  assert.deepEqual(
+    crumb().children.map((child) => child.textContent),
+    ['fsLocations', '›', 'D:', '›', 'coding'],
+  )
+  crumb().children[2].fire('click')
+  await ticks()
+  assert.deepEqual(host.seen, ['', 'D:\\', 'D:\\coding', 'D:\\'])
+  crumb().children[0].fire('click')
+  await ticks()
+  assert.deepEqual(host.seen, ['', 'D:\\', 'D:\\coding', 'D:\\', ''])
+
+  // Home is one button away at any depth.
+  fields.children[F.FS_LIST].children[3].fire('click')
+  await ticks()
+  home().fire('click')
+  await ticks()
+  assert.deepEqual(host.seen.slice(-1), ['C:\\Users\\u'])
 })
 
-test('a fresh install lands in the host home through the roots view', async () => {
+test('the result line and the confirm button track the folder and name live', async () => {
   const host = hostOf(TREE)
-  await installTarget([], host)
+  const { news, fields, result } = await installTarget(WORKSPACES, host)
   await ticks()
-  assert.deepEqual(host.seen, ['', 'C:\\Users\\u'])
-})
-
-test('a browse failure before the first success falls back to the anchors', async () => {
-  const host = hostOf(TREE, new Set(['D:\\coding']))
-  const { news, fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }], host)
+  fields.children[F.FS_LIST].children[3].fire('click')
+  await ticks()
+  fields.children[F.FS_LIST].children[0].fire('click')
   await ticks()
 
-  assert.equal(fields.children[F.ANCHORS].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.FS_LIST].hasAttribute('f-hidden'), true)
+  // Standing in D:\coding with no name: the button adopts that directory.
+  assert.equal(result().textContent, 'D:\\coding')
+  assert.equal(fields.children[F.USE].disabled, false)
+  assert.equal(fields.children[F.USE].textContent, 'workspaceUseAt')
+
   fields.children[F.NAME].value = 'fresh'
+  fields.children[F.NAME].fire('input')
+  assert.equal(result().textContent, 'D:\\coding\\fresh')
+  assert.equal(fields.children[F.USE].textContent, 'workspaceCreateAt')
+
+  fields.children[F.NAME].value = ''
+  fields.children[F.NAME].fire('input')
+  assert.equal(result().textContent, 'D:\\coding')
   fields.children[F.USE].fire('click')
-  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'D:\\coding\\app\\fresh', title: '' }])
+  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'D:\\coding', title: '' }])
+
+  // Enter commits from the name field itself.
+  fields.children[F.NAME].value = 'fresh'
+  fields.children[F.NAME].fire('input')
+  fields.children[F.NAME].fire('keydown', { key: 'Enter' })
+  assert.deepEqual(plain(news[1]), { mode: 'new', workspaceId: '', path: 'D:\\coding\\fresh', title: '' })
 })
 
-test('a later browse failure keeps the level and shows the message inline', async () => {
+test('a registered directory confirms as that workspace, the way DSH does', async () => {
+  const host = hostOf(TREE)
+  const { news, fields, result, badge } = await installTarget(WORKSPACES, host)
+  await ticks()
+  fields.children[F.FS_LIST].children[3].fire('click')
+  await ticks()
+  fields.children[F.FS_LIST].children[0].fire('click')
+  await ticks()
+  fields.children[F.FS_LIST].children[0].fire('click')
+  await ticks()
+
+  // Standing on the registered directory itself.
+  assert.equal(badge().hasAttribute('f-hidden'), false)
+  assert.equal(badge().textContent, 'workspaceRegistered')
+  assert.equal(fields.children[F.USE].textContent, 'workspaceUseAt')
+  fields.children[F.USE].fire('click')
+  assert.deepEqual(plain(news), [{ mode: 'existing', workspaceId: 'w1', path: '', title: '' }])
+
+  // A name inside it creates a child instead: a different directory, a
+  // different outcome, visible before the click.
+  fields.children[F.NAME].value = 'sub'
+  fields.children[F.NAME].fire('input')
+  assert.equal(badge().hasAttribute('f-hidden'), true)
+  assert.equal(fields.children[F.USE].textContent, 'workspaceCreateAt')
+  fields.children[F.USE].fire('click')
+  assert.deepEqual(plain(news[1]), { mode: 'new', workspaceId: '', path: 'D:\\coding\\app\\sub', title: '' })
+})
+
+test('registration matches windows paths case-insensitively', async () => {
+  const host = hostOf(TREE)
+  const { news, fields, result } = await installTarget([{ id: 'w1', title: 'app', path: 'd:\\CODING\\APP' }], host)
+  await ticks()
+  fields.children[F.FS_LIST].children[3].fire('click')
+  await ticks()
+  fields.children[F.FS_LIST].children[0].fire('click')
+  await ticks()
+  fields.children[F.FS_LIST].children[0].fire('click')
+  await ticks()
+  assert.equal(result().textContent, 'D:\\coding\\app')
+  fields.children[F.USE].fire('click')
+  assert.equal(news[0].mode, 'existing')
+  assert.equal(news[0].workspaceId, 'w1')
+})
+
+test('a folder name that is really a path is refused live', async () => {
+  const host = hostOf(TREE)
+  const { news, fields, result } = await installTarget(WORKSPACES, host)
+  await ticks()
+  fields.children[F.FS_LIST].children[3].fire('click')
+  await ticks()
+  fields.children[F.FS_LIST].children[0].fire('click')
+  await ticks()
+
+  for (const bad of ['a/b', 'a\\b', '..', '.']) {
+    fields.children[F.NAME].value = bad
+    fields.children[F.NAME].fire('input')
+    assert.equal(result().className.includes('is-invalid'), true)
+    assert.equal(result().textContent, 'workspaceNameInvalid')
+    assert.equal(fields.children[F.USE].disabled, true)
+  }
+  assert.equal(news.length, 0)
+})
+
+test('a probe failure forces the typed path, and relative paths are refused live', async () => {
+  const host = hostOf(TREE, new Set(['']))
+  const { news, fields, result } = await installTarget(WORKSPACES, host)
+  await ticks()
+
+  assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), false)
+  assert.equal(fields.children[F.HINT].hasAttribute('f-hidden'), false)
+  assert.equal(fields.children[F.TOOLBAR].hasAttribute('f-hidden'), true)
+  // Nothing to browse back to: the toggle is absent, not a dead end.
+  assert.equal(fields.children[F.MANUAL].hasAttribute('f-hidden'), true)
+
+  fields.children[F.PATH].value = 'rel\\sub'
+  fields.children[F.PATH].fire('input')
+  assert.equal(result().className.includes('is-invalid'), true)
+  assert.equal(result().textContent, 'workspacePathInvalid')
+  assert.equal(fields.children[F.USE].disabled, true)
+
+  fields.children[F.PATH].value = 'E:\\ws'
+  fields.children[F.PATH].fire('input')
+  assert.equal(result().textContent, 'E:\\ws')
+  fields.children[F.USE].fire('click')
+  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'E:\\ws', title: '' }])
+})
+
+test('a later browse failure keeps the level and stays confirmable', async () => {
   const host = hostOf(TREE, new Set(['D:\\coding\\zeta']))
-  const { fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }], host)
+  const { news, fields, result } = await installTarget(WORKSPACES, host)
+  await ticks()
+  fields.children[F.FS_LIST].children[3].fire('click')
+  await ticks()
+  fields.children[F.FS_LIST].children[0].fire('click')
   await ticks()
   fields.children[F.FS_LIST].children[1].fire('click')
   await ticks()
 
-  assert.equal(fields.children[F.FS_LIST].hasAttribute('f-hidden'), false)
   assert.equal(fields.children[F.FS_LIST].children[0].textContent, 'cannot read D:\\coding\\zeta')
-  assert.equal(fields.children[F.FS_HEAD].children[1].textContent, 'D:\\coding')
+  assert.equal(result().textContent, 'D:\\coding')
+  fields.children[F.USE].fire('click')
+  assert.deepEqual(plain(news), [{ mode: 'new', workspaceId: '', path: 'D:\\coding', title: '' }])
 })
 
-test('a user who chose the manual path during the probe keeps it', async () => {
+test('manual chosen during the probe keeps manual, and the toggle round-trips', async () => {
   let release
   const reply = new Promise((resolve) => {
     release = resolve
   })
   const seen = []
-  const { fields } = await installTarget([{ id: 'w1', title: 'app', path: 'D:\\coding\\app' }], {
+  const { fields } = await installTarget(WORKSPACES, {
     onBrowseDirs: (path) => {
       seen.push(path)
       return reply
@@ -431,10 +436,36 @@ test('a user who chose the manual path during the probe keeps it', async () => {
   })
   await ticks()
   fields.children[F.MANUAL].fire('click')
-  release({ ok: true, path: 'D:\\coding', parent: 'D:\\', entries: [], truncated: false, roots: null })
+  assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), false)
+  release({ ok: true, roots: ['C:\\', 'D:\\'], home: 'C:\\Users\\u', entries: [], truncated: false })
   await ticks()
 
+  // The browse state was adopted, not thrown away: the view stays manual by
+  // the user's choice, and the toggle brings the browser back.
   assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), false)
-  assert.equal(fields.children[F.FS_LIST].hasAttribute('f-hidden'), true)
-  assert.equal(fields.children[F.ANCHORS].hasAttribute('f-hidden'), true)
+  assert.equal(fields.children[F.MANUAL].textContent, 'manualToBrowse')
+  fields.children[F.MANUAL].fire('click')
+  assert.equal(fields.children[F.FS_LIST].hasAttribute('f-hidden'), false)
+  assert.equal(fields.children[F.PATH].hasAttribute('f-hidden'), true)
+  assert.deepEqual(
+    fields.children[F.FS_LIST].children.map((row) => row.children[0].textContent),
+    ['D:\\coding\\app', 'fsHome', 'C:\\', 'D:\\'],
+  )
+})
+
+test('Escape closes the browser and reopening the composer resets it', async () => {
+  const host = hostOf(TREE)
+  const { part, state, fields } = await installTarget(WORKSPACES, host)
+  await ticks()
+  fields.children[F.FS_LIST].children[3].fire('click')
+  await ticks()
+
+  part.row.fire('keydown', { key: 'Escape' })
+  assert.equal(state.newPanelOpen, false)
+
+  part.resetForOpen()
+  assert.equal(state.fsPath, '')
+  assert.equal(state.fsReady, false)
+  assert.equal(state.newManual, false)
+  assert.equal(state.newPath, '')
 })

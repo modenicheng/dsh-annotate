@@ -46,18 +46,21 @@ conversation. Nothing is injected behind the user's back.
 - The row detail (shown on hover/focus) carries the workspace name and relative
   last activity, plus `running` / `blank` state.
 - The first entry is **＋ 新建会话**, pinned above the list and disabled while
-  the host is offline (creation cannot queue, D25). It opens a workspace
-  sub-panel with three modes: **默认工作区** (no location — the same default
-  the Client's own new-session button resolves), **each registered workspace**
-  (the new Session joins it), and **新建工作区** (a location chosen, never typed:
-  anchor rows from the registered workspaces' own paths and parents, upgraded to
-  the Host's real directory tree — home and drive roots down, one level per
-  request — when it serves `/ext/anno/dirs`, and falling back to those anchors
-  on any failure; plus an optional folder name, so at most one path segment is
-  ever typed, and the manual absolute path behind a toggle for a host that
-  reports no workspace at all; the Host creates the directories and registers
-  the workspace idempotently, D26). Confirming a mode sets the target to
-  `新建 · <workspace>`;
+  the host is offline (creation cannot queue, D25). It opens one flat directory
+  browser — no workspace taxonomy to walk through (D26). Every open starts from
+  the **locations view** (`GET /ext/anno/dirs` with an empty `path`): the
+  registered workspaces, the host home, and the drive roots. Rows jump, the
+  breadcrumb climbs, and any absolute path is reachable. The result line always
+  shows the exact path the confirm button names in its own label — an optional
+  folder name adopts the directory (使用) or creates a child of it (创建), so
+  nothing is ever created somewhere the user has not literally seen.
+  Registration is a property of the directory, shown as an inline badge:
+  confirming a registered directory targets that exact workspace record the way
+  DSH itself would (`existing` + id, never re-registered), any other path
+  registers it idempotently (`new` + path, the Host creates the directory).
+  A host that cannot browse gets the typed absolute path — validated against
+  the shared protocol rules — behind a two-way toggle on capable hosts (M4.7c).
+  Confirming sets the target to `新建 · <workspace>`;
   the Session itself is created at send time, before the annotation names it,
   so a creation failure keeps the composer open with the comment intact. The
   Host publishes `{t:'session', sessionId}` after a create and the Client half
@@ -79,10 +82,10 @@ workspace row is `{id, title, path}`. Creation is
 token, body `{mode, workspaceId?, path?, title?}`.
 Directory browsing for the same mode is `GET /ext/anno/dirs`
 (`packages/plugin/src/dirs.js`), same token in the header; an empty `path`
-answers the roots view (`{roots, home}`), a directory answers `{path, parent,
+answers the locations view (`{roots, home}`), a directory answers `{path, parent,
 entries[{name, path}], truncated}` with directories only, symlinks skipped,
 bounded by `LIMITS.fsEntries`. A host without the route answers 404 and the
-picker falls back to its anchors (D26).
+picker falls back to the typed absolute path (D26).
 
 ## What travels in the message
 
