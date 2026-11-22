@@ -19,22 +19,28 @@
     return element
   }
 
-  const SVG_NS = 'http://www.w3.org/2000/svg'
-
   /**
-   * Build an inline SVG icon (Iconify path data, e.g. mdi:send) without ever
-   * parsing a string as HTML — the same rule createElement enforces for text.
+   * Build one icon from the extension's own asset files (`assets/icons/`).
+   *
+   * The SVG ships as a real file, not inline path data, and reaches the page
+   * through `runtime.getURL` — the manifest lists the directory in
+   * `web_accessible_resources`. Rather than an `<img>` (whose fill cannot
+   * follow the text colour), the file becomes a CSS mask over a span, so the
+   * icon paints with `currentColor` like any glyph. Without an extension
+   * runtime — a plain test harness — the span simply stays empty.
+   * @param {string} name asset file name without extension
    */
-  function createIcon(pathData, viewBox = '0 0 24 24') {
-    const svg = global.document.createElementNS(SVG_NS, 'svg')
-    svg.setAttribute('viewBox', viewBox)
-    svg.setAttribute('aria-hidden', 'true')
-    svg.setAttribute('focusable', 'false')
-    const path = global.document.createElementNS(SVG_NS, 'path')
-    path.setAttribute('d', pathData)
-    svg.appendChild(path)
-    svg.classList.add('icon')
-    return svg
+  function createIcon(name) {
+    const span = global.document.createElement('span')
+    span.className = `icon icon-${name}`
+    const runtime = (global.browser && global.browser.runtime) || (global.chrome && global.chrome.runtime)
+    if (runtime && typeof runtime.getURL === 'function') {
+      const url = runtime.getURL(`assets/icons/${name}.svg`)
+      const masked = `url("${url}")`
+      span.style.maskImage = masked
+      span.style.webkitMaskImage = masked
+    }
+    return span
   }
 
   function setVisible(element, visible) {

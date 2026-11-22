@@ -35,11 +35,6 @@
     const { t, state, handlers, dom } = ctx
     const { createElement, createIcon, setVisible, fill } = dom
 
-    // material-symbols:arrow-back and :chevron-right from Iconify (Apache-2.0):
-    // the back button's icon and the breadcrumb separators.
-    const ICON_BACK = 'm7.825 13l5.6 5.6L12 20l-8-8l8-8l1.425 1.4l-5.6 5.6H20v2z'
-    const ICON_CHEVRON = 'M12.6 12L8 7.4L9.4 6l6 6l-6 6L8 16.6z'
-
     const target = createElement('div', 'target')
     const targetButton = createElement('button', 'target-btn')
     targetButton.type = 'button'
@@ -69,7 +64,7 @@
     const targetNewHead = createElement('div', 'target-new-head')
     const targetNewBack = createElement('button', 'target-back')
     targetNewBack.type = 'button'
-    targetNewBack.append(createIcon(ICON_BACK), createElement('span', 'target-back-text', t('targetBack')))
+    targetNewBack.append(createIcon('arrow-back'), createElement('span', 'target-back-text', t('targetBack')))
     // The head is a real breadcrumb — 新建会话 › 工作区 › 位置 — right aligned,
     // every ancestor segment one click away.
     const targetNewCrumb = createElement('nav', 'target-new-crumb')
@@ -84,12 +79,20 @@
     // breadcrumb of ancestors — every segment is a jump, the current directory
     // is plain text. Together with the locations view this reaches any absolute
     // path the host can read.
+    // The browser toolbar: two icon buttons (labelled for the tooltip) and the
+    // directory breadcrumb.
     const fsToolbar = createElement('div', 'target-fs-head')
-    const fsUp = createElement('button', 'target-fs-btn', t('fsUp'))
+    const fsUp = createElement('button', 'target-fs-btn')
     fsUp.type = 'button'
-    const fsHomeBtn = createElement('button', 'target-fs-btn', t('fsHome'))
+    fsUp.append(createIcon('arrow-upward'))
+    fsUp.title = t('fsUp')
+    fsUp.setAttribute('aria-label', t('fsUp'))
+    const fsHomeBtn = createElement('button', 'target-fs-btn')
     fsHomeBtn.type = 'button'
-    const fsCrumb = createElement('div', 'target-fs-crumb')
+    fsHomeBtn.append(createIcon('home'))
+    fsHomeBtn.title = t('fsHome')
+    fsHomeBtn.setAttribute('aria-label', t('fsHome'))
+    const fsCrumb = createElement('nav', 'target-fs-crumb')
     fsToolbar.append(fsUp, fsHomeBtn, fsCrumb)
     const fsList = createElement('div', 'target-fs-list')
     const nameLabel = createElement('label', 'target-new-label', t('workspaceNameLabel'))
@@ -419,7 +422,7 @@
 
       /** @param {string} label @param {(() => void) | null} go */
       const addSegment = (label, go) => {
-        if (targetNewCrumb.children.length > 0) targetNewCrumb.appendChild(createIcon(ICON_CHEVRON))
+        if (targetNewCrumb.children.length > 0) targetNewCrumb.appendChild(createIcon('chevron-right'))
         if (go === null) {
           const here = createElement('span', 'target-new-crumb-here', label)
           here.setAttribute('aria-current', 'page')
@@ -519,16 +522,6 @@
     function renderCrumb() {
       fsCrumb.textContent = ''
       fsHomeBtn.disabled = state.fsHome === ''
-      // The locations view is the virtual top of the world: the crumb always
-      // begins there, and Up never climbs past it.
-      const top = createElement('button', 'target-fs-seg target-fs-top', t('fsLocations'))
-      top.type = 'button'
-      top.addEventListener('click', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        browseDirs('')
-      })
-      fsCrumb.append(top)
       if (state.fsBusy === true || state.fsReady !== true) {
         fsUp.disabled = true
         return
@@ -549,7 +542,7 @@
       fsUp.disabled = false
       const chain = crumbChain(state.fsPath)
       for (const [index, path] of chain.entries()) {
-        fsCrumb.append(createElement('span', 'target-fs-sep', '›'))
+        if (index > 0) fsCrumb.append(createIcon('chevron-right'))
         if (index === chain.length - 1) {
           fsCrumb.append(createElement('span', 'target-fs-here', lastSegment(path)))
           continue
