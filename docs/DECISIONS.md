@@ -812,8 +812,9 @@ shown as an inline badge, and confirming a registered directory sends
 path sends `new`. The anchor mode is deleted (nothing shipped with it; an old
 Host now degrades straight to the typed path), and the typed path gains
 client-side validation from the same shared protocol rules the Host
-enforces. The registered workspaces keep their one-click group at the top of
-the panel — that part of the M4.6 flow was right, it is client-side catalog
-data that works on every Host, and one click is exactly how DSH itself
-targets an existing workspace. No wire surface changes: both stages' routes
-and bodies are exactly as stage two defined them.
+enforces. The registered workspaces keep a one-click list — that part of the
+M4.6 flow was right, it is client-side catalog data that works on every Host,
+and one click is exactly how DSH itself targets an existing workspace — and
+the panel mirrors the session picker's own shape: the ＋ 新建工作区 row pinned
+first, the creation form one level deeper. No wire surface changes: both
+stages' routes and bodies are exactly as stage two defined them.

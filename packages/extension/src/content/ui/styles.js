@@ -30,15 +30,16 @@
   /* Type ramp — English-first, compact density. Exactly three sizes; anything
      new must map onto one of them. px on purpose: this overlay is injected into
      pages whose root font-size we do not control, so rem would inherit a
-     foreign scale. */
+     foreign scale. Leading takes the CJK value per role (one value serves both
+     scripts; Latin gets the room it needs, Han gets the leading it needs). */
   --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --text-body: 14px;
   --text-body-lh: 20px;
   --text-label: 13px;
-  --text-label-lh: 18px;
+  --text-label-lh: 20px;
   --text-caption: 12px;
-  --text-caption-lh: 16px;
+  --text-caption-lh: 18px;
   /* Muted text on the dark chrome: #6b7280 measured ~3.7:1 against #111827,
      under the AA 4.5:1 floor at caption sizes. #9ca3af is ~7:1. */
   --text-dim: #9ca3af;
@@ -433,8 +434,14 @@
   color: var(--text-dim);
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  /* No uppercase tracking here: the title is localized, and Han glyphs must
+     never be letter-spaced. */
+}
+/* Level one of the sub-panel: the ＋ row first, then the workspaces. */
+.target-new-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .target-new-fields {
   display: flex;
@@ -473,15 +480,8 @@
   font-family: var(--font-mono);
   font-size: var(--text-caption);
 }
-/* The registered-workspace group: one row, one click, 'existing' semantics.
+/* The registered-workspace rows: one row, one click, 'existing' semantics.
    The path rides beside the title — a directory's identity, truncated. */
-.target-ws-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 96px;
-  overflow-y: auto;
-}
 .target-ws:hover { background: rgba(37, 99, 235, 0.28); }
 .target-row-meta {
   flex: none;
@@ -692,8 +692,8 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption-lh);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  /* Localized state and kind labels: no uppercase tracking, or Han glyphs
+     would be letter-spaced. */
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

@@ -46,17 +46,17 @@ conversation. Nothing is injected behind the user's back.
 - The row detail (shown on hover/focus) carries the workspace name and relative
   last activity, plus `running` / `blank` state.
 - The first entry is **＋ 新建会话**, pinned above the list and disabled while
-  the host is offline (creation cannot queue, D25). It opens one flat panel —
-  no workspace taxonomy to walk through (D26). The **registered workspaces**
-  are their own always-present group at the top: one click targets that exact
-  workspace record the way DSH itself would (`existing` + id), and because the
-  rows are client-side catalog data the group works on every Host, whatever
-  the browser below it can or cannot do. Below them, the directory browser
-  (when the Host serves `GET /ext/anno/dirs`): every open starts from the
-  **locations view** (the host home and the drive roots), rows jump, the
-  breadcrumb climbs, and any absolute path is reachable. The result line
-  always shows the exact path the confirm button names in its own label — an
-  optional folder name adopts the directory (使用) or creates a child of it
+  the host is offline (creation cannot queue, D25). Its panel mirrors the
+  picker's own shape (D26): **level one is the workspace list** — the
+  **＋ 新建工作区** row first, then every registered workspace, where one
+  click targets that exact workspace record the way DSH itself would
+  (`existing` + id); the rows are client-side catalog data, so the list works
+  on every Host. The ＋ row opens **level two, the creation form**: the
+  directory browser over `GET /ext/anno/dirs` (M4.7b), every open starting
+  from the **locations view** (the host home and the drive roots), rows
+  jumping, the breadcrumb climbing, any absolute path reachable. The result
+  line always shows the exact path the confirm button names in its own label —
+  an optional folder name adopts the directory (使用) or creates a child of it
   (创建), so nothing is ever created somewhere the user has not literally
   seen. Registration is a property of the directory, shown as an inline badge:
   confirming a registered directory targets that exact workspace record

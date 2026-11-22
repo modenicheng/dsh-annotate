@@ -8,18 +8,19 @@
  * The picker owns its own reset so the composer does not have to know which
  * nodes or flags are involved in opening and closing it.
  *
- * The picker's second arm is "new session", and it is one flat panel — no
- * workspace taxonomy to walk through. The registered workspaces are their own
- * always-present group: one click targets that exact record the way DSH itself
- * would (`existing` + id), on every Host. Below them, the directory browser
- * (D26) serves the new locations: the host's real tree via `/ext/anno/dirs`
- * (M4.7b), starting from the locations view (home, drives) and reaching any
- * absolute path through the breadcrumb. Registration is a property of the
- * directory the user stands on, shown inline: confirming a registered
- * directory targets that workspace (`existing`), any other path registers it
- * (`new` + path). The result line and the confirm button always name the exact
- * path being acted on; a host that cannot browse gets the typed absolute path
- * (checked against the shared protocol rules) instead. The choice travels to
+ * The picker's second arm is "new session", and its panel mirrors the
+ * picker's own shape (D26): the workspace list first — the ＋ 新建工作区 row
+ * pinned above the registered workspaces, one click on a workspace targeting
+ * that exact record the way DSH itself would (`existing` + id) — and the ＋
+ * row opening the creation form one level deeper. That form is the directory
+ * browser: the host's real tree via `/ext/anno/dirs` (M4.7b), starting from
+ * the locations view (home, drives) and reaching any absolute path through
+ * the breadcrumb. Registration is a property of the directory the user
+ * stands on, shown inline: confirming a registered directory targets that
+ * workspace (`existing`), any other path registers it (`new` + path). The
+ * result line and the confirm button always name the exact path being acted
+ * on; a host that cannot browse gets the typed absolute path (checked
+ * against the shared protocol rules) instead. The choice travels to
  * `main.js` through `handlers.onTargetNew`.
  */
 ;(function installUiTarget(global) {
@@ -66,12 +67,11 @@
     const targetNewHeadTitle = createElement('span', 'target-new-title', t('targetBrowseTitle'))
     targetNewHead.append(targetNewBack, targetNewHeadTitle)
     const targetNewFields = createElement('div', 'target-new-fields')
-    // The registered workspaces are a group of their own, always present and
-    // always clickable: one click targets that exact workspace record the way
-    // DSH itself would. This is client-side data — it works on every Host,
-    // whatever the browser below it can or cannot do.
-    const wsLabel = createElement('div', 'target-new-label', t('workspaceExistingLabel'))
-    const wsList = createElement('div', 'target-ws-list')
+    // Level one mirrors the session picker itself: the ＋ 新建工作区 row
+    // first, then the registered workspaces — one click targets a workspace,
+    // the ＋ row goes one level deeper. Client-side catalog data, so the list
+    // works on every Host.
+    const targetNewOptions = createElement('div', 'target-new-options')
     // The browser toolbar: climb one level, jump to the host home, and the
     // breadcrumb of ancestors — every segment is a jump, the current directory
     // is plain text. Together with the locations view this reaches any absolute
@@ -119,8 +119,6 @@
     pathInput.spellcheck = false
     const manualHint = createElement('div', 'target-new-hint', t('fsManualHint'))
     targetNewFields.append(
-      wsLabel,
-      wsList,
       fsToolbar,
       fsList,
       nameLabel,
@@ -135,7 +133,7 @@
       manualHint,
     )
     const targetNewError = createElement('div', 'target-new-error')
-    targetNewPanel.append(targetNewHead, targetNewFields, targetNewError)
+    targetNewPanel.append(targetNewHead, targetNewOptions, targetNewFields, targetNewError)
     setVisible(targetNewPanel, false)
 
     const targetTip = createElement('div', 'target-tip')
@@ -390,45 +388,40 @@
     }
 
     /**
-     * The folder browser: the host's real directories when it serves
-     * `/ext/anno/dirs`, the typed absolute path when it cannot. Whatever the
-     * mode, the result line and the confirm button always name the exact path
-     * that will be registered — the user never has to predict it.
+     * The sub-panel is two levels, the same shape as the picker itself: the
+     * workspace list, then the creation form the ＋ row opens.
      */
-    function renderBrowseArea() {
-      const capable = typeof handlers.onBrowseDirs === 'function' && state.fsUnsupported !== true
-      // A host that cannot browse has no other flow: the typed path is the
-      // whole screen, and the toggle stays hidden rather than dead-ending.
-      state.newManual = state.newManual === true || capable !== true
-      const manual = state.newManual === true
-
-      renderWsRows()
-      renderCrumb()
-      fsList.textContent = ''
-      renderFsRows()
-      setVisible(fsToolbar, !manual)
-      setVisible(fsList, !manual)
-      setVisible(nameLabel, !manual)
-      setVisible(nameInput, !manual)
-      setVisible(pathLabel, manual)
-      setVisible(pathInput, manual)
-      setVisible(manualHint, capable !== true)
-      setVisible(manualToggle, capable)
-      manualToggle.textContent = t(manual ? 'manualToBrowse' : 'manualToType')
-      renderResult()
-      if (capable) startBrowse()
+    function renderNewSessionPanel() {
+      const creating = state.newMode === 'new'
+      targetNewHeadTitle.textContent = t(creating ? 'targetBrowseTitle' : 'targetNewTitle')
+      setVisible(targetNewOptions, !creating)
+      setVisible(targetNewFields, creating)
+      if (creating) renderBrowseArea()
+      else renderWorkspaceOptions()
     }
 
     /**
-     * The registered workspaces: one row, one click, targeted exactly — the
-     * same record DSH's own picker would use (`existing` + id). Client-side
-     * data from the sessions catalog, so the group works on every Host.
+     * Level one, mirroring the session picker's own shape: the ＋ 新建工作区
+     * row first, then every registered workspace — one click on a workspace
+     * targets that exact record (`existing` + id, the same pick DSH itself
+     * makes), and the ＋ row opens the creation form one level deeper.
      */
-    function renderWsRows() {
-      wsList.textContent = ''
-      const rows = workspaces().filter((item) => item && typeof item.id === 'string' && item.id !== '')
-      setVisible(wsLabel, rows.length > 0)
-      for (const workspace of rows) {
+    function renderWorkspaceOptions() {
+      targetNewOptions.textContent = ''
+      const addRow = createElement('button', 'target-row target-new')
+      addRow.type = 'button'
+      addRow.append(createElement('span', 'target-row-title', t('workspaceNewRow')))
+      addRow.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        state.newMode = 'new'
+        renderNewSessionPanel()
+        if (state.newManual === true) pathInput.focus()
+        else nameInput.focus()
+      })
+      targetNewOptions.appendChild(addRow)
+      for (const workspace of workspaces()) {
+        if (!workspace || typeof workspace.id !== 'string' || workspace.id === '') continue
         const path = String(workspace.path || '')
         const row = createElement('button', 'target-row target-ws')
         row.type = 'button'
@@ -444,8 +437,37 @@
           state.newTitle = titleInput.value.trim()
           confirmNewSession('existing', workspace.id)
         })
-        wsList.appendChild(row)
+        targetNewOptions.appendChild(row)
       }
+    }
+
+    /**
+     * The folder browser: the host's real directories when it serves
+     * `/ext/anno/dirs`, the typed absolute path when it cannot. Whatever the
+     * mode, the result line and the confirm button always name the exact path
+     * that will be registered — the user never has to predict it.
+     */
+    function renderBrowseArea() {
+      const capable = typeof handlers.onBrowseDirs === 'function' && state.fsUnsupported !== true
+      // A host that cannot browse has no other flow: the typed path is the
+      // whole screen, and the toggle stays hidden rather than dead-ending.
+      state.newManual = state.newManual === true || capable !== true
+      const manual = state.newManual === true
+
+      renderCrumb()
+      fsList.textContent = ''
+      renderFsRows()
+      setVisible(fsToolbar, !manual)
+      setVisible(fsList, !manual)
+      setVisible(nameLabel, !manual)
+      setVisible(nameInput, !manual)
+      setVisible(pathLabel, manual)
+      setVisible(pathInput, manual)
+      setVisible(manualHint, capable !== true)
+      setVisible(manualToggle, capable)
+      manualToggle.textContent = t(manual ? 'manualToBrowse' : 'manualToType')
+      renderResult()
+      if (capable) startBrowse()
     }
 
     /** The breadcrumb of the current directory; every ancestor is a jump. */
@@ -681,14 +703,12 @@
       state.newMode = 'default'
       state.newWorkspaceId = ''
       targetNewError.textContent = ''
-      targetNewHeadTitle.textContent = t('targetBrowseTitle')
       setVisible(targetSearch, false)
       setVisible(targetList, false)
       setVisible(targetNewRow, false)
       setVisible(targetNewPanel, true)
-      renderBrowseArea()
-      if (state.newManual === true) pathInput.focus()
-      else nameInput.focus()
+      renderNewSessionPanel()
+      targetNewBack.focus()
     }
 
     function closeNewPanel() {
@@ -820,7 +840,7 @@
       )
       renderTargetButton()
       if (state.targetOpen) {
-        if (state.newPanelOpen === true) renderBrowseArea()
+        if (state.newPanelOpen === true) renderNewSessionPanel()
         else renderTargetList()
       }
     }
@@ -887,6 +907,13 @@
       if (targetNewRow.disabled) return
       openNewPanel()
     })
+    /** Return from the creation form to the workspace list without choosing. */
+    function leaveBrowse() {
+      state.newMode = 'default'
+      renderNewSessionPanel()
+      targetNewBack.focus()
+    }
+
     /** Refuse a folder name that is really a path, keeping the panel open. */
     function refuseBadName() {
       targetNewError.textContent = t('workspaceNameInvalid')
@@ -935,7 +962,8 @@
     targetNewBack.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      closeNewPanel()
+      if (state.newMode === 'new' && state.newPanelOpen === true) leaveBrowse()
+      else closeNewPanel()
     })
     targetNewUse.addEventListener('click', (event) => {
       event.preventDefault()
@@ -994,8 +1022,12 @@
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
-          if (state.newPanelOpen === true) closeNewPanel()
-          else closeTargetPanel()
+          if (state.newPanelOpen === true) {
+            // Escape walks the panel backwards: creation form → workspace
+            // list → out, one level per press.
+            if (state.newMode === 'new') leaveBrowse()
+            else closeNewPanel()
+          } else closeTargetPanel()
           return
         }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
