@@ -33,26 +33,13 @@ Nothing leaves the machine: no account, no telemetry, no developer server.
 What the extension reads and what is stored where is the privacy policy:
 [docs/privacy.md](docs/privacy.md).
 
-> **Status.** 1.0.0 is the first public release (2026-11-21). The Edge
-> Add-ons and Mozilla Add-ons listings are live (Step 2 links both); the
-> Chrome Web Store listing is submitted and under review at the time of
-> writing, so Chrome and the other Chromium browsers install manually from a
-> GitHub Release below until that listing clears review. Capture and delivery
-> are verified in a real Firefox; the Chromium build passed an early bring-up
-> but has not been re-tested end to end, and Zen and the DSH Desktop app
-> still need their verification runs. Details and acceptance criteria:
-> [docs/PLAN.md](docs/PLAN.md).
-
-If an AI agent is setting this up for you, there is a runbook written for it:
-[docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md).
-
 ## What you need first
 
 | You need | Why |
 |---|---|
 | DSH 0.2 or newer, with the Web profile (`dsh web`) or the Desktop app | The plugin attaches to the DSH host's webserver; the extension connects to it there. |
 | Node.js 22 or newer | DSH runs on Node. Nothing in this project is built or compiled on your machine. |
-| Firefox 128+, Zen, or a Chromium browser (Chrome, Edge 88+, Brave, Vivaldi, Opera, Arc) | For the browser half. |
+| Firefox 128+, Zen, or a Chromium browser (Chrome, Edge 88+, Brave, Vivaldi, Opera, Arc) | For the browser half. Firefox is the fully tested setup; Zen, the Chromium build, and the DSH Desktop app are supported but have had less end-to-end testing. |
 | Both halves on the same machine | The extension connects to `127.0.0.1` only — it cannot reach a DSH instance on another computer. |
 
 A note on two words used throughout:
@@ -66,8 +53,23 @@ A note on two words used throughout:
 
 ## Install
 
-Three steps: the plugin into DSH, the extension into the browser, then one
-token to connect them.
+### Have an agent do it
+
+You will use dsh-marker from a DSH session anyway, and that session can set
+it up for you. Send it this:
+
+> Read <https://github.com/modenicheng/dsh-annotate/blob/main/docs/AGENT-INSTALL.md>
+> and set dsh-marker up for me.
+
+Following that runbook, the agent installs the plugin, checks that the host
+side answers, and then guides you through the two parts that need your hands:
+loading the extension in your browser and pasting the token. The runbook
+also says what it must not do — the token never enters the chat, and your
+browser profile is never touched. Any other assistant with shell access on
+the machine can follow the same runbook.
+
+The rest of this section is that install by hand, in three steps: the plugin
+into DSH, the extension into the browser, then one token to connect them.
 
 ### Step 1 — Install the DSH plugin
 
@@ -449,33 +451,15 @@ local build.
 First checkout (hooks, generated files, commit format):
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Status and roadmap
-
-| Phase | Scope | State |
-|---|---|---|
-| M0 | Protocol, repository base, CI, hooks | done |
-| M1 | Host plugin, storage loop, tools | done, verified against a live host |
-| M2 | Extension capture: gestures, overlay, crop, outbox | done; verified in Firefox, Chromium QA pending |
-| M3 / M3.5–M3.8 | Re-anchoring, picks, `dsh-anno:` mentions, chip hover card, push delivery | done; Firefox-verified, Zen pending |
-| M4 | Developer context, session routing, multi-window | planned |
-| M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; Desktop run pending (M4.5c) |
-| M4.6 | Send an annotation into a new session (default / existing / new workspace) | implemented; browser QA pending |
-| M4.7 | New-workspace path picking: one flat directory browser over Host-served listings (locations view, breadcrumb, live final path) | implemented (M4.7a/b + M4.7c redesign); browser QA passed (D26) |
-| M5 | Signing and distribution | pipeline live (npm, AMO, CWS, Edge lanes); Edge and AMO listings published, CWS in review |
-
-The detailed deliverables and acceptance criteria are in
-[docs/PLAN.md](docs/PLAN.md); implementation decisions and their rationale are
-in [docs/DECISIONS.md](docs/DECISIONS.md); releases are listed in
-[CHANGELOG.md](CHANGELOG.md).
-
 ## Documentation
 
 Using dsh-marker:
 
+- [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md) — the install runbook: what the agent route above follows, and a fine guide by hand
 - [docs/INTERACTION.md](docs/INTERACTION.md) — interaction and capture UX
 - [docs/privacy.md](docs/privacy.md) — data handling and privacy
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — TLS, reverse proxies, Desktop's moving port
-- [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md) — a runbook for AI agents setting dsh-marker up for a user
+- [CHANGELOG.md](CHANGELOG.md) — release notes
 
 Design and internals:
 

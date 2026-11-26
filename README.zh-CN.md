@@ -28,24 +28,13 @@ dsh-marker 让你指着网页的一部分，把它连同裁剪截图和页面信
 数据不出本机：没有账号、没有遥测、没有开发者服务器。详见隐私政策文档
 [docs/privacy.md](docs/privacy.md)。
 
-> **状态。** 1.0.0 是第一个正式版（2026-11-21）。Edge 商店与 Mozilla
-> Add-ons（AMO）条目已上线（安装方式见第 2 步）；Chrome Web Store 的条目
-> 已提交、撰写本文时仍在审核，Chrome 等其余 Chromium 浏览器暂时按第 2 步
-> 的方法从 GitHub Release 手动安装。捕获与投递已在真实
-> Firefox 中验证；Chromium 版只做过早期启动验证，未做端到端复测，
-> Zen 与 DSH Desktop 还没有跑过验证。验收标准见
-> [docs/PLAN.md](docs/PLAN.md)（英文）。
-
-如果你打算让 AI agent 帮你装，仓库里有一份写给 agent 的操作手册：
-[docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md)（英文）。
-
 ## 开始之前需要什么
 
 | 需要 | 为什么 |
 |---|---|
 | DSH 0.2 及以上，并且运行 Web profile（`dsh web`）或 Desktop 应用 | 插件挂在 DSH 宿主的网页服务器上，扩展连的就是它。 |
 | Node.js 22 及以上 | DSH 跑在 Node 上。本产品不在你机器上编译任何东西。 |
-| Firefox 128+、Zen，或 Chromium 内核浏览器（Chrome、Edge 88+、Brave、Vivaldi、Opera、Arc） | 装浏览器这一半。 |
+| Firefox 128+、Zen，或 Chromium 内核浏览器（Chrome、Edge 88+、Brave、Vivaldi、Opera、Arc） | 装浏览器这一半。Firefox 是完整测试过的组合；Zen、Chromium 版和 DSH Desktop 可用，但端到端测试较少。 |
 | 两个部分装在同一台机器 | 扩展只连 `127.0.0.1`，够不着另一台电脑上的 DSH。 |
 
 文中反复出现两个词，先解释一次：
@@ -58,8 +47,20 @@ dsh-marker 让你指着网页的一部分，把它连同裁剪截图和页面信
 
 ## 安装
 
-三步：先把插件装进 DSH，再把扩展装进浏览器，最后用一个 token 把两边
-连起来。
+### 让 AI agent 来装
+
+你反正要在 DSH 会话里用 dsh-marker，那个会话就能把它装好。把这句话发给它：
+
+> 读 <https://github.com/modenicheng/dsh-annotate/blob/main/docs/AGENT-INSTALL.md>，
+> 然后帮我把 dsh-marker 装好。
+
+按这份手册，agent 会装好插件、确认宿主这一侧能应答，再带着你完成只能由你
+动手的两步：在浏览器里加载扩展、粘贴 token。手册也写明了它不能做的事：
+token 不进对话，浏览器配置一律不碰。机器上任何有 shell 权限的 AI 助手都
+可以照同一份手册来做。
+
+本节其余内容是同一套安装的手动版本，分三步：先把插件装进 DSH，再把扩展
+装进浏览器，最后用一个 token 把两边连起来。
 
 ### 第 1 步 —— 安装 DSH 插件
 
@@ -411,32 +412,15 @@ devDependency：一次 `pnpm install` 之后，`pnpm run check`、钩子和测�
 首次检出（钩子、生成文件规则、提交格式）见
 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
 
-## 状态与路线图
-
-| 阶段 | 范围 | 状态 |
-|---|---|---|
-| M0 | 协议、仓库基础、CI、钩子 | 完成 |
-| M1 | 宿主插件、事件存储、工具 | 完成，真实宿主上验证过 |
-| M2 | 扩展捕获：手势、覆盖层、裁剪、待发队列 | 完成；Firefox 验证过，Chromium QA 待做 |
-| M3 / M3.5–M3.8 | 重锚定、pick、`dsh-anno:` mention、芯片悬浮卡、推送投递 | 完成；Firefox 验证过，Zen 待做 |
-| M4 | 开发者上下文、会话路由、多窗口 | 计划中 |
-| M4.5 | 发现：Desktop 动态端口、端点记录、回环定位器 | 已实现；Desktop 实机待做（M4.5c） |
-| M4.6 | 标注发送到新建会话（默认 / 已有 / 新建工作区） | 已实现；浏览器 QA 待做 |
-| M4.7 | 新建工作区路径选择：宿主目录浏览打平为单一目录浏览器（位置视图、面包屑、实时最终路径） | 已实现（M4.7a/b + M4.7c 重设计）；浏览器 QA 已通过（D26） |
-| M5 | 签名与分发 | 流水线已上线（npm、AMO、CWS、Edge 通道）；Edge 与 AMO 条目已上线，CWS 审核中 |
-
-详细交付物和验收标准见 [docs/PLAN.md](docs/PLAN.md)（英文）；实现决策
-及理由见 [docs/DECISIONS.md](docs/DECISIONS.md)（英文）；版本历史见
-[CHANGELOG.md](CHANGELOG.md)。
-
 ## 文档
 
 使用 dsh-marker：
 
+- [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md) — 安装操作手册：上面 agent 路线照着做的就是它，自己手动装也可以照着来（英文）
 - [docs/INTERACTION.md](docs/INTERACTION.md) — 交互与捕获 UX（英文）
 - [docs/privacy.md](docs/privacy.md) — 数据处理与隐私（英文）
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — TLS、反向代理、Desktop 动态端口（英文）
-- [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md) — 给 AI agent 的安装操作手册（英文）
+- [CHANGELOG.md](CHANGELOG.md) — 版本历史（英文）
 
 设计与内部机制：
 
