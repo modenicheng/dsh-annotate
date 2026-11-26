@@ -111,9 +111,9 @@ Verify before installing: `sha256sum -c checksums.txt --ignore-missing`
 (macOS: `shasum -a 256 -c checksums.txt`; Windows:
 `certutil -hashfile <file> SHA256`). Newer releases use the same file names
 with the version replaced — see [Releases](https://github.com/modenicheng/dsh-annotate/releases).
-**Firefox and Edge users** can install from their store instead —
+**Firefox, Zen, and Edge users** can install from their store instead —
 [Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/)
-for Firefox, the
+for Firefox and Zen, the
 [Edge Add-ons listing](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
 for Edge: permanent, auto-updating, none of the download or manual steps
 below needed. The same becomes true for the other Chromium browsers once the
@@ -124,10 +124,10 @@ browser.
 
 #### Firefox / Zen
 
-**Firefox**: install from
+**Firefox and Zen**: install from
 [Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/) — a
 normal store install with automatic updates — and skip the rest of this
-section. Zen is unverified either way; the manual route follows.
+section. The manual route below is for anyone who prefers the release zip.
 
 Release Firefox installs only add-ons signed by Mozilla, and the release zip
 is unsigned — so it loads as a **temporary add-on**:

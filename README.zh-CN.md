@@ -102,7 +102,7 @@ profile。两件事说明装好了：
 （macOS：`shasum -a 256 -c checksums.txt`；Windows：
 `certutil -hashfile <文件> SHA256`）。新版本的文件名只换版本号，见
 [Releases](https://github.com/modenicheng/dsh-annotate/releases) 页。
-**Firefox 和 Edge 用户**可以改从商店安装——Firefox 用
+**Firefox、Zen 和 Edge 用户**可以改从商店安装——Firefox 和 Zen 用
 [Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/)，
 Edge 用
 [Edge 商店](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)：
@@ -113,10 +113,10 @@ Chrome Web Store 条目过审后同理。
 
 #### Firefox / Zen
 
-**Firefox**：直接从
+**Firefox 和 Zen**：直接从
 [Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/)
-安装——正常安装、自动更新——本节其余内容可以跳过。Zen 两条路线都还没
-验证过；手动路线如下。
+安装——正常安装、自动更新——本节其余内容可以跳过；下面的手动路线留给
+想用 Release 包的人。
 
 手动安装时注意：正式版 Firefox 只安装 Mozilla 签名的扩展，而 Release
 里的 zip 未签名，因此要**临时加载**：
