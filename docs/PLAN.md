@@ -398,7 +398,8 @@ the pre-c shape.
 
 ### M4.7c — One flat directory browser
 
-**Status:** implemented; browser QA pending.
+**Status:** implemented; browser QA passed (2026-11-26, the maintainer's
+own run of the flat browser).
 
 M4.7a/b reached `dev` but no release; browser QA of the staged flow showed
 it classified one act — picking a directory — into a taxonomy
