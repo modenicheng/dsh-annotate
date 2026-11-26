@@ -268,6 +268,9 @@ Firefox session (M4.5c).
 
 ## M4.6 — Send an annotation into a new session
 
+**Status:** implemented; browser QA passed (2026-11-26, the maintainer's
+own run).
+
 **Goal:** the target picker's second arm — "this annotation starts a new
 conversation" — with the workspace chosen at send time: the default workspace,
 an existing one, or a brand-new directory. Design: [INTERACTION.md](INTERACTION.md)
@@ -398,7 +401,8 @@ the pre-c shape.
 
 ### M4.7c — One flat directory browser
 
-**Status:** implemented; browser QA pending.
+**Status:** implemented; browser QA passed (2026-11-26, the maintainer's
+own run of the flat browser).
 
 M4.7a/b reached `dev` but no release; browser QA of the staged flow showed
 it classified one act — picking a directory — into a taxonomy
