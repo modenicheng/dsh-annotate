@@ -28,10 +28,10 @@ dsh-marker 让你指着网页的一部分，把它连同裁剪截图和页面信
 数据不出本机：没有账号、没有遥测、没有开发者服务器。详见隐私政策文档
 [docs/privacy.md](docs/privacy.md)。
 
-> **状态。** 1.0.0 是第一个正式版（2026-11-21）。Edge 商店条目已上线
-> （安装方式见第 2 步）；Firefox 与 Chrome Web Store 的条目已提交、撰写
-> 本文时（2026/11/22 12:30）仍在审核，Firefox 用户暂时按第 2 步的方法从
-> GitHub Release 手动安装。捕获与投递已在真实
+> **状态。** 1.0.0 是第一个正式版（2026-11-21）。Edge 商店与 Mozilla
+> Add-ons（AMO）条目已上线（安装方式见第 2 步）；Chrome Web Store 的条目
+> 已提交、撰写本文时仍在审核，Chrome 等其余 Chromium 浏览器暂时按第 2 步
+> 的方法从 GitHub Release 手动安装。捕获与投递已在真实
 > Firefox 中验证；Chromium 版只做过早期启动验证，未做端到端复测，
 > Zen 与 DSH Desktop 还没有跑过验证。验收标准见
 > [docs/PLAN.md](docs/PLAN.md)（英文）。
@@ -102,30 +102,36 @@ profile。两件事说明装好了：
 （macOS：`shasum -a 256 -c checksums.txt`；Windows：
 `certutil -hashfile <文件> SHA256`）。新版本的文件名只换版本号，见
 [Releases](https://github.com/modenicheng/dsh-annotate/releases) 页。
-**Edge 用户**现在就可以直接从
-[Edge 商店](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
-安装：永久保留、自动更新，不需要下面的手动步骤；其余浏览器等条目过审
-后同理。
+**Firefox 和 Edge 用户**可以改从商店安装——Firefox 用
+[Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/)，
+Edge 用
+[Edge 商店](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)：
+永久保留、自动更新，不需要下面的下载和手动步骤；其余 Chromium 浏览器等
+Chrome Web Store 条目过审后同理。
 
-解压安装包，按浏览器走对应分支。
+手动安装时：解压安装包，按浏览器走对应分支。
 
 #### Firefox / Zen
 
-正式版 Firefox 只安装 Mozilla 签名的扩展，而 Release 里的 zip 未签
-名，因此要**临时加载**：
+**Firefox**：直接从
+[Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/)
+安装——正常安装、自动更新——本节其余内容可以跳过。Zen 两条路线都还没
+验证过；手动路线如下。
+
+手动安装时注意：正式版 Firefox 只安装 Mozilla 签名的扩展，而 Release
+里的 zip 未签名，因此要**临时加载**：
 
 1. 打开 `about:debugging#/runtime/this-firefox`（Zen 为
    `about:debugging`）。
 2. 点 **Load Temporary Add-on…**（临时加载），选中解压后目录里的
    `manifest.json`。
 
-临时扩展在浏览器退出后消失，重启后按同样方法再加载一次。目前有两条
-永久安装的路：
+临时扩展在浏览器退出后消失，重启后按同样方法再加载一次。另有一条永久
+安装的路：
 
 - Firefox Developer Edition、Nightly 或 ESR：在 `about:config` 里把
   `xpinstall.signatures.required` 设为 `false`，把 zip 改名成 `.xpi`
   结尾，再 `about:addons` → 齿轮菜单 → **Install Add-on From File…**。
-- 等 Mozilla 商店条目过审后从商店安装：正常安装、自动更新。
 
 #### Chromium（Chrome、Edge、Brave、Vivaldi、Opera、Arc）
 
@@ -417,7 +423,7 @@ devDependency：一次 `pnpm install` 之后，`pnpm run check`、钩子和测�
 | M4.5 | 发现：Desktop 动态端口、端点记录、回环定位器 | 已实现；Desktop 实机待做（M4.5c） |
 | M4.6 | 标注发送到新建会话（默认 / 已有 / 新建工作区） | 已实现；浏览器 QA 待做 |
 | M4.7 | 新建工作区路径选择：宿主目录浏览打平为单一目录浏览器（位置视图、面包屑、实时最终路径） | 已实现（M4.7a/b + M4.7c 重设计）；浏览器 QA 待做（D26） |
-| M5 | 签名与分发 | 流水线已上线（npm、AMO、CWS、Edge 通道）；Edge 条目已上线，AMO/CWS 审核中 |
+| M5 | 签名与分发 | 流水线已上线（npm、AMO、CWS、Edge 通道）；Edge 与 AMO 条目已上线，CWS 审核中 |
 
 详细交付物和验收标准见 [docs/PLAN.md](docs/PLAN.md)（英文）；实现决策
 及理由见 [docs/DECISIONS.md](docs/DECISIONS.md)（英文）；版本历史见

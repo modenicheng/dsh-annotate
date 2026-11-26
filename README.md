@@ -34,13 +34,14 @@ What the extension reads and what is stored where is the privacy policy:
 [docs/privacy.md](docs/privacy.md).
 
 > **Status.** 1.0.0 is the first public release (2026-11-21). The Edge
-> Add-ons listing is live (Step 2 links it); the Firefox and Chrome Web
-> Store listings are submitted and under review at the time of writing, so
-> Firefox users install manually from a GitHub Release below until the
-> Mozilla listing clears review. Capture and delivery are verified in a real
-> Firefox; the Chromium build passed an early bring-up but has not been
-> re-tested end to end, and Zen and the DSH Desktop app still need their
-> verification runs. Details and acceptance criteria: [docs/PLAN.md](docs/PLAN.md).
+> Add-ons and Mozilla Add-ons listings are live (Step 2 links both); the
+> Chrome Web Store listing is submitted and under review at the time of
+> writing, so Chrome and the other Chromium browsers install manually from a
+> GitHub Release below until that listing clears review. Capture and delivery
+> are verified in a real Firefox; the Chromium build passed an early bring-up
+> but has not been re-tested end to end, and Zen and the DSH Desktop app
+> still need their verification runs. Details and acceptance criteria:
+> [docs/PLAN.md](docs/PLAN.md).
 
 If an AI agent is setting this up for you, there is a runbook written for it:
 [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md).
@@ -110,14 +111,23 @@ Verify before installing: `sha256sum -c checksums.txt --ignore-missing`
 (macOS: `shasum -a 256 -c checksums.txt`; Windows:
 `certutil -hashfile <file> SHA256`). Newer releases use the same file names
 with the version replaced — see [Releases](https://github.com/modenicheng/dsh-annotate/releases).
-**Edge users** can install from the
+**Firefox and Edge users** can install from their store instead —
+[Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/)
+for Firefox, the
 [Edge Add-ons listing](https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec)
-right now — permanent, auto-updating, none of the manual steps below needed;
-the same becomes true for the other browsers as their listings go live.
+for Edge: permanent, auto-updating, none of the download or manual steps
+below needed. The same becomes true for the other Chromium browsers once the
+Chrome Web Store listing goes live.
 
-Unzip the package, then follow the branch for your browser.
+For a manual install, unzip the package and follow the branch for your
+browser.
 
 #### Firefox / Zen
+
+**Firefox**: install from
+[Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/dsh-marker/) — a
+normal store install with automatic updates — and skip the rest of this
+section. Zen is unverified either way; the manual route follows.
 
 Release Firefox installs only add-ons signed by Mozilla, and the release zip
 is unsigned — so it loads as a **temporary add-on**:
@@ -126,14 +136,12 @@ is unsigned — so it loads as a **temporary add-on**:
 2. **Load Temporary Add-on…** → pick the unzipped folder's `manifest.json`.
 
 A temporary add-on disappears when the browser exits; after a restart, load
-it again the same way. Two permanent routes exist today:
+it again the same way. One other permanent route exists:
 
 - Firefox Developer Edition, Nightly, or ESR: set
   `xpinstall.signatures.required` to `false` in `about:config`, rename the
   zip to end in `.xpi`, then `about:addons` → gear menu → **Install Add-on
   From File…**.
-- The Mozilla Add-ons listing, once its review completes: a normal
-  store install with automatic updates.
 
 #### Chromium (Chrome, Edge, Brave, Vivaldi, Opera, Arc)
 
@@ -453,7 +461,7 @@ First checkout (hooks, generated files, commit format):
 | M4.5 | Discovery: Desktop's moving port, endpoint record, loopback locator | delivered; Desktop run pending (M4.5c) |
 | M4.6 | Send an annotation into a new session (default / existing / new workspace) | implemented; browser QA pending |
 | M4.7 | New-workspace path picking: one flat directory browser over Host-served listings (locations view, breadcrumb, live final path) | implemented (M4.7a/b + M4.7c redesign); browser QA pending (D26) |
-| M5 | Signing and distribution | pipeline live (npm, AMO, CWS, Edge lanes); Edge listing published, AMO/CWS in review |
+| M5 | Signing and distribution | pipeline live (npm, AMO, CWS, Edge lanes); Edge and AMO listings published, CWS in review |
 
 The detailed deliverables and acceptance criteria are in
 [docs/PLAN.md](docs/PLAN.md); implementation decisions and their rationale are

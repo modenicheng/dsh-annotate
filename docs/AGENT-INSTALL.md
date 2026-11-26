@@ -35,11 +35,13 @@ their click).
 - **No local builds as deliverables.** If you need the extension package,
   download the CI-built zip from a GitHub Release — never build one from a
   checkout and hand it over.
-- **Store status.** The Edge Add-ons listing is live:
+- **Store status.** Two listings are live: Mozilla Add-ons (AMO) for Firefox,
+  <https://addons.mozilla.org/firefox/addon/dsh-marker/>, and the Edge
+  Add-ons listing,
   <https://microsoftedge.microsoft.com/addons/detail/bibpceooggdfoelohhjegicfpilafnec>.
-  The AMO and Chrome Web Store listings are still under review at the time of
-  writing; for Firefox and non-Edge Chromium browsers the manual route below
-  is the real one.
+  The Chrome Web Store listing is still under review at the time of writing;
+  for Zen and the non-Edge Chromium browsers the manual route below is the
+  real one.
 
 ## Downloads (release assets, CI-built)
 
@@ -72,9 +74,9 @@ Verify the hash before telling the user to install
 Ask the user two questions before touching anything:
 
 1. **Which browser** will they annotate in? (Firefox, Zen, Chrome, Edge,
-   Brave, … — this decides the Step 3 branch: Edge has a one-click store
-   install, the others need the manual route or the extra Chromium shortcut
-   setup.)
+   Brave, … — this decides the Step 3 branch: Firefox and Edge have a
+   one-click store install, Zen needs the manual route, the other Chromium
+   browsers need the unpacked install plus the shortcut setup.)
 2. **Is DSH already installed and running**, and in which profile do they
    normally work (`web`? Desktop app? a named profile)? The plugin must go
    into the profile they actually use, because that is where the bridge and
@@ -123,12 +125,19 @@ If the health probe fails on a host that should be running, see
 
 ## Step 3 — Install the browser extension (the user; you guide)
 
-You cannot load an extension into the user's browser. Give the user the
-package link for their browser (table above), have them verify or trust the
+You cannot load an extension into the user's browser. For Firefox and Edge
+the click-path is the store listing; otherwise give the user the package
+link for their browser (table above), have them verify or trust the
 checksum, then hand them the exact click-path:
 
-**Firefox / Zen** — the release zip is unsigned, so it loads as a temporary
-add-on (it disappears on browser restart until reloaded; say so up front):
+**Firefox** — simplest path: the
+[Mozilla Add-ons listing](https://addons.mozilla.org/firefox/addon/dsh-marker/)
+is live, so have the user install from there (permanent, auto-updating). No
+zip, no checksum step.
+
+**Zen, or anyone on the release zip** — the release zip is unsigned, so it
+loads as a temporary add-on (it disappears on browser restart until
+reloaded; say so up front):
 
 > Open `about:debugging#/runtime/this-firefox` (Zen: `about:debugging`),
 > click **Load Temporary Add-on…**, and pick `manifest.json` from the
@@ -210,9 +219,10 @@ user's report of **Connected**.
 
 - Plugin: `dsh plugin update dsh-marker` (the **Plugins** page offers the
   same). Registry-installed packages get update offers.
-- Extension: download the next release zip and replace the unpacked folder
-  (non-Edge Chromium), or reload the temporary add-on (Firefox); Edge
-  installs update themselves through the store.
+- Extension: Firefox (AMO) and Edge installs update themselves through the
+  store; download the next release zip and replace the unpacked folder
+  (other Chromium), or reload the temporary add-on (a manual Firefox/Zen
+  install).
 - The connection negotiates a protocol window (`MIN_PROTOCOL` ..
   `PROTOCOL_VERSION`), so a small version gap between the halves keeps
   working; when either side reports the other as too old, update both.
